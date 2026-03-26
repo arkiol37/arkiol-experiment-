@@ -1,0 +1,24 @@
+{
+  "name": "@arkiol/animation-studio",
+  "version": "3.0.0",
+  "description": "ARKIOL v3 — Animation Studio",
+  "private": true,
+  "scripts": {
+    "setup": "bash setup.sh",
+    "dev": "concurrently \"cd backend && npm run dev\" \"cd frontend && npm run dev\"",
+    "test": "cd backend && npm test",
+    "build": "cd backend && npm run build && cd ../frontend && npm run build",
+    "migrate": "cd backend && npm run migrate",
+    "migrate:rollback": "cd backend && npm run migrate:rollback",
+    "worker": "cd backend && npm run worker",
+    "docker:dev": "docker compose up --build",
+    "docker:prod": "docker compose -f docker-compose.prod.yml up --build",
+    "lint": "cd backend && npm run lint",
+    "typecheck": "cd backend && npm run typecheck",
+    "type-check": "cd backend && npm run typecheck",
+    "test:unit": "cd backend && npm run test:unit"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
