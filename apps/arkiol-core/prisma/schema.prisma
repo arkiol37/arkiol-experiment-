@@ -1,0 +1,75 @@
+// apps/arkiol-core/prisma/schema.prisma
+// ══════════════════════════════════════════════════════════════════════════════
+// ⛔  THIS FILE IS INTENTIONALLY INERT — IT CANNOT BE USED FOR ANY PRISMA
+//     OPERATION. IT EXISTS SOLELY TO SATISFY IDE TOOLING (VS CODE PRISMA
+//     EXTENSION) WHEN WORKING INSIDE apps/arkiol-core.
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │  THE ONE AND ONLY AUTHORITATIVE SCHEMA IS:                              │
+// │    packages/shared/prisma/schema.prisma                                 │
+// │                                                                         │
+// │  THE ONE AND ONLY MIGRATION HISTORY IS:                                 │
+// │    packages/shared/prisma/migrations/                                   │
+// └─────────────────────────────────────────────────────────────────────────┘
+//
+// WHY THIS FILE HAS NO PRISMA SYNTAX
+// ─────────────────────────────────────────────────────────────────────────────
+// Previous versions of this stub contained a `datasource db` block (but no
+// `generator` block). That was not enough: the Prisma CLI can still execute
+// `prisma db push`, `prisma validate`, and `prisma migrate status` against a
+// datasource-only schema, creating a silent footgun.
+//
+// This file now contains zero valid Prisma syntax:
+//   • No datasource block  → prisma CLI cannot connect to any database
+//   • No generator block   → prisma generate cannot run
+//   • No model definitions → no schema drift possible
+//
+// The Prisma VS Code extension still finds the file (satisfying its "schema
+// not found" check) but treats it as an empty schema — no false errors shown.
+//
+// CORRECT COMMANDS (all must be run from the monorepo root):
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   npm run db:generate          # prisma generate --schema=packages/shared/...
+//   npm run db:migrate           # prisma migrate dev --schema=packages/shared/...
+//   npm run db:deploy            # prisma migrate deploy --schema=packages/shared/...
+//   npm run db:studio            # prisma studio --schema=packages/shared/...
+//   npm run db:push              # prisma db push --schema=packages/shared/...
+//
+//   OR with explicit --schema flag:
+//
+//   prisma generate  --schema=packages/shared/prisma/schema.prisma
+//   prisma migrate dev --schema=packages/shared/prisma/schema.prisma
+//   prisma migrate deploy --schema=packages/shared/prisma/schema.prisma
+//   prisma db push   --schema=packages/shared/prisma/schema.prisma
+//   prisma studio    --schema=packages/shared/prisma/schema.prisma
+//
+// WRONG (will fail or produce no output):
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   prisma generate                        ← no datasource → fails
+//   prisma migrate dev                     ← no datasource → fails
+//   prisma generate --schema=apps/arkiol-core/prisma/schema.prisma  ← this file → fails
+//
+// BUILD SCRIPTS (already correct — do not change):
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   apps/arkiol-core/package.json  "build":
+//     prisma generate --schema=../../packages/shared/prisma/schema.prisma && next build
+//
+//   apps/arkiol-core/vercel.json   "buildCommand":
+//     prisma generate --schema=../../packages/shared/prisma/schema.prisma && next build
+//
+// MIGRATION HISTORY:
+// ─────────────────────────────────────────────────────────────────────────────
+//
+//   The old apps/arkiol-core/prisma/migrations/ history was archived to
+//   _migrations_archive/ during the v9 consolidation and has since been
+//   permanently deleted. All active migrations live exclusively in:
+//
+//     packages/shared/prisma/migrations/
+//
+//   Do not recreate a migrations/ directory here.
+//
+// ══════════════════════════════════════════════════════════════════════════════
