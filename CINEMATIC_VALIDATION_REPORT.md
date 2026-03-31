@@ -1,3 +1,4 @@
+[CINEMATIC_VALIDATION_REPORT.md](https://github.com/user-attachments/files/26391670/CINEMATIC_VALIDATION_REPORT.md)
 # ARKIOL v3 — Cinematic Ad Mode Validation Report
 
 **Date:** 2026-03-10  
