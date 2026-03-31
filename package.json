@@ -1,12 +1,13 @@
 {
   "name": "arkiol",
-  "version": "3.0.0",
+  "version": "25.0.0",
   "private": true,
   "description": "ARKIOL v3 \u2014 AI-Powered Design & Animation Studio Platform",
   "workspaces": [
     "apps/arkiol-core",
     "apps/animation-studio",
     "apps/animation-studio/backend",
+    "apps/animation-studio/frontend",
     "packages/shared"
   ],
   "scripts": {
@@ -38,13 +39,11 @@
     "vercel-build": "npm run vercel-build --workspace=apps/arkiol-core"
   },
   "engines": {
-    "node": ">=20.0.0",
+    "node": "20.x",
     "npm": ">=10.0.0"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "pg": "^8.11.5",
-    "@types/pg": "^8.11.5",
     "tsx": "^4.16.2"
   }
 }
