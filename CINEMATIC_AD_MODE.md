@@ -1,3 +1,4 @@
+[CINEMATIC_AD_MODE.md](https://github.com/user-attachments/files/26391667/CINEMATIC_AD_MODE.md)
 # Cinematic Ad Mode — Integration Verification
 
 ## Overview
