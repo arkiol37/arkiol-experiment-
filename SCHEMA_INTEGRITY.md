@@ -1,3 +1,4 @@
+[SCHEMA_INTEGRITY.md](https://github.com/user-attachments/files/26391716/SCHEMA_INTEGRITY.md)
 # ARKIOL v3 — Schema Integrity Audit & Proof of Single Source of Truth
 
 > **Status: VERIFIED CLEAN** — There is exactly one Prisma schema definition
