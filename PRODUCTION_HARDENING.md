@@ -1,3 +1,4 @@
+[PRODUCTION_HARDENING.md](https://github.com/user-attachments/files/26391708/PRODUCTION_HARDENING.md)
 # Production Hardening — What Changed
 
 This document describes the hardening pass applied on top of the base Arkiol platform (v9 + bulk generation + roadmap features).
