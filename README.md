@@ -1,172 +1,118 @@
-# ARKIOL v3
+[README.md](https://github.com/user-attachments/files/26391711/README.md)
+# ARKIOL v27
 
-> One subscription. One credit economy. Design + Animation Studio.
+AI-powered design and animation platform. One subscription, one credit economy, two studios.
 
-ARKIOL is a production-grade AI-powered design and animation SaaS platform built as a monorepo. It combines a Next.js design studio (arkiol-core) with a full animation pipeline (animation-studio), sharing a single PostgreSQL database, credit ledger, and billing layer through the `@arkiol/shared` package.
-
----
+**v27**: Internal Template Execution Engine is the sole rendering path for all 2D/2.5D outputs. No external provider dependencies.
 
 ## Architecture
 
 ```
-arkiol/                               ← monorepo root
+arkiol/
 ├── apps/
-│   ├── arkiol-core/                  ← Design SaaS (Next.js 14)
-│   └── animation-studio/             ← Animation Studio (Express + React)
-│       ├── backend/                  ← Express API + BullMQ workers
-│       └── frontend/                 ← React SPA
-└── packages/
-    └── shared/                       ← Platform layer (shared by both apps)
-        ├── prisma/
-        │   └── schema.prisma         ← SINGLE authoritative schema
-        └── src/
-            ├── plans.ts              ← Plan configs + credit costs
-            ├── credits.ts            ← Append-only credit ledger
-            ├── planEnforcer.ts       ← Backend feature-flag enforcement
-            ├── jobLifecycle.ts       ← Atomic enqueue/fail/refund
-            ├── stripeWebhooks.ts     ← Idempotent Stripe event handler
-            ├── monitoring.ts         ← Alert system (cost, volume, stage health)
-            ├── webhookSsrfGuard.ts   ← SSRF protection for webhook endpoints
-            └── index.ts              ← Public barrel export
+│   ├── arkiol-core/              ← Next.js 14 — design studio, auth, billing, API
+│   │   ├── src/app/api/          ← 30+ API routes
+│   │   ├── src/engines/          ← AI generation, layout, render engines
+│   │   ├── src/workers/          ← BullMQ workers (deploy separately)
+│   │   └── Dockerfile            ← Worker container image
+│   └── animation-studio/
+│       ├── backend/              ← Express + Bull render pipeline
+│       └── frontend/             ← Vite + React SPA
+├── packages/
+│   └── shared/                   ← @arkiol/shared — plans, credits, billing, schemas
+│       └── prisma/schema.prisma  ← Single authoritative database schema
+├── .github/workflows/ci.yml     ← CI: install, lint, typecheck, build, test
+├── vercel.json                   ← Vercel deployment config
+└── supabase-schema.sql           ← Full schema SQL (alternative to migrations)
 ```
 
-## Module Boundaries
+## Deployment targets
 
-| Rule | Detail |
-|------|--------|
-| No cross-app imports | arkiol-core and animation-studio never import from each other |
-| Shared layer only | All inter-app contracts go through `packages/shared` |
-| DB ownership | One PostgreSQL database, one Prisma schema |
-| Auth | Single NextAuth session; Studio verifies via `arkiolSessionBridge` |
-| Credits | All deductions/refunds go through `createCreditService` in shared |
-| Billing | All Stripe events handled by `handleStripeEvent` in shared |
+| What | Where | Reason |
+|------|-------|--------|
+| `apps/arkiol-core` (web) | **Vercel** | Next.js SSR + API routes |
+| `apps/arkiol-core` (workers) | **Railway / Fly.io** | Persistent BullMQ queue processing |
+| `apps/animation-studio/backend` | **Railway / Fly.io** | Express + persistent render workers |
+| `apps/animation-studio/frontend` | **Vercel / Netlify** | Static SPA |
+| PostgreSQL | **Supabase / Neon** | Primary database |
+| Redis | **Upstash / Railway** | Queue + rate limiting |
 
-## Plans
-
-| Plan | Credits/mo | Price | Studio Video | GIF | Concurrency |
-|------|-----------|-------|-------------|-----|-------------|
-| Free | 10/day | $0 | ❌ | ❌ | 1 |
-| Creator | 500 | $25 | ❌ | ✅ | 2 |
-| Pro | 1,700 | $79 | ✅ | ✅ | 5 |
-| Studio | 6,000 | $249 | ✅ | ✅ | 15 |
-
-## Credit Costs
-
-| Type | Credits |
-|------|---------|
-| Static image | 1 |
-| GIF motion | 5 |
-| Video Standard | 40 |
-| Video HQ | 80 |
-| Video Long | 120 |
-| ZIP export | 2 |
-
-## Getting Started
+## Quick start
 
 ```bash
-# 1. Install dependencies (uses lockfile for reproducible install)
-npm ci
+# 1. Clone and bootstrap
+git clone https://github.com/YOUR_USERNAME/arkiol.git && cd arkiol
+bash scripts/bootstrap.sh
 
-# 2. Copy and fill environment variables
-cp .env.example .env
+# 2. Configure environment
+cp apps/arkiol-core/.env.example apps/arkiol-core/.env.local
+# Edit .env.local with your DATABASE_URL, NEXTAUTH_SECRET, OPENAI_API_KEY, etc.
 
-# 3. Generate Prisma client
-npm run db:generate
-
-# 4. Run DB migrations
+# 3. Set up database (choose one)
+# Option A: Prisma migrations
 npm run db:deploy
 
-# 5. Start ARKIOL Core (design studio)
-npm run dev
+# Option B: Supabase SQL Editor
+# Paste supabase-schema.sql and run
 
-# 6. Start Animation Studio (separate terminal)
-npm run dev:studio
-
-# 7. Run smoke test
-npm run smoke-test
+# 4. Start development
+npm run dev              # Next.js on :3000
+npm run dev:studio       # Animation Studio on :4000 + :5173
 ```
 
-## Testing
+## Scripts
 
 ```bash
-# Unit tests (all workspaces, no DB required)
-npm run test:unit --workspaces --if-present
-
-# Integration tests (requires DATABASE_URL + REDIS_URL)
-npm run test:integration --workspaces --if-present
-
-# Full test suite
-npm test --workspaces --if-present
-
-# With coverage
-npm run test:coverage --workspaces --if-present
+npm run dev              # Start arkiol-core dev server
+npm run build            # Build shared + arkiol-core
+npm run build:all        # Build shared + arkiol-core + animation-studio
+npm run test             # Run all workspace tests
+npm run lint             # Lint all workspaces
+npm run type-check       # TypeScript check all workspaces
+npm run db:deploy        # Run Prisma migrations (production)
+npm run db:migrate       # Run Prisma migrations (development)
+npm run db:generate      # Generate Prisma client
+npm run db:studio        # Open Prisma Studio
+npm run db:seed          # Seed dev data (development only)
+npm run worker:core      # Start BullMQ workers
+npm run verify           # Run deployment verification
 ```
 
-**Test suite:** 2,663 tests across 68 files covering unit, integration, e2e, and smoke layers.  
-See [TESTING.md](./TESTING.md) for full details.
+## CI
 
-## CI/CD
+GitHub Actions runs on every push to `main`/`develop` and on PRs:
 
-GitHub Actions runs on every push and pull request via `.github/workflows/ci.yml`:
+1. **Install** — `npm ci` with lockfile
+2. **Lint** — ESLint across workspaces
+3. **TypeScript** — `tsc --noEmit` for shared, core, and backend
+4. **Build** — Full production build (shared → core → backend)
+5. **Test** — Jest across all workspaces
+6. **Prisma** — Schema validation + client generation
 
-1. **Install** — `npm ci` (lockfile-based, deterministic)
-2. **Prisma generate** — from `packages/shared/prisma/schema.prisma`
-3. **Lint** — ESLint across all workspaces
-4. **Type-check** — `tsc --noEmit` across all workspaces
-5. **Unit tests** — Jest across all workspaces
-6. **Integration tests** — Jest with live Postgres + Redis
-7. **Build** — production builds for all apps
-8. **Migration check** — apply migrations to ephemeral DB
-9. **HTTP smoke tests** — live server health checks
+## Deployment
 
-All deployments gate on the full CI pipeline passing.
+See [DEPLOY.md](./DEPLOY.md) for step-by-step deployment instructions.
 
-## Key Architecture Decisions
+## Key design decisions
 
-**Credit deduction timing:** Credits are deducted at enqueue (not at start). If enqueue fails, the deduction is rolled back atomically.
+- **Graceful degradation**: Every service is optional. The app starts with whatever is configured and reports capability status via `/api/health` and `/api/capabilities`.
+- **Single schema**: All apps share one Prisma schema at `packages/shared/prisma/schema.prisma`. Never create a second schema.
+- **Founder bootstrap**: Set `FOUNDER_EMAIL` env var. First sign-in with that email auto-promotes to SUPER_ADMIN with unlimited credits.
+- **Credit economy**: Append-only ledger with atomic two-phase commit (hold → finalize/refund).
+- **Edge-safe middleware**: `src/middleware.ts` runs in Edge Runtime and cannot import `@arkiol/shared`. Auth logic is duplicated inline with a cross-reference comment.
 
-**Free daily credits:** Stored in a separate `dailyCreditBalance` column. Reset daily by cron. Cannot accumulate.
+## Environment variables
 
-**Soft rollover:** Pro/Studio orgs roll over 10–15% of unused credits into the next cycle.
+See `apps/arkiol-core/.env.example` for the full list. The minimum to start:
 
-**Stripe idempotency:** Every event is stored in `BillingEvent` before processing. Duplicate events detected by `stripeEvent` unique key.
+```
+DATABASE_URL=postgresql://...
+NEXTAUTH_SECRET=<32+ chars>
+NEXTAUTH_URL=http://localhost:3000
+OPENAI_API_KEY=sk-...
+FOUNDER_EMAIL=you@example.com
+```
 
-**Grace period:** Failed payments trigger a 5-day grace period (static-only). After grace, org is downgraded to Free automatically.
+## License
 
-**SSRF protection:** Outbound webhook URLs are validated against blocked IP ranges and internal hostname patterns before being persisted.
-
-**Brand Asset Pipeline:** Uploaded assets are processed through a 6-stage AI pipeline (classify → bg-remove → color-extract → enhance → vectorize → motion-intel) and injected into generation scenes automatically.
-
----
-
-## v3 Feature Extensions (Post-Launch Roadmap)
-
-The following features were added after the initial v3 release. All are fully integrated with the existing credit economy, plan gates, and observability layer.
-
-### Bulk Generation (`POST /api/generate/bulk`)
-Generate up to 50 jobs in a single atomic transaction. PRO plan: 20 jobs/batch. STUDIO: 50 jobs/batch. Returns a `batchId` for status polling via `GET /api/jobs/batch/[batchId]`. Each job is independently queued through BullMQ with per-job error isolation — one failure does not cancel the batch.
-
-### Template Packs (`GET|POST /api/generate/pack`)
-10 curated format packs (social full set, launch bundle, ecommerce ads, studio mega pack, etc.) pre-configured with canonical formats, tone guidance, and example prompts. Plan-gated: CREATOR unlocks 6 packs, PRO 9, STUDIO all 10. Pack generation routes to the bulk engine on PRO/STUDIO and sequential campaign jobs on CREATOR.
-
-### Brand Auto-Import (`POST /api/brand/extract`)
-Accepts a `{ url }`, `{ logoUrl }`, or `{ logoBase64 }` and uses GPT-4o Vision (`detail: "low"`) to extract brand colors, typography, voice attributes, and tone keywords. Returns a pre-filled brand `suggestion` ready to save via `POST /api/brand`. URL mode uses SSRF guard + 8s timeout. 0 credits charged (browse → save is the user's choice).
-
-### Multi-Language Copy
-All generation endpoints accept `locale: string` (BCP-47, e.g. `"fr"`, `"ja"`, `"pt-BR"`). The brief analyzer injects a `LANGUAGE REQUIREMENT` into the GPT-4o system prompt, ensuring all headline, subheadline, CTA, and body copy are generated in the target language. Region suffixes (`fr-CA → French`) are handled automatically.
-
-### A/B Export Pack
-Export endpoint gains `abPack: boolean` and `promptLabel?: string`. When `abPack=true` + `format=zip`, the ZIP worker names files `creative_v1.png`, `creative_v2.png`, ... and appends `ab_manifest.json` with variation metadata (assetId, format, dimensions, brandScore, layoutFamily, promptLabel). Ready for bulk upload to Meta Ads Manager.
-
-### Quality Score Dashboard (`GET /api/assets/quality`)
-Accepts `?assetIds=`, `?jobId=`, or `?campaignId=`. Returns per-asset quality scores (0–100) across 6 dimensions, letter grade (A+/A/B/C/D), violation list, and data source (`benchmark` or `estimated`). Aggregate block: avgOverall, passRate (≥70), gradeDistribution, totalViolations, hierarchyPassRate.
-
-### Scheduled Generation (`POST|GET|DELETE /api/generate/schedule`)
-Schedule any generation job with a `runAt: ISO8601` timestamp. Uses BullMQ native `delay` — no separate cron worker. FREE/CREATOR: max 24h horizon, 10 pending jobs. PRO/STUDIO: 30-day horizon, 50 pending jobs. Min delay: 5 minutes. DELETE cancels the BullMQ delayed job and marks the DB record `CANCELLED`.
-
-### Asset Resize (`POST /api/assets/resize`)
-Re-rasterises a stored SVG at any target format's canonical dimensions using Sharp. Creates a new Asset record with `metadata.resizedFrom` lineage. 0 credits charged — layout adapts via SVG viewBox scaling. Max 9 target formats per call. Rejects if all requested formats match the source.
-
-### White-label Automation API (`POST /api/automation/generate`) — STUDIO only
-API-key-authenticated endpoint (`Authorization: Bearer nxr_live_<token>`) for programmatic generation from CMS integrations, headless e-commerce pipelines, or agency tools. Accepts up to 50 jobs with per-job `externalId`. On completion, delivers `automation.job.completed` directly to the caller's `webhookUrl` (HMAC-signed, 3-retry exponential backoff, 24h signed S3 download URLs included). `X-Arkiol-Delivery-Type: direct` header distinguishes automation deliveries from org-registered webhooks.
-
+Proprietary. All rights reserved.
