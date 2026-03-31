@@ -1,93 +1,102 @@
-# ARKIOL v3 — Development Setup
+[DEVELOPMENT.md](https://github.com/user-attachments/files/26391672/DEVELOPMENT.md)
+# Local Development
 
 ## Prerequisites
 
-- Node.js ≥ 20
-- npm ≥ 10
-- PostgreSQL 16
-- Redis 7
+- Node.js >= 20 (see `.nvmrc`)
+- npm >= 10
+- PostgreSQL (local or Supabase free tier)
+- Redis (local `redis-server` or Upstash free tier)
+- A committed `package-lock.json` (see DEPLOY.md Step 1 if missing)
 
-## Quick Start
+## First-time setup
 
 ```bash
-# 1. Install all workspace dependencies
-npm install
+# Validate repo, install deps, build, type-check, and test
+bash scripts/bootstrap.sh
 
-# 2. Copy and fill in environment variables
-cp .env.example .env
-# edit .env with your DATABASE_URL, NEXTAUTH_SECRET, etc.
+# Configure environment
+cp apps/arkiol-core/.env.example apps/arkiol-core/.env.local
+# Edit .env.local — minimum: DATABASE_URL, NEXTAUTH_SECRET, FOUNDER_EMAIL
 
-# 3. Generate Prisma client from unified schema
-npm run db:generate
-
-# 4. Run database migrations
-npm run db:migrate
-
-# 5. Seed the database (development only)
-npm run db:seed
-
-# 6. Start development servers
-npm run dev              # arkiol-core only
-npm run dev:all          # arkiol-core + animation-studio (uses concurrently)
-./scripts/dev.sh         # alternative cross-platform runner
+# Set up database
+npm run db:deploy    # applies all migrations
+npm run db:seed      # creates dev fixtures (requires ALLOW_SEED=development)
 ```
 
-## Package Manager
+## Running locally
 
-This project uses **npm workspaces**. Always use `npm` — not `yarn` or `pnpm`.
+```bash
+# Core platform (Next.js on port 3000)
+npm run dev
 
-A `package-lock.json` is committed to the repository so that `npm ci` works reliably in CI.
+# Animation Studio (Express on :4000, Vite on :5173)
+npm run dev:studio
 
-## Prisma
+# Both simultaneously
+npm run dev:all
 
-See [PRISMA.md](./PRISMA.md) for the full guide. The short version:
-- **Single source of truth**: `packages/shared/prisma/schema.prisma`
-- Always run `npm run db:generate` after pulling changes
-- CI runs `prisma migrate deploy` automatically
-
-## Available Scripts (root)
-
-| Script | Description |
-|--------|-------------|
-| `npm run dev` | Start arkiol-core in development mode |
-| `npm run dev:all` | Start all services (uses concurrently) |
-| `npm run build` | Build shared package + arkiol-core |
-| `npm run test` | Run all workspace tests |
-| `npm run lint` | Lint all workspaces |
-| `npm run db:generate` | Generate Prisma client from unified schema |
-| `npm run db:migrate` | Run migrations (dev) |
-| `npm run db:deploy` | Deploy migrations (production) |
-| `npm run db:seed` | Seed database (development only) |
-| `npm run smoke-test` | Run production smoke tests |
-
-## Environment Variables
-
-See `.env.example` for the full list.
-
-Key variables for local development:
-
-```
-DATABASE_URL=postgresql://user:pass@localhost:5432/arkiol_dev
-NEXTAUTH_SECRET=<at-least-32-chars>
-NEXTAUTH_URL=http://localhost:3000
-REDIS_URL=redis://localhost:6379
+# Workers (for queue processing — needs Redis)
+npm run worker:core
 ```
 
-## Project Structure
+## Workspace structure
 
+All workspaces are managed from the monorepo root:
+
+```bash
+npm run <script> --workspace=apps/arkiol-core
+npm run <script> --workspace=packages/shared
+npm run <script> --workspace=apps/animation-studio/backend
 ```
-arkiol-platform/
-├── apps/
-│   ├── arkiol-core/          # Next.js 14 app — main product
-│   └── animation-studio/     # Animation Studio (frontend + backend)
-├── packages/
-│   └── shared/               # Shared types, engines, Prisma schema
-│       └── prisma/
-│           └── schema.prisma # ← SINGLE SOURCE OF TRUTH
-├── scripts/
-│   ├── dev.sh                # Cross-platform dev runner
-│   └── deploy-checklist.sh   # Pre-deployment verification
-├── PRISMA.md                 # Prisma schema guide
-├── DEVELOPMENT.md            # This file
-└── package.json              # Workspace root
+
+## Database
+
+The single Prisma schema lives at `packages/shared/prisma/schema.prisma`. All migration and generate commands must reference it:
+
+```bash
+npm run db:generate   # Generate Prisma client
+npm run db:migrate    # Create new migration (dev)
+npm run db:deploy     # Apply migrations (prod)
+npm run db:studio     # Visual database browser
 ```
+
+Never create a second schema file. The stub at `apps/arkiol-core/prisma/` is for IDE tooling only.
+
+## Testing
+
+```bash
+npm test                    # All workspaces
+npm run test:unit           # Unit tests only
+npm run test:integration    # Integration tests
+npm run test:coverage       # With coverage report
+```
+
+Jest config: `apps/arkiol-core/jest.config.ts`. Module aliases (`@/`, `@arkiol/shared`, `server-only`) are mapped there.
+
+## Building
+
+```bash
+npm run build       # shared + core
+npm run build:all   # shared + core + animation-studio backend
+```
+
+The Next.js build runs `prisma generate` automatically via the `vercel-build` script.
+
+## Code organization
+
+- **`packages/shared/src/`** — Business logic shared across apps: plans, credits, billing, capabilities, schemas
+- **`apps/arkiol-core/src/engines/`** — Pure TypeScript AI/design engines (no external API calls)
+- **`apps/arkiol-core/src/app/api/`** — Next.js API routes
+- **`apps/arkiol-core/src/workers/`** — BullMQ queue workers (deployed separately from Vercel)
+- **`apps/arkiol-core/src/lib/`** — Auth, database, queue, utilities
+
+## Troubleshooting
+
+**`prisma generate` fails**: Run from monorepo root: `npx prisma generate --schema=packages/shared/prisma/schema.prisma`
+
+**Type errors after schema change**: Regenerate Prisma client, then restart TS server in your editor.
+
+**`npm ci` fails**: The lockfile must exist and match `package.json`. If dependencies changed, run `npm install --legacy-peer-deps` to update the lockfile, then commit both `package.json` and `package-lock.json`.
+
+**Edge Runtime errors in middleware**: `src/middleware.ts` cannot import `@arkiol/shared` — it runs in Edge Runtime. See the comments in that file.
