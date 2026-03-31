@@ -1,3 +1,4 @@
+[PRISMA.md](https://github.com/user-attachments/files/26391688/PRISMA.md)
 # ARKIOL v3 — Prisma Schema: Single Source of Truth
 
 ## The Rule
