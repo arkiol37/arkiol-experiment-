@@ -1,0 +1,108 @@
+# Arkiol — Deployment Guide
+
+## Prerequisites
+
+- Node.js >= 20, npm >= 10
+- PostgreSQL (Supabase / Neon / Vercel Postgres)
+- Redis (Upstash / Railway — optional, queue features degrade gracefully)
+
+## Fresh Setup
+
+```bash
+# 1. Install dependencies (generates package-lock.json on first run)
+npm install
+
+# 2. Generate Prisma client
+npm run prisma:generate
+
+# 3. Configure environment
+cp apps/arkiol-core/.env.example apps/arkiol-core/.env.local
+# Edit .env.local — minimum: DATABASE_URL, DIRECT_URL, NEXTAUTH_SECRET, NEXTAUTH_URL
+
+# 4. Run database migrations
+npm run db:deploy
+
+# 5. Build and start
+npm run build
+cd apps/arkiol-core && npm start
+```
+
+## Vercel Deployment
+
+### Dashboard Configuration
+
+1. **Root Directory**: `apps/arkiol-core`
+2. **Framework**: Next.js (auto-detected)
+3. **Build & Install**: Auto — controlled by `apps/arkiol-core/vercel.json`
+4. **Node.js Version**: 20.x
+
+The app-level `apps/arkiol-core/vercel.json` is the **single source of truth** for build config:
+```json
+{
+  "framework": "nextjs",
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand": "node scripts/vercel-prisma-generate.cjs && next build"
+}
+```
+
+The root `vercel.json` contains only headers and rewrites — **no build config**.
+
+### Required Environment Variables
+
+**Critical (app fails fast without these in production):**
+- `DATABASE_URL` — Pooled PostgreSQL (port 6543 for Supabase)
+- `DIRECT_URL` — Direct PostgreSQL (port 5432, for Prisma CLI)
+- `NEXTAUTH_SECRET` — ≥32 chars (`openssl rand -base64 32`)
+- `NEXTAUTH_URL` — App URL (e.g. `https://app.arkiol.com`)
+
+**Recommended:**
+- `OPENAI_API_KEY` — AI generation
+- `FOUNDER_EMAIL` — Your email for auto-promotion to SUPER_ADMIN
+- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET_NAME` — Asset storage
+- `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` — Rate limiting
+- `NEXT_PUBLIC_APP_URL` — Same as NEXTAUTH_URL
+
+See `apps/arkiol-core/.env.example` for the complete list.
+
+### Post-Deploy
+
+```bash
+# Verify
+curl https://your-app.vercel.app/api/health
+
+# Run migrations (first deploy only)
+DATABASE_URL='postgresql://...' npx prisma migrate deploy --schema=packages/shared/prisma/schema.prisma
+```
+
+## Worker Deployment (Railway / Fly.io)
+
+BullMQ workers require persistent processes — cannot run on Vercel.
+
+```bash
+# Docker
+docker build -t arkiol-worker -f apps/arkiol-core/Dockerfile .
+
+# Or direct
+cd apps/arkiol-core && npm run worker:prod
+```
+
+Required worker env vars: `DATABASE_URL`, `REDIS_HOST`, `REDIS_PORT`, `OPENAI_API_KEY`, `AWS_*`, `S3_BUCKET_NAME`
+
+## Animation Studio Backend (optional)
+
+Only needed if Animation Studio features are enabled. Deploys to Railway/Fly.io as a separate Express service.
+
+```bash
+cd apps/animation-studio/backend
+npm run build && npm start     # Express on port 4000
+npm run worker                 # Render worker (separate process)
+```
+
+## Build Enforcement
+
+| Setting | Value |
+|---------|-------|
+| `eslint.ignoreDuringBuilds` | `false` — build fails on lint errors |
+| `typescript.ignoreBuildErrors` | `false` — build fails on type errors |
+| `serverExternalPackages` | Top-level key (not deprecated `experimental` location) |
+| `--legacy-peer-deps` | **Not used** — all peer deps resolved |
