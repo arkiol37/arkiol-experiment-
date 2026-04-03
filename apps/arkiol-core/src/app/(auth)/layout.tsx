@@ -21,7 +21,7 @@ export default async function AuthLayout({
     if (caps.auth && caps.database) {
       const { getServerSession } = await import("next-auth");
       const { authOptions }      = await import("../../lib/auth");
-      const session: { user?: unknown } | null = await getServerSession(authOptions).catch(() => null);
+      const session = await (getServerSession as any)(authOptions).catch(() => null);
       if (session?.user) {
         const { redirect } = await import("next/navigation");
         redirect("/dashboard");
