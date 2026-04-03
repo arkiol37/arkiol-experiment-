@@ -1,0 +1,92 @@
+# docker-compose.yml
+# Local development stack for Arkiol.
+#
+# Usage:
+#   docker-compose up -d postgres redis   # start infra only
+#   docker-compose up -d                  # start everything including worker
+#   docker-compose logs -f worker         # tail worker logs
+#   docker-compose down                   # stop all
+
+version: "3.9"
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: arkiol-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       arkiol_dev
+      POSTGRES_USER:     arkiol
+      POSTGRES_PASSWORD: arkiol_local_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arkiol -d arkiol_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: arkiol-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── BullMQ Dashboard (Bull Board) ───────────────────────────────────────────
+  bull-board:
+    image: deadly0/bull-board
+    container_name: arkiol-bull-board
+    restart: unless-stopped
+    environment:
+      REDIS_HOST:     redis
+      REDIS_PORT:     "6379"
+      BULL_PREFIX:    "arkiol"
+    ports:
+      - "3001:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # ── Generation + Webhook Worker ─────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    container_name: arkiol-worker
+    restart: unless-stopped
+    env_file:
+      - .env.local
+    environment:
+      NODE_ENV:          development
+      DATABASE_URL:      postgresql://arkiol:arkiol_local_password@postgres:5432/arkiol_dev
+      REDIS_HOST:        redis
+      REDIS_PORT:        "6379"
+      WORKER_CONCURRENCY: "2"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Mount source for hot-reloading in development
+      - ./src:/app/src:ro
+    command: npx tsx --watch src/workers/index.ts
+
+volumes:
+  postgres_data:
+  redis_data:
