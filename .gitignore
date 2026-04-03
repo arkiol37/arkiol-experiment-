@@ -39,6 +39,7 @@ coverage/
 # Prisma
 packages/shared/prisma/*.db
 packages/shared/prisma/*.db-journal
+node_modules/.prisma/
 
 # Vercel
 .vercel
@@ -46,3 +47,6 @@ packages/shared/prisma/*.db-journal
 # Temp
 tmp/
 temp/
+
+# Sentry
+.sentryclirc
