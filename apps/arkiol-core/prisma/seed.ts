@@ -52,7 +52,7 @@ if (allowSeed !== "development") {
 }
 
 // ── Require explicit passwords — no hardcoded defaults ───────────────────────
-const adminPassword    = process.env.SEED_ADMIN_PASSWORD;
+const adminPassword = process.env.SEED_ADMIN_PASSWORD;
 const designerPassword = process.env.SEED_DESIGNER_PASSWORD;
 
 if (!adminPassword || !designerPassword) {
@@ -88,7 +88,7 @@ async function main() {
   console.log(`✓ Org: ${org.name}  (id: ${org.id})`);
 
   // ── Admin user ─────────────────────────────────────────────────────────────
-  const adminHash = await hash(adminPassword, 12);
+  const adminHash = await hash(adminPassword as string, 12);
   const admin = await prisma.user.upsert({
     where:  { email: "admin@dev.local" },
     update: {},
@@ -103,7 +103,7 @@ async function main() {
   console.log(`✓ Admin:    ${admin.email}  (role: ${admin.role})`);
 
   // ── Designer user ──────────────────────────────────────────────────────────
-  const designerHash = await hash(designerPassword, 12);
+  const designerHash = await hash(designerPassword as string, 12);
   const designer = await prisma.user.upsert({
     where:  { email: "designer@dev.local" },
     update: {},
