@@ -34,7 +34,7 @@ import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse }         from "next/server";
 import { prisma }                            from "../../../lib/prisma";
 import { getRequestUser, requirePermission } from "../../../lib/auth";
-import { rateLimit, rateLimitHeaders }       from "../../../lib/rate-limit";
+import { rateLimit }                         from "../../../lib/rate-limit";
 import { withErrorHandling }                 from "../../../lib/error-handling";
 import { ApiError }                          from "../../../lib/types";
 import { validateWebhookUrl, getPlanConfig } from "@arkiol/shared";
@@ -61,13 +61,6 @@ const CreateWebhookSchema = z.object({
   events: z.array(z.enum(SUPPORTED_EVENTS)).min(1).max(SUPPORTED_EVENTS.length),
   label:  z.string().max(200).optional(),
 });
-
-const UpdateWebhookSchema = z.object({
-  url:      z.string().url().startsWith("https://").max(2000).optional(),
-  events:   z.array(z.enum(SUPPORTED_EVENTS)).min(1).max(SUPPORTED_EVENTS.length).optional(),
-  label:    z.string().max(200).optional(),
-  isActive: z.boolean().optional(),
-}).partial();
 
 // ── Helper: resolve orgId and plan ────────────────────────────────────────────
 
@@ -185,138 +178,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }, { status: 201 });
 });
 
-// ── PATCH /api/webhooks/[id] — update a webhook ───────────────────────────────
-
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }): Promise<NextResponse> {
-  if (!detectCapabilities().database) return dbUnavailable();
-
-  return withErrorHandling(async () => {
-    const user    = await getRequestUser(req);
-    const { orgId } = await resolveOrgAndPlan(user.id);
-
-    const rl = await rateLimit(user.id, "default");
-    if (!rl.success) {
-      return NextResponse.json({ error: "Rate limit exceeded." }, { status: 429, headers: rateLimitHeaders(rl) });
-    }
-
-    // ── Ownership check ─────────────────────────────────────────────────────
-    const webhook = await prisma.webhook.findFirst({
-      where: { id: params.id, orgId },
-    });
-    if (!webhook) throw new ApiError(404, "Webhook not found");
-
-    const body   = await req.json().catch(() => ({}));
-    const parsed = UpdateWebhookSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: "Invalid request", details: parsed.error.flatten() }, { status: 400 });
-    }
-
-    // ── SSRF guard on URL change ────────────────────────────────────────────
-    if (parsed.data.url) {
-      const ssrfCheck = validateWebhookUrl(parsed.data.url);
-      if (!ssrfCheck.safe) throw new ApiError(400, `URL rejected: ${ssrfCheck.reason}`);
-    }
-
-    const updated = await prisma.webhook.update({
-      where: { id: params.id },
-      data: {
-        ...(parsed.data.url      && { url:      parsed.data.url }),
-        ...(parsed.data.events   && { events:   parsed.data.events as string[] }),
-        ...(parsed.data.label    !== undefined && { label: parsed.data.label }),
-        ...(parsed.data.isActive !== undefined && { isActive: parsed.data.isActive }),
-      },
-      select: { id: true, url: true, events: true, label: true, isActive: true, updatedAt: true },
-    });
-
-    return NextResponse.json(updated);
-  })(req);
-}
-
-// ── DELETE /api/webhooks/[id] — delete a webhook ─────────────────────────────
-
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }): Promise<NextResponse> {
-  if (!detectCapabilities().database) return dbUnavailable();
-
-  return withErrorHandling(async () => {
-    const user      = await getRequestUser(req);
-    const { orgId } = await resolveOrgAndPlan(user.id);
-
-    // ── Ownership check ─────────────────────────────────────────────────────
-    const webhook = await prisma.webhook.findFirst({ where: { id: params.id, orgId } });
-    if (!webhook) throw new ApiError(404, "Webhook not found");
-
-    await prisma.webhook.delete({ where: { id: params.id } });
-    return NextResponse.json({ deleted: true, webhookId: params.id });
-  })(req);
-}
-
-// ── POST /api/webhooks/[id]/test — send a test delivery ──────────────────────
-
-export async function testDelivery(req: NextRequest, { params }: { params: { id: string } }): Promise<NextResponse> {
-  return withErrorHandling(async () => {
-    const user      = await getRequestUser(req);
-    const { orgId } = await resolveOrgAndPlan(user.id);
-
-    const rl = await rateLimit(user.id, "webhook_test");
-    if (!rl.success) {
-      return NextResponse.json({ error: "Rate limit exceeded (5 test deliveries/min)." }, { status: 429 });
-    }
-
-    const webhook = await prisma.webhook.findFirst({
-      where: { id: params.id, orgId },
-    });
-    if (!webhook) throw new ApiError(404, "Webhook not found");
-    if (!webhook.isActive) throw new ApiError(400, "Webhook is inactive. Re-activate it before testing.");
-
-    const { webhookQueue } = await import("../../../lib/queue");
-    const deliveryId = `test_${params.id}_${Date.now()}`;
-
-    await webhookQueue.add("deliver", {
-      webhookId:  params.id,
-      orgId,
-      event:      "webhook.test",
-      data:       {
-        message:    "This is a test delivery from Arkiol.",
-        timestamp:  new Date().toISOString(),
-        webhookId:  params.id,
-      },
-      attempt:    1,
-      deliveryId,
-    }, {
-      jobId:    deliveryId,
-      attempts: 1,  // test deliveries don't retry
-    });
-
-    return NextResponse.json({
-      queued:     true,
-      deliveryId,
-      message:    "Test delivery queued. Check your endpoint for the incoming request.",
-    });
-  })(req);
-}
-
-// ── POST /api/webhooks/[id]/rotate-secret — generate a new signing secret ────
-
-export async function rotateSecret(req: NextRequest, { params }: { params: { id: string } }): Promise<NextResponse> {
-  return withErrorHandling(async () => {
-    const user      = await getRequestUser(req);
-    const { orgId } = await resolveOrgAndPlan(user.id);
-
-    const webhook = await prisma.webhook.findFirst({ where: { id: params.id, orgId } });
-    if (!webhook) throw new ApiError(404, "Webhook not found");
-
-    const rawSecret       = randomBytes(32).toString("hex");
-    const encryptedSecret = encryptWebhookSecret(rawSecret);
-
-    await prisma.webhook.update({
-      where: { id: params.id },
-      data:  { secret: encryptedSecret, failCount: 0 },  // reset fail count on rotation
-    });
-
-    return NextResponse.json({
-      webhookId:     params.id,
-      signingSecret: rawSecret,
-      note: "Old signing secret is now invalidated. Update your endpoint verification immediately.",
-    });
-  })(req);
-}
+// ── PATCH, DELETE, test, rotate-secret ────────────────────────────────────────
+// These handlers live in their own Next.js App Router route segments:
+//   PATCH  /api/webhooks/[id]                → ./[id]/route.ts
+//   DELETE /api/webhooks/[id]                → ./[id]/route.ts
+//   POST   /api/webhooks/[id]/test           → ./[id]/test/route.ts
+//   POST   /api/webhooks/[id]/rotate-secret  → ./[id]/rotate-secret/route.ts
