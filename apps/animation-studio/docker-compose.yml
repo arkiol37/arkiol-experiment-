@@ -1,0 +1,110 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: animation_studio
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - '5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── DB Migrations ─────────────────────────────────────────────
+  migrate:
+    build:
+      context: ./backend
+      target: builder
+    command: npm run migrate
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/animation_studio
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ['migrate']
+
+  # ── API Server ────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    env_file: ./backend/.env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/animation_studio
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '4000:4000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Render Worker ─────────────────────────────────────────────
+  worker:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    command: node dist/workers/renderWorker.js
+    env_file: ./backend/.env
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/animation_studio
+      REDIS_URL: redis://redis:6379
+      RENDER_CONCURRENCY: '2'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Frontend Dev Server ───────────────────────────────────────
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - '5173:5173'
+    environment:
+      VITE_API_URL: http://localhost:4000
+
+volumes:
+  postgres_data:
+  redis_data:

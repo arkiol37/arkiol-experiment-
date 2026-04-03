@@ -1,0 +1,7 @@
+import React from 'react';
+interface Violation { sceneId: string; token: { key: string; category: string }; severity: string; autoFixable: boolean; suggestedFix?: string; }
+const SC: Record<string, string> = { critical: 'text-red-400', error: 'text-orange-400', warning: 'text-yellow-400', info: 'text-blue-400' };
+export default function ContinuityPanel({ violations, onAutoFix }: { violations: Violation[]; onAutoFix?: () => void }) {
+  const fixable = violations.filter(v => v.autoFixable).length;
+  return (<div className="space-y-2"><div className="flex items-center justify-between"><h3 className="text-sm font-semibold text-white/70 uppercase tracking-wider">Continuity</h3>{fixable > 0 && onAutoFix && (<button onClick={onAutoFix} className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-1 rounded hover:bg-indigo-500/30">Auto-fix {fixable} issues</button>)}</div>{violations.length === 0 ? (<p className="text-xs text-green-400/80">All continuity checks passed</p>) : (<div className="space-y-1 max-h-48 overflow-y-auto">{violations.map((v, i) => (<div key={i} className="bg-white/5 rounded p-2 border border-white/10 text-xs"><span className={`font-medium ${SC[v.severity] || 'text-white/60'}`}>{v.severity.toUpperCase()}</span><span className="text-white/50 ml-2">{v.token.category}:{v.token.key}</span>{v.suggestedFix && <p className="text-white/30 mt-0.5">Fix: {v.suggestedFix}</p>}</div>))}</div>)}</div>);
+}
