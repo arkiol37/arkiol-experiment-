@@ -177,7 +177,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       select: { id: true },
     });
     const validBrandIds = new Set(brands.map((b: { id: string }) => b.id));
-    const invalidBrands = brandIds.filter(id => !validBrandIds.has(id));
+    const invalidBrands = brandIds.filter((id: string) => !validBrandIds.has(id));
     if (invalidBrands.length > 0) {
       throw new ApiError(400,
         `Brand(s) not found or not owned by your organization: ${invalidBrands.join(", ")}`,
@@ -263,7 +263,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
     for (let idx = 0; idx < jobs.length; idx++) {
       const j          = jobs[idx];
-      const creditCost = j.formats.reduce((a, f) => a + getCreditCost(f, false) * j.variations, 0);
+      const creditCost = j.formats.reduce((a: number, f) => a + getCreditCost(f, false) * j.variations, 0);
 
       const job = await tx.job.create({
         data: {
@@ -320,7 +320,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   for (const { jobId } of createdJobs) {
     const j          = jobs[createdJobs.findIndex(cj => cj.jobId === jobId)];
     if (!j) continue;
-    const creditCost = j.formats.reduce((a, f) => a + getCreditCost(f, false) * j.variations, 0);
+    const creditCost = j.formats.reduce((a: number, f) => a + getCreditCost(f, false) * j.variations, 0);
     await holdCredits(orgId, jobId, creditCost, { prisma: prisma as any }).catch(() => {});
   }
 
@@ -332,7 +332,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     where:  { id: { in: createdJobs.map(j => j.jobId) } },
     select: { id: true, payload: true },
   });
-  const payloadByJobId = new Map(jobRows.map(r => [r.id, r.payload as object]));
+  const payloadByJobId = new Map(jobRows.map((r: { id: string; payload: unknown }) => [r.id, r.payload as object]));
 
   await Promise.all(
     createdJobs.map(({ jobId }) =>
