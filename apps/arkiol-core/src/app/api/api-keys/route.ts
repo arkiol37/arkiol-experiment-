@@ -46,7 +46,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   });
 
   return NextResponse.json({
-    keys: keys.map(k => ({
+    keys: keys.map((k: typeof keys[number]) => ({
       ...k,
       isExpired: k.expiresAt ? k.expiresAt < new Date() : false,
     })),
