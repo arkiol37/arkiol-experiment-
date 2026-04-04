@@ -178,7 +178,17 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   }
 
   // ── Build per-asset quality records ───────────────────────────────────────
-  const assetQuality = assets.map(asset => {
+  const assetQuality = assets.map((asset: {
+    id: string;
+    name: string;
+    format: string;
+    category: string | null;
+    brandScore: number;
+    hierarchyValid: boolean;
+    metadata: unknown;
+    layoutFamily: string | null;
+    createdAt: Date;
+  }) => {
     const q = extractQuality({
       brandScore:     asset.brandScore,
       hierarchyValid: asset.hierarchyValid,
