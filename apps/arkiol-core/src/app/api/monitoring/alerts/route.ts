@@ -5,7 +5,7 @@ import "server-only";
 import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession }          from "next-auth/next";
-import { authOptions }               from "../../../../lib/auth";
+import { authOptions, getRequestUser } from "../../../../lib/auth";
 import { prisma }                    from "../../../../lib/prisma";
 import { logger }                    from "../../../../lib/logger";
 import { generationQueue }           from "../../../../lib/queue";
