@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   try {
     const { getServerSession } = await import('next-auth');
     const { authOptions }      = await import('../../../../lib/auth');
-    const session              = await getServerSession(authOptions);
+    const session              = await (getServerSession as any)(authOptions);
     sessionEmail  = (session?.user as any)?.email?.toLowerCase().trim() ?? null;
     sessionUserId = (session?.user as any)?.id ?? null;
   } catch {
