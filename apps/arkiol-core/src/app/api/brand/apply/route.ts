@@ -76,7 +76,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     accent.toLowerCase(),
     "#ffffff",
     "#000000",
-    ...(brand.accentColors ?? []).map(c => c.toLowerCase()),
+    ...(brand.accentColors ?? []).map((c: string) => c.toLowerCase()),
   ]);
 
   const violations: string[] = [];
