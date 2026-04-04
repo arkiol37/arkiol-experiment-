@@ -178,17 +178,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   }
 
   // ── Build per-asset quality records ───────────────────────────────────────
-  const assetQuality = assets.map((asset: {
-    id: string;
-    name: string;
-    format: string;
-    category: string | null;
-    brandScore: number;
-    hierarchyValid: boolean;
-    metadata: unknown;
-    layoutFamily: string | null;
-    createdAt: Date;
-  }) => {
+  const assetQuality = assets.map((asset: (typeof assets)[number]) => {
     const q = extractQuality({
       brandScore:     asset.brandScore,
       hierarchyValid: asset.hierarchyValid,
@@ -221,12 +211,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   });
 
   // ── Aggregate stats ────────────────────────────────────────────────────────
-  const scores      = assetQuality.map(a => a.scores.overall);
+  const scores      = assetQuality.map((a: (typeof assetQuality)[number]) => a.scores.overall);
   const total       = scores.length;
-  const avgOverall  = total > 0 ? Math.round(scores.reduce((s, x) => s + x, 0) / total) : 0;
+  const avgOverall  = total > 0 ? Math.round(scores.reduce((s: number, x: number) => s + x, 0) / total) : 0;
   const topScore    = total > 0 ? Math.max(...scores) : 0;
   const bottomScore = total > 0 ? Math.min(...scores) : 0;
-  const passCount   = scores.filter(s => s >= 70).length;
+  const passCount   = scores.filter((s: number) => s >= 70).length;
   const passRate    = total > 0 ? Math.round((passCount / total) * 100) : 0;
 
   const gradeDistribution = { "A+": 0, A: 0, B: 0, C: 0, D: 0 };
@@ -241,12 +231,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     bottomScore,
     passRate,             // % with overall >= 70
     gradeDistribution,
-    avgBrandAlignment:    Math.round(assetQuality.reduce((s, a) => s + a.scores.brandAlignment,     0) / total),
-    avgHierarchy:         Math.round(assetQuality.reduce((s, a) => s + a.scores.hierarchy,          0) / total),
-    avgDensityFit:        Math.round(assetQuality.reduce((s, a) => s + a.scores.densityFit,         0) / total),
-    avgContrastCompliance:Math.round(assetQuality.reduce((s, a) => s + a.scores.contrastCompliance, 0) / total),
-    totalViolations:      assetQuality.reduce((s, a) => s + a.violationCount, 0),
-    hierarchyPassRate:    Math.round((assetQuality.filter(a => a.hierarchyValid).length / total) * 100),
+    avgBrandAlignment:    Math.round(assetQuality.reduce((s: number, a: (typeof assetQuality)[number]) => s + a.scores.brandAlignment,     0) / total),
+    avgHierarchy:         Math.round(assetQuality.reduce((s: number, a: (typeof assetQuality)[number]) => s + a.scores.hierarchy,          0) / total),
+    avgDensityFit:        Math.round(assetQuality.reduce((s: number, a: (typeof assetQuality)[number]) => s + a.scores.densityFit,         0) / total),
+    avgContrastCompliance:Math.round(assetQuality.reduce((s: number, a: (typeof assetQuality)[number]) => s + a.scores.contrastCompliance, 0) / total),
+    totalViolations:      assetQuality.reduce((s: number, a: (typeof assetQuality)[number]) => s + a.violationCount, 0),
+    hierarchyPassRate:    Math.round((assetQuality.filter((a: (typeof assetQuality)[number]) => a.hierarchyValid).length / total) * 100),
   };
 
   return NextResponse.json({ assets: assetQuality, aggregate });
