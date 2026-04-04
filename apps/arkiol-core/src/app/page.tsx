@@ -19,7 +19,7 @@ export default async function RootPage() {
   // Uses the centralized capability system — no raw process.env here.
   if (detectCapabilities().auth && detectCapabilities().database) {
     try {
-      const session = await getServerSession(authOptions).catch(() => null);
+      const session = await (getServerSession as any)(authOptions).catch(() => null);
       if (session?.user) redirect('/dashboard');
     } catch { /* auth unavailable — fall through to landing */ }
   }
