@@ -321,7 +321,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
     // Optionally filter by error code from the JSON result field
     const filtered = code
-      ? jobs.filter(j => (j.result as any)?.code === code)
+      ? jobs.filter((j: (typeof jobs)[number]) => (j.result as any)?.code === code)
       : jobs;
 
     // Summarize error codes
