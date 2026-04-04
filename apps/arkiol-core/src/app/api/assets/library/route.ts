@@ -11,7 +11,6 @@
 import "server-only";
 import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession }          from "next-auth";
 import { authOptions, getRequestUser } from "../../../../lib/auth";
 import { dbUnavailable } from "../../../../lib/error-handling";
 import {
