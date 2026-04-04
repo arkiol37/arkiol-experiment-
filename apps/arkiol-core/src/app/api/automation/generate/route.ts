@@ -176,7 +176,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       where:  { id: { in: brandIds }, orgId },
       select: { id: true },
     });
-    const validBrandIds = new Set(brands.map(b => b.id));
+    const validBrandIds = new Set(brands.map((b: { id: string }) => b.id));
     const invalidBrands = brandIds.filter(id => !validBrandIds.has(id));
     if (invalidBrands.length > 0) {
       throw new ApiError(400,
