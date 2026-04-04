@@ -48,6 +48,16 @@ import { withErrorHandling }                 from "../../../../lib/error-handlin
 import { ApiError }                          from "../../../../lib/types";
 import { dbUnavailable } from "../../../../lib/error-handling";
 
+
+type QualityBadge = "A+" | "A" | "B" | "C" | "D";
+
+type AssetQualitySummary = {
+  badge: QualityBadge;
+  scores: {
+    overall: number;
+  };
+};
+
 // ── Letter grade ────────────────────────────────────────────────────────────
 
 function letterGrade(score: number): "A+" | "A" | "B" | "C" | "D" {
@@ -219,8 +229,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const passCount   = scores.filter((s: number) => s >= 70).length;
   const passRate    = total > 0 ? Math.round((passCount / total) * 100) : 0;
 
-  const gradeDistribution = { "A+": 0, A: 0, B: 0, C: 0, D: 0 };
-  for (const a of assetQuality) {
+  const gradeDistribution: Record<QualityBadge, number> = { "A+": 0, A: 0, B: 0, C: 0, D: 0 };
+  for (const a of assetQuality as AssetQualitySummary[]) {
     gradeDistribution[a.badge]++;
   }
 
