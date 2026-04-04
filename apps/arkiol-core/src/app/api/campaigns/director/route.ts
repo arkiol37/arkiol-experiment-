@@ -27,7 +27,7 @@ import "server-only";
 import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession }          from "next-auth";
-import { authOptions }               from "../../../../lib/auth";
+import { authOptions, getRequestUser } from "../../../../lib/auth";
 import { buildCampaignPlan, campaignFormatToGenerationPayload } from "../../../../engines/campaign/creative-director";
 import { prisma }                    from "../../../../lib/prisma";
 import { logger }                    from "../../../../lib/logger";
