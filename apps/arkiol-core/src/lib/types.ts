@@ -99,10 +99,12 @@ export const GIF_ELIGIBLE_FORMATS: Set<string> = new Set(
 
 export class ApiError extends Error {
   public statusCode: number;
-  constructor(status: number, message: string) {
+  public code?: string;
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name       = "ApiError";
     this.statusCode = status;
+    this.code       = code;
     (this as any).status = status;
   }
 }
