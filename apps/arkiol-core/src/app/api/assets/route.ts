@@ -63,7 +63,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
   // Resolve thumbnailUrl for each asset
   const withUrls = await Promise.all(
-    assets.map(async (a: (typeof assets)[number]) => {
+    assets.map(async (a: any) => {
       let thumbnailUrl: string | null = null;
       let downloadUrl:  string | null = null;
 
@@ -117,12 +117,12 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
   if (detectCapabilities().storage) {
     await Promise.allSettled(
       assets
-        .filter((a: (typeof assets)[number]) => a.s3Key && !a.s3Key.startsWith('inline:'))
-        .map((a: (typeof assets)[number]) => deleteFromS3(a.s3Key!).catch(() => {}))
+        .filter((a: any) => a.s3Key && !a.s3Key.startsWith('inline:'))
+        .map((a: any) => deleteFromS3(a.s3Key!).catch(() => {}))
     );
   }
 
-  await prisma.asset.deleteMany({ where: { id: { in: assets.map((a: (typeof assets)[number]) => a.id) } } });
+  await prisma.asset.deleteMany({ where: { id: { in: assets.map((a: any) => a.id) } } });
 
   return NextResponse.json({ deleted: assets.length });
 });
