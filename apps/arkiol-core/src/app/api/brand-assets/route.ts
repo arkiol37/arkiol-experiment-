@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
     });
   } catch (err: any) {
-    logger.error('Brand assets GET error', { err: err.message });
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Brand assets GET error');
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
@@ -104,7 +104,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ message: 'Deleted', id });
   } catch (err: any) {
-    logger.error('Brand assets DELETE error', { err: err.message });
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Brand assets DELETE error');
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
