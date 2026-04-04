@@ -12,7 +12,9 @@ export function withErrorHandling(handler: Handler): Handler {
       return await handler(req, ctx);
     } catch (err: unknown) {
       if (err instanceof ApiError) {
-        return NextResponse.json({ error: err.message }, { status: err.statusCode ?? (err as any).status ?? 500 });
+        const payload: Record<string, unknown> = { error: err.message };
+        if (err.code) payload.code = err.code;
+        return NextResponse.json(payload, { status: err.statusCode ?? (err as any).status ?? 500 });
       }
       if (err instanceof ZodError) {
         return NextResponse.json({ error: 'Validation failed', details: err.flatten() }, { status: 400 });
