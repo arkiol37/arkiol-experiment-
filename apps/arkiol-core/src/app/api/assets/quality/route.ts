@@ -145,7 +145,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       orderBy: { createdAt: "desc" },
       take:    50,
     });
-    assetIds = campaignAssets.map(a => a.id);
+    assetIds = campaignAssets.map((a: { id: string }) => a.id);
   } else {
     throw new ApiError(400, "Provide one of: assetIds (comma-separated), jobId, or campaignId");
   }
