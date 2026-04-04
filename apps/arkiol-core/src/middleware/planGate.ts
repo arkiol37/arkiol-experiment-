@@ -25,7 +25,7 @@ type OrgMeta = {
 };
 
 export async function getOrgMeta(req: NextRequest): Promise<OrgMeta | null> {
-  const session = await getServerSession(authOptions);
+  const session = await (getServerSession as any)(authOptions);
   if (!session?.user?.id) return null;
 
   const user = await prisma.user.findUnique({
