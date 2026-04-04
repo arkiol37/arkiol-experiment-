@@ -142,7 +142,7 @@ export async function PATCH(req: NextRequest) {
 
     return NextResponse.json({ updated: updated.count });
   } catch (err: any) {
-    logger.error('Brand assets PATCH error', { err: err.message });
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Brand assets PATCH error');
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
