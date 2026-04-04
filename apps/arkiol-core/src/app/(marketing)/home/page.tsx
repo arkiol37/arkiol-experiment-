@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 export default async function HomePage() {
   if (detectCapabilities().auth && detectCapabilities().database) {
     try {
-      const session = await getServerSession(authOptions).catch(() => null);
+      const session = await (getServerSession as any)(authOptions).catch(() => null);
       if (session?.user) redirect('/dashboard');
     } catch { /* auth unavailable — fall through */ }
   }
