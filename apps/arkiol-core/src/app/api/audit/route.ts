@@ -26,7 +26,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   if (!detectCapabilities().database) return dbUnavailable();
 
   const user = await getRequestUser(req);
-  requirePermission(user.role, "VIEW_ANALYTICS");
+  requirePermission(user.role, "VIEW_AUDIT_LOGS");
 
   const dbUser = await prisma.user.findUnique({
     where:  { id: user.id },
