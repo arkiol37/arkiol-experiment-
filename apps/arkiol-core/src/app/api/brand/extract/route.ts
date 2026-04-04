@@ -235,7 +235,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     }
   } else if ("logoUrl" in input && input.logoUrl) {
     const ssrfCheck = validateWebhookUrl(input.logoUrl);
-    if (!ssrfCheck.valid) {
+    if ("reason" in ssrfCheck && ssrfCheck.reason) {
       throw new ApiError(400, `Logo URL rejected: ${ssrfCheck.reason}`);
     }
     imageSource = input.logoUrl;
