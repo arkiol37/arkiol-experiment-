@@ -102,7 +102,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       select:  { id: true },
     });
     if (old.length > 0) {
-      await prisma.editorDraft.deleteMany({ where: { id: { in: old.map(o => o.id) } } });
+      await prisma.editorDraft.deleteMany({ where: { id: { in: old.map((o: { id: string }) => o.id) } } });
     }
 
     await prisma.editorDraft.deleteMany({
