@@ -180,7 +180,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       elements: draft.elements as unknown[],
       sizeBytes: JSON.stringify(draft.elements).length,
     } : null,
-    checkpoints: checkpoints.map(c => ({
+    checkpoints: checkpoints.map((c: { id: string; label: string | null; createdAt: Date }) => ({
       id:      c.id,
       label:   c.label ?? "Checkpoint",
       savedAt: c.createdAt.toISOString(),
