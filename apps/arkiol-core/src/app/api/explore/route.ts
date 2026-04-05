@@ -38,6 +38,7 @@ import { getRequestUser }             from "../../../lib/auth";
 import { runExploration, deriveExploreSeed } from "../../../engines/exploration/engine";
 import { buildDefaultPriors, migratePriors } from "../../../engines/exploration/learning-memory";
 import { logger } from "../../../lib/logger";
+import { rateLimit, rateLimitHeaders } from "../../../lib/rate-limit";
 import { dbUnavailable } from "../../../lib/error-handling";
 import type {
   ExplorePipelineContext,
