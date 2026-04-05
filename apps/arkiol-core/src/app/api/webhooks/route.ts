@@ -34,7 +34,7 @@ import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse }         from "next/server";
 import { prisma }                            from "../../../lib/prisma";
 import { getRequestUser, requirePermission } from "../../../lib/auth";
-import { rateLimit }                         from "../../../lib/rate-limit";
+import { rateLimit, rateLimitHeaders }       from "../../../lib/rate-limit";
 import { withErrorHandling }                 from "../../../lib/error-handling";
 import { ApiError }                          from "../../../lib/types";
 import { validateWebhookUrl, getPlanConfig } from "@arkiol/shared";
@@ -88,22 +88,16 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       id:                 true,
       url:                true,
       events:             true,
-      label:              true,
       isActive:           true,
       failCount:          true,
       lastSuccess:        true,
       createdAt:          true,
       updatedAt:          true,
-      // Delivery stats (if tracked in the schema)
-      lastDeliveredAt:    true,
-      lastStatusCode:     true,
-      deliveryCount:      true,
-      consecutiveFailures:true,
     },
   });
 
   return NextResponse.json({
-    webhooks: webhooks.map(w => ({
+    webhooks: webhooks.map((w: { id: string; url: string; events: string[]; isActive: boolean; failCount: number; lastSuccess: Date | null; createdAt: Date; updatedAt: Date }) => ({
       ...w,
       // Never expose the encrypted secret — only the metadata
       secret: "[protected]",
@@ -160,14 +154,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       orgId,
       url,
       events:            events as string[],
-      label:             label ?? null,
       secret:            encryptedSecret,
       isActive:          true,
       failCount:         0,
-      deliveryCount:     0,
-      consecutiveFailures: 0,
     },
-    select: { id: true, url: true, events: true, label: true, isActive: true, createdAt: true },
+    select: { id: true, url: true, events: true, isActive: true, createdAt: true },
   });
 
   return NextResponse.json({
