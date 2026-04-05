@@ -45,6 +45,7 @@ import type {
   ExplorationPriors,
   FeatureVector,
   ExploreInput,
+  ExploreResult,
 } from "../../../engines/exploration/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ export async function POST(req: NextRequest) {
   };
 
   // ── Run exploration ───────────────────────────────────────────────────────
-  let result;
+  let result: ExploreResult;
   try {
     result = await runExploration(exploreInput);
   } catch (err: any) {
