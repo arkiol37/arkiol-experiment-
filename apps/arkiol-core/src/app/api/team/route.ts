@@ -31,7 +31,14 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const dbUser = await prisma.user.findUnique({ where: { id: user.id }, include: { org: true } });
   if (!dbUser?.orgId) throw new ApiError(403, "No organization");
 
-  const members = await prisma.user.findMany({
+  type TeamMember = {
+    id: string; email: string; name: string | null; image: string | null;
+    role: string; createdAt: Date; passwordHash: string | null;
+    resetToken: string | null; resetTokenExpiry: Date | null;
+    _count: { assets: number; jobs: number };
+  };
+
+  const members: TeamMember[] = await prisma.user.findMany({
     where:   { orgId: dbUser.orgId },
     orderBy: { createdAt: "asc" },
     select: {
@@ -40,7 +47,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       resetToken: true, resetTokenExpiry: true,
       _count: { select: { assets: true, jobs: true } },
     },
-  });
+  }) as TeamMember[];
 
   // Usage per member (last 30 days)
   const thirtyDaysAgo = new Date(Date.now() - 30 * 86400 * 1000);
@@ -49,21 +56,21 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     where: { createdAt: { gte: thirtyDaysAgo } },
     _sum:  { credits: true },
   });
-  const usageMap = new Map(usageByUser.map(u => [u.userId, u._sum.credits ?? 0]));
+  const usageMap = new Map(usageByUser.map((u: { userId: string; _sum: { credits: number | null } }) => [u.userId, u._sum.credits ?? 0]));
 
   // Separate active members from pending invites (invited users have resetToken set and no passwordHash)
-  const activeMembers  = members.filter(m => (m as any).passwordHash !== null || !(m as any).resetToken);
+  const activeMembers  = members.filter((m: TeamMember) => m.passwordHash !== null || !m.resetToken);
   const pendingInvites = members
-    .filter(m => (m as any).resetToken && (m as any).passwordHash === null)
-    .map(m => ({
+    .filter((m: TeamMember) => m.resetToken && m.passwordHash === null)
+    .map((m: TeamMember) => ({
       id:        m.id,
       email:     m.email,
       role:      m.role,
       createdAt: m.createdAt,
-      expiresAt: (m as any).resetTokenExpiry ?? new Date(Date.now() + 7 * 86400 * 1000),
+      expiresAt: m.resetTokenExpiry ?? new Date(Date.now() + 7 * 86400 * 1000),
     }));
 
-  const currentMember = members.find(m => m.id === user.id) ?? null;
+  const currentMember = members.find((m: TeamMember) => m.id === user.id) ?? null;
 
   return NextResponse.json({
     members: activeMembers.map(m => ({
