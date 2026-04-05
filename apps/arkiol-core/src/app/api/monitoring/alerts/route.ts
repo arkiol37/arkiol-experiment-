@@ -4,8 +4,7 @@
 import "server-only";
 import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse } from "next/server";
-import { getServerSession }          from "next-auth/next";
-import { authOptions, getRequestUser } from "../../../../lib/auth";
+import { getRequestUser } from "../../../../lib/auth";
 import { prisma }                    from "../../../../lib/prisma";
 import { logger }                    from "../../../../lib/logger";
 import { generationQueue }           from "../../../../lib/queue";
@@ -38,18 +37,24 @@ export async function POST(req: NextRequest) {
       dlqDepth = await generationQueue.getFailedCount();
     } catch { /* non-fatal */ }
 
-    const result = await runMonitoringChecks(
-      { prisma: prisma as any, logger },
-      dlqDepth,
-    );
+    // runMonitoringChecks takes a single MonitoringRunInput and returns void
+    // (it emits alerts internally via the alert emitter system).
+    await runMonitoringChecks({ dlqDepth });
+
+    // Retrieve recently fired alerts from the audit log
+    const recentAlerts = await prisma.auditLog.findMany({
+      where:   { action: { startsWith: "monitoring." }, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+      orderBy: { createdAt: "desc" },
+      take:    50,
+      select:  { id: true, orgId: true, action: true, metadata: true, createdAt: true },
+    });
 
     return NextResponse.json({
-      ...result,
-      alerts: result.alerts.map(a => ({
+      ran: true,
+      dlqDepth,
+      alerts: recentAlerts.map((a: { id: string; orgId: string; action: string; metadata: unknown; createdAt: Date }) => ({
         ...a,
-        windowStart: a.windowStart.toISOString(),
-        windowEnd:   a.windowEnd.toISOString(),
-        firedAt:     a.firedAt.toISOString(),
+        createdAt: a.createdAt.toISOString(),
       })),
     });
   } catch (err: any) {
@@ -82,7 +87,7 @@ export async function GET(req: NextRequest) {
   const snapshot = null; // getMonitoringSnapshot not available in this build
 
   return NextResponse.json({
-    alerts:   alerts.map(a => ({ ...a, createdAt: a.createdAt.toISOString() })),
+    alerts:   alerts.map((a: { id: string; orgId: string; action: string; metadata: unknown; createdAt: Date }) => ({ ...a, createdAt: a.createdAt.toISOString() })),
     snapshot,
     sinceIso: sinceDate.toISOString(),
   });
