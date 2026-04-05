@@ -24,6 +24,7 @@ import {
   convertGenerationToEditorElements,
   convertSvgSourceToEditorElements,
 } from "../../../../lib/editor-elements-converter";
+import type { EditorElement } from "../../../../lib/editor-elements-converter";
 
 export const GET = withErrorHandling(async (req: NextRequest) => {
   if (!detectCapabilities().database) return dbUnavailable();
@@ -62,8 +63,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const storedSvgContent = meta.editorSvgContent as Record<string, unknown> | undefined;
   const onDemandAssets   = meta.onDemandAssets   as { elements?: unknown[] } | undefined;
 
-  let elements;
-  let conversionMethod: string;
+  let elements: EditorElement[] | undefined;
+  let conversionMethod: string = "empty_fallback";
 
   if (storedZones && storedSvgContent) {
     // Best path: zones + content stored at generation time
