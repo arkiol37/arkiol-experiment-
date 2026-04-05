@@ -54,7 +54,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       usagePct:    Math.round((dbUser.org.creditsUsed / dbUser.org.creditLimit) * 100),
     },
     period,
-    breakdown: usage.map(u => ({
+    breakdown: usage.map((u: { action: string; _sum: { credits: number | null }; _count: { id: number } }) => ({
       action:  u.action,
       credits: u._sum.credits ?? 0,
       count:   u._count.id,
