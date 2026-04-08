@@ -18,7 +18,7 @@ import { z }                         from "zod";
 import { billingUnavailable } from "../../../lib/error-handling";
 import { PLANS, getPlanConfig, TOPUP_PACKS, getTopupStripePriceId,
          getSubscriptionStripePriceId, resolvePlan,
-         getEnv, getActiveBillingProvider } from "@arkiol/shared";
+         getEnv, getActiveBillingProvider, type PlanKey } from "@arkiol/shared";
 
 // ── Stripe client ──────────────────────────────────────────────────────────────
 function getStripe(): Stripe {
@@ -314,7 +314,7 @@ export async function POST(req: NextRequest) {
       const priceId = getSubscriptionStripePriceId(planKey);
       if (!priceId) return NextResponse.json({ error: `No Stripe price configured for plan ${planKey}` }, { status: 503 });
 
-      const planCfg = PLANS[planKey];
+      const planCfg = PLANS[planKey as PlanKey];
 
       const checkoutSession = await stripe.checkout.sessions.create({
         customer:             stripeCustomerId,
