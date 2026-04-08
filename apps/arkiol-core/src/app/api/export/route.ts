@@ -8,6 +8,7 @@
 //  • ZIP: always produces a real ZIP archive (via worker for multi-asset; inline for single)
 
 import { NextRequest, NextResponse } from "next/server";
+import type { Asset } from "@prisma/client";
 import { detectCapabilities } from '@arkiol/shared';
 import { prisma }            from "../../../lib/prisma";
 import { getRequestUser, requirePermission } from "../../../lib/auth";
@@ -68,7 +69,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const { assetIds, format, pngScale, gifFps, gifType, abPack, promptLabel } = parsed.data;
 
   // Verify all assets belong to this user
-  const assets = await prisma.asset.findMany({
+  const assets: Asset[] = await prisma.asset.findMany({
     where: { id: { in: assetIds }, userId: user.id },
   });
   if (assets.length !== assetIds.length) {
@@ -96,7 +97,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       exportedAt:  new Date().toISOString(),
       exportedBy:  user.email,
       count:       assets.length,
-      assets: assets.map(a => ({
+      assets: assets.map((a: Asset) => ({
         id:             a.id,
         name:           a.name,
         format:         a.format,
@@ -168,7 +169,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       }, { status: 200 });
     }
 
-    const assetsWithSvg = assets.filter(a => !!a.svgSource);
+    const assetsWithSvg = assets.filter((a: Asset) => !!a.svgSource);
     if (assetsWithSvg.length === 0) {
       throw new ApiError(400, "None of the selected assets have SVG source available. Re-generate to enable export.");
     }
@@ -184,7 +185,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         payload: {
           userId:   user.id,
           orgId:    dbUser.org.id,
-          assetIds: assetsWithSvg.map(a => a.id),
+          assetIds: assetsWithSvg.map((a: { id: string }) => a.id),
           format:   "zip",
           pngScale,
           abPack:      abPack || undefined,
@@ -197,7 +198,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       exportJobId: dbJob.id,
       userId:      user.id,
       orgId:       dbUser.org.id,
-      assetIds:    assetsWithSvg.map(a => a.id),
+      assetIds:    assetsWithSvg.map((a: { id: string }) => a.id),
       format:      "zip",
       pngScale,
       abPack:      abPack || undefined,
