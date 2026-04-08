@@ -5,6 +5,8 @@
 // consistency for every asset. Runs AFTER AI content generation, BEFORE render.
 // All corrections are deterministic and logged as enforcement events.
 
+import { isValidPresetId, getStylePreset, type StylePresetId } from '@arkiol/shared';
+
 // ── WCAG contrast utilities ───────────────────────────────────────────────────
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace("#", "");
