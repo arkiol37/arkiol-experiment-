@@ -70,11 +70,11 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     // Best path: zones + content stored at generation time
     try {
       elements = convertGenerationToEditorElements(
-        storedZones      as Parameters<typeof convertGenerationToEditorElements>[0],
-        storedSvgContent as Parameters<typeof convertGenerationToEditorElements>[1],
+        storedZones      as unknown as Parameters<typeof convertGenerationToEditorElements>[0],
+        storedSvgContent as unknown as Parameters<typeof convertGenerationToEditorElements>[1],
         canvasW,
         canvasH,
-        onDemandAssets   as Parameters<typeof convertGenerationToEditorElements>[4],
+        onDemandAssets   as unknown as Parameters<typeof convertGenerationToEditorElements>[4],
       );
       conversionMethod = "zone_metadata";
     } catch (err) {
