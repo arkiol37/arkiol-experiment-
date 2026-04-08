@@ -55,7 +55,8 @@ export type CompositionBias =
   | "center_dominant"   // Central focal point
   | "left_heavy"        // Visual weight skewed left
   | "right_heavy"       // Visual weight skewed right
-  | "full_bleed";       // Image fills entire canvas, text overlaid
+  | "full_bleed"        // Image fills entire canvas, text overlaid
+  | "asymmetric_weight"; // Deliberate asymmetric visual weight distribution
 
 export interface PlatformRules {
   platformId: string;
