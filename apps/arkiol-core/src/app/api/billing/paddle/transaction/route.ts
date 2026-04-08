@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
     const priceId  = getPaddlePriceId(planKey);
     const apiKey   = getPaddleApiKey();
     const apiBase  = getPaddleApiBase(mode);
-    const planCfg  = PLANS[planKey];
+    const planCfg  = PLANS[planKey as PlanKey];
 
     // Build Paddle transaction payload (server-side Paddle API call)
     const arkiolEnv = getEnv();
