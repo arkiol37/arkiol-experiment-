@@ -95,7 +95,7 @@ function validateRequest(body: unknown): { valid: true; data: ExploreRequestBody
     return { valid: false, error: "highConfidenceRatio must be between 0 and 1" };
   }
 
-  return { valid: true, data: b as ExploreRequestBody };
+  return { valid: true, data: b as unknown as ExploreRequestBody };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
