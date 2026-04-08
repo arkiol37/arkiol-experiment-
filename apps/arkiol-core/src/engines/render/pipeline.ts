@@ -80,6 +80,9 @@ export class SpendGuardError extends Error {
 
 // ── Pipeline inputs ───────────────────────────────────────────────────────────
 export interface PipelineInput {
+  // Job identity (for logging / error reporting)
+  jobId?:       string;
+
   // Layout identity (all deterministic)
   format:       string;
   stylePreset:  string;
@@ -338,7 +341,7 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
       }, '[pipeline] KILL_SWITCH_ACTIVE — hard-blocking asset engine stage');
       // Re-throw as KillSwitchError so the generation worker handles it
       // with the correct job-failure flow (credit refund, structured error response).
-      throw new KillSwitchError(input.jobId, input.format);
+      throw new KillSwitchError(input.jobId ?? '', input.format);
     }
 
     // ── Global monthly spend guard (HARD BLOCK) ───────────────────────────
@@ -357,7 +360,7 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
         code:         (spendResult as any).code,
       }, '[pipeline] SPEND_GUARD_ACTIVE — hard-blocking asset engine stage');
       throw new SpendGuardError(
-        input.jobId,
+        input.jobId ?? '',
         input.format,
         (spendResult as any).code ?? 'SPEND_GUARD_ACTIVE',
         spendResult.reason
