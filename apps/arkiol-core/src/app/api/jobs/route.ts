@@ -143,7 +143,7 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
   try {
     const creditCost = (job.payload as any)?.expectedCreditCost ?? 0;
     if (creditCost > 0 && job.orgId) {
-      await refundCredits(prisma as any, { orgId: job.orgId, amount: creditCost, reason: "job_cancelled" });
+      await refundCredits(job.orgId, jobId, "job_cancelled", { prisma: prisma as any, logger });
     }
   } catch { /* non-fatal */ }
 
