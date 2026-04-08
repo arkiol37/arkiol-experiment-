@@ -228,12 +228,12 @@ export const PATCH = withErrorHandling(async (req: NextRequest) => {
   });
 
   await createAuditLog({
-    orgId:      dbUser?.orgId ?? "",
-    actorId:    user.id,
-    action:     "team.role_updated",
-    targetId:   updated.id,
-    targetType: "user",
-    metadata:   { previousRole: target.role, newRole: parsed.data.role },
+    orgId:        dbUser?.orgId ?? "",
+    userId:       user.id,
+    action:       "team.role_updated",
+    resourceId:   updated.id,
+    resourceType: "user",
+    metadata:     { previousRole: target.role, newRole: parsed.data.role },
   });
 
   return NextResponse.json({ member: updated });
@@ -258,12 +258,12 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
   await prisma.user.update({ where: { id: memberId }, data: { orgId: null, role: "VIEWER" } });
 
   await createAuditLog({
-    orgId:      dbUser?.orgId ?? "",
-    actorId:    user.id,
-    action:     "team.member_removed",
-    targetId:   memberId,
-    targetType: "user",
-    metadata:   { removedEmail: target.email, removedRole: target.role },
+    orgId:        dbUser?.orgId ?? "",
+    userId:       user.id,
+    action:       "team.member_removed",
+    resourceId:   memberId,
+    resourceType: "user",
+    metadata:     { removedEmail: target.email, removedRole: target.role },
   });
 
   return NextResponse.json({ removed: true, userId: memberId });
