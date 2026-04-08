@@ -35,7 +35,7 @@ export type UltimateFont =
 
 export interface FontVariant {
   family:  UltimateFont;
-  weight:  400 | 600 | 700 | 800 | 900;
+  weight:  300 | 400 | 600 | 700 | 800 | 900;
   style:   "normal" | "italic";
   // Google Fonts API URL pattern for this variant
   googleId: string;
