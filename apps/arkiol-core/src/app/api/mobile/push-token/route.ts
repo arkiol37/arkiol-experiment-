@@ -21,8 +21,8 @@ export async function POST(req: NextRequest) {
 
     await prisma.mobilePushToken.upsert({
       where:  { token },
-      create: { token, platform, userId: user.id },
-      update: { userId: user.id, platform, updatedAt: new Date() },
+      create: { token, platform, userId: user.userId },
+      update: { userId: user.userId, platform, updatedAt: new Date() },
     });
 
     return NextResponse.json({ ok: true });
@@ -37,7 +37,7 @@ export async function DELETE(req: NextRequest) {
     const user = await getMobileUser(req);
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    await prisma.mobilePushToken.deleteMany({ where: { userId: user.id } });
+    await prisma.mobilePushToken.deleteMany({ where: { userId: user.userId } });
 
     return NextResponse.json({ ok: true });
   } catch (err) {
