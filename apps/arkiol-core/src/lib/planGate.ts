@@ -35,7 +35,7 @@ export async function loadOrgSnapshot(orgId: string, userRole?: string, userEmai
       plan:                  'FREE' as any,
       creditBalance:         0,
       dailyCreditBalance:    0,
-      subscriptionStatus:    null,
+      subscriptionStatus:    "",
       gracePeriodEndsAt:     null,
       costProtectionBlocked: false,
     };
