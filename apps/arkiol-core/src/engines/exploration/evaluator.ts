@@ -107,6 +107,7 @@ const HOOK_HIERARCHY_SUPPORT: Record<HookStrategy, number> = {
   pattern_interrupt: 0.55,
   social_proof:      0.70,
   urgency_frame:     0.80,
+  frame_within_frame: 0.78,
 };
 
 const COMPOSITION_HIERARCHY_SUPPORT: Record<CompositionPattern, number> = {
@@ -215,7 +216,8 @@ const HOOK_ATTENTION: Record<HookStrategy, number> = {
   texture_depth:     0.65,
   pattern_interrupt: 0.88,
   social_proof:      0.72,
-  urgency_frame:     0.95,
+  urgency_frame:      0.95,
+  frame_within_frame: 0.82,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
