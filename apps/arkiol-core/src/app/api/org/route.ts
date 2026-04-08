@@ -9,7 +9,7 @@ import { z }                 from "zod";
 import { PLANS, resolvePlan } from "@arkiol/shared";
 
 // ── GET /api/org — get current org ────────────────────────────────────────
-export const GET = withErrorHandling(async (_req: NextRequest) => {
+export const GET = withErrorHandling(async (req: NextRequest) => {
   if (!detectCapabilities().database) return dbUnavailable();
 
   const user   = await getRequestUser(req);
