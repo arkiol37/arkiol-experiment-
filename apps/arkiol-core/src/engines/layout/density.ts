@@ -174,7 +174,7 @@ export function enforceDensityBudget(
   const specMap = new Map(analysis.zones.map(z => [z.zoneId, z]));
 
   return textContents.map(tc => {
-    const spec = specMap.get(tc.zoneId);
+    const spec = specMap.get(tc.zoneId as ZoneId);
     if (!spec) return { ...tc, adjusted: false };
 
     let adjusted  = false;
