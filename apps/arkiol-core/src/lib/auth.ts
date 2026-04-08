@@ -320,6 +320,7 @@ export const PERMISSIONS = {
   VIEW_AUDIT_LOGS:  ['SUPER_ADMIN', 'ADMIN'],
   EXPORT_ASSETS:    ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'DESIGNER'],
   USE_AUTOMATION:   ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
+  MANAGE_WEBHOOKS:  ['SUPER_ADMIN', 'ADMIN', 'MANAGER'],
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
