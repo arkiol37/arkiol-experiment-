@@ -115,7 +115,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const user             = await getRequestUser(req);
   requirePermission(user.role, "MANAGE_WEBHOOKS");
 
-  const rl = await rateLimit(user.id, "default");
+  const rl = await rateLimit(user.id, "webhook");
   if (!rl.success) {
     return NextResponse.json({ error: "Rate limit exceeded." }, { status: 429, headers: rateLimitHeaders(rl) });
   }
