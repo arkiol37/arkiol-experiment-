@@ -569,7 +569,7 @@ export const THEMES: DesignTheme[] = [
 ];
 
 // ── Theme selection ───────────────────────────────────────────────────────────
-export function selectTheme(brief: BriefAnalysis): DesignTheme {
+export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme {
   const scored = THEMES.map(theme => {
     let score = 0;
     if (theme.tones.includes(brief.tone))           score += 4;
@@ -580,7 +580,10 @@ export function selectTheme(brief: BriefAnalysis): DesignTheme {
     return { theme, score };
   });
   scored.sort((a, b) => b.score - a.score || a.theme.id.localeCompare(b.theme.id));
-  return scored[0].theme;
+  // Use variationIdx to pick different themes — each variation gets a
+  // distinct look instead of always returning the top-scored theme.
+  const pick = variationIdx % scored.length;
+  return scored[pick].theme;
 }
 
 export function applyBrandColors(

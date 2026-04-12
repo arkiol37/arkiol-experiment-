@@ -508,7 +508,8 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     spec.zones,
     enrichedBrief,
     input.format,
-    input.brand
+    input.brand,
+    input.variationIdx,
   );
   violations.push(...buildResult.violations);
 

@@ -48,7 +48,7 @@ function svgCacheSet(key: string, result: BuildResult): void {
   }
   _svgContentCache.set(key, { result, expiresAt: Date.now() + CACHE_TTL_MS });
 }
-function buildCacheKey(brief: BriefAnalysis, format: string, brandPrimary?: string): string {
+function buildCacheKey(brief: BriefAnalysis, format: string, brandPrimary?: string, variationIdx = 0): string {
   return createHash('sha256')
     .update(JSON.stringify({
       headline:  brief.headline,
@@ -57,6 +57,7 @@ function buildCacheKey(brief: BriefAnalysis, format: string, brandPrimary?: stri
       colorMood: brief.colorMood,
       format,
       brandPrimary: brandPrimary ?? '',
+      variationIdx,
     }))
     .digest('hex');
 }
@@ -109,16 +110,17 @@ function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: numb
 
 export async function buildUltimateSvgContent(
   zones: Zone[], brief: BriefAnalysis, format: string,
-  brand?: { primaryColor: string; secondaryColor: string; fontDisplay: string }
+  brand?: { primaryColor: string; secondaryColor: string; fontDisplay: string },
+  variationIdx = 0,
 ): Promise<BuildResult> {
   // ── Cache lookup — skip GPT call on hit (bulk generation speedup) ─────────
-  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor);
+  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx);
   const cached   = svgCacheGet(cacheKey);
   if (cached) return cached;
 
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
-  let theme    = selectTheme(brief);
+  let theme    = selectTheme(brief, variationIdx);
   if (brand) theme = applyBrandColors(theme, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
 
   const contentZoneLines = zones

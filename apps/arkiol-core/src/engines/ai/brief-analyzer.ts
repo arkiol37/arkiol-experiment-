@@ -87,7 +87,7 @@ Rules:
         { role: "system", content: systemPrompt },
         { role: "user",   content: `Campaign brief: ${prompt}` },
       ],
-      { model: "gpt-4o", temperature: 0.3, max_tokens: 800 }
+      { model: "gpt-4o", temperature: 0.7, max_tokens: 800 }
     ),
     { maxAttempts: 3, baseDelayMs: 1000 }
   );
