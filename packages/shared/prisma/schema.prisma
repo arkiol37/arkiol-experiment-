@@ -1,0 +1,1439 @@
+// packages/shared/prisma/schema.prisma
+// ══════════════════════════════════════════════════════════════════════════════
+// ARKIOL AI v14 — SINGLE AUTHORITATIVE DATABASE SCHEMA
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// This is the ONE and ONLY Prisma schema for the entire Arkiol AI v14 platform.
+//
+// All Prisma operations MUST reference this file:
+//   prisma generate  --schema=packages/shared/prisma/schema.prisma
+//   prisma migrate   --schema=packages/shared/prisma/schema.prisma
+//   prisma deploy    --schema=packages/shared/prisma/schema.prisma
+//   prisma studio    --schema=packages/shared/prisma/schema.prisma
+//
+// The file at apps/arkiol-core/prisma/schema.prisma is a read-only proxy stub
+// for IDE tooling only — it contains no model definitions and MUST NOT be used
+// by any build, migration, seed, or CI command.
+//
+// Shared by: Arkiol Core (Next.js) + Animation Studio (Express)
+// Auth, Billing, Credits, RBAC, AI engines — all owned here.
+//
+// ══════════════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ENUMS
+// ══════════════════════════════════════════════════════════════════════════════
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  DESIGNER
+  REVIEWER
+  VIEWER
+}
+
+// Aligned with checklist §3.1: Free | Creator | Pro | Studio
+// STARTER and ENTERPRISE are DEAD values — no new rows use them.
+// They cannot be dropped without a full enum replacement in PostgreSQL,
+// so they remain as tombstones. The 20260313_plan_enum_backfill migration
+// ensures all existing rows have been remapped to canonical values.
+// Application code: resolvePlan() in plans.ts normalises them at runtime.
+enum Plan {
+  FREE
+  CREATOR
+  PRO
+  STUDIO
+  // @deprecated — retained for PostgreSQL tombstone; no new rows
+  STARTER
+  // @deprecated — retained for PostgreSQL tombstone; no new rows
+  ENTERPRISE
+}
+
+enum SubStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+  INCOMPLETE
+}
+
+// Credit transaction types — checklist §4.2
+enum CreditTxType {
+  grant_cycle
+  daily_grant
+  consume
+  refund
+  topup
+  rollover_grant
+  rollover_expire
+  adjustment
+}
+
+// Credit reason categories — checklist §4.2
+// Covers all CreditCostKey values used by credits.ts consumeCredits / deductCredits.
+enum CreditReason {
+  static
+  static_hq
+  gif
+  asset_on_demand
+  asset_on_demand_hq
+  asset_on_demand_refund
+  // Launch generation modes
+  normal_ad        // Normal Ads (2D)    — 20 credits
+  cinematic_ad     // Cinematic Ads (2.5D) — 35 credits
+  // Studio/alias credit reasons (kept for backward-compat with existing DB rows)
+  video_std        // alias → normal_ad (20 cr)
+  video_hq         // alias → cinematic_ad (35 cr)
+  // Removed (pre-launch): asset_3d, video_long
+  export_zip
+  admin_adjust
+}
+
+// Job state machine — checklist §6.1
+// Legacy aliases PENDING / COMPLETED / CANCELLED retained so existing code compiles.
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+  REFUNDED
+  PENDING
+  COMPLETED
+  CANCELLED
+}
+
+enum JobType {
+  GENERATE_ASSETS
+  RENDER_GIF
+  RENDER_VIDEO_STD
+  RENDER_VIDEO_HQ
+  // Launch job types
+  RENDER_NORMAL_AD      // Normal Ads (2D)    — 20 credits
+  RENDER_CINEMATIC_AD   // Cinematic Ads (2.5D) — 35 credits
+  COMPILE_CAMPAIGN
+  EXPORT_BUNDLE
+  BATCH_GENERATE     // Bulk generation batch — fans out to N GENERATE_ASSETS jobs
+  BRAND_RETRAIN
+  WEBHOOK_DELIVERY
+  // Studio job types
+  STUDIO_RENDER_2D      // alias → normal_ad
+  STUDIO_RENDER_CINEMATIC // alias → cinematic_ad
+  STUDIO_EXPORT
+  // Removed (pre-launch): RENDER_VIDEO_LONG, STUDIO_RENDER_3D
+}
+
+// Onboarding product mode selector — checklist §8.1
+enum ProductMode {
+  CREATOR
+  STUDIO
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// USERS & AUTH
+// ══════════════════════════════════════════════════════════════════════════════
+
+model User {
+  id               String      @id @default(cuid())
+  email            String      @unique
+  name             String?
+  image            String?
+  passwordHash     String?
+  resetToken       String?     @unique
+  resetTokenExpiry DateTime?
+  role             Role        @default(DESIGNER)
+  orgId            String?
+  org              Org?        @relation(fields: [orgId], references: [id])
+  productMode      ProductMode @default(CREATOR)
+  onboardingDone   Boolean     @default(false)
+
+  accounts     Account[]
+  sessions     Session[]
+  assets       Asset[]
+  jobs         Job[]
+  batchJobs    BatchJob[]
+  apiKeys      ApiKey[]
+  usageRecords Usage[]
+  editorDrafts        EditorDraft[]
+  brandUploadedAssets BrandUploadedAsset[]
+  mobilePushTokens    MobilePushToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([email])
+  @@map("user")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("account")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_token")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ORGANISATIONS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Org {
+  id   String @id @default(cuid())
+  name String
+  slug String @unique
+
+  // Subscription
+  plan               Plan      @default(FREE)
+  subscriptionStatus SubStatus @default(ACTIVE)
+  trialEndsAt        DateTime?
+  billingCycleAnchor DateTime?
+  currentCycleStart  DateTime?
+  currentCycleEnd    DateTime?
+
+  // Legacy credit tracking (retained for migration compat)
+  creditLimit  Int @default(500)
+  creditsUsed  Int @default(0)
+  creditsHeld  Int @default(0)
+
+  // Cost budget cap (C3: hard monthly credit spend cap, null = no cap)
+  budgetCapCredits Int?
+
+  // V16: On-demand asset counters
+  onDemandAssetsGeneratedMonth Int       @default(0)
+  lastOnDemandResetAt          DateTime?
+
+  // Stripe billing
+  stripeCustomerId     String? @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId        String?
+
+  // Paddle billing (active when BILLING_PROVIDER=paddle)
+  paddleCustomerId     String? @unique
+  paddleSubscriptionId String? @unique
+  paddlePriceId        String?
+  monthlyPriceUsd      Int?
+
+  // Feature flags — checklist §3.2 (backend-enforced, not just UI)
+  canUseStudioVideo  Boolean @default(false)
+  canUseGifMotion    Boolean @default(false)
+  canBatchGenerate   Boolean @default(false)
+  canUseZipExport    Boolean @default(false)
+  canUseAutomation   Boolean @default(false)
+  maxConcurrency     Int     @default(1)
+  // V17: explicit per-org opt-in for Brand Learning (passive signals only)
+  brandLearningEnabled Boolean @default(false)
+  queuePriority        Int     @default(0)
+  maxDailyVideoJobs    Int     @default(0)
+  maxFormatsPerRun     Int     @default(1)
+  maxVariationsPerRun  Int     @default(1)
+  maxExportResolution  String  @default("1080p")
+  freeWatermarkEnabled Boolean @default(true)
+  freeDailyCreditsPerDay Int   @default(3)
+  freeMonthlyCapCredits  Int   @default(60)
+
+  // Credit wallet (cached; source of truth is credit_transactions ledger)
+  creditBalance      Int      @default(0)
+  dailyCreditBalance Int      @default(0)
+  dailyCreditLastReset DateTime?
+
+  // Auto-refill — checklist §4.7
+  autoRefillEnabled Boolean @default(false)
+  refillThreshold   Int?
+  refillPackId      String?
+
+  // Cost-protection — checklist §6.4
+  dailySpendCapUsd      Float?
+  dailySpendUsd         Float    @default(0)
+  dailySpendDate        DateTime?
+  costProtectionBlocked Boolean  @default(false)
+
+  // Misc
+  ssoEnabled  Boolean @default(false)
+  mfaRequired Boolean @default(false)
+
+  // Grace period tracking — checklist §5.4
+  gracePeriodEndsAt DateTime?
+
+  members           User[]
+  brands            Brand[]
+  campaigns         Campaign[]
+  webhooks          Webhook[]
+  billingEvents     BillingEvent[]
+  auditLogs         AuditLog[]
+  editorDrafts      EditorDraft[]
+  creditTxs         CreditTransaction[]
+  jobs              Job[]
+  batchJobs         BatchJob[]
+  studioProjects    StudioProject[]
+  contentPacks      ContentPack[]
+  aiFeedbackEvents  AIFeedbackEvent[]
+  aiGeneratedAssets AIGeneratedAsset[]
+  explorationRuns   ExplorationRun[]
+  brandUploadedAssets BrandUploadedAsset[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("org")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CREDIT LEDGER — checklist §4.1–4.9
+// ══════════════════════════════════════════════════════════════════════════════
+
+model CreditTransaction {
+  id             String       @id @default(cuid())
+  orgId          String
+  org            Org          @relation(fields: [orgId], references: [id])
+  type           CreditTxType
+  amount         Int
+  unit           String       @default("credits")
+  reason         CreditReason
+  refId          String?
+  idempotencyKey String       @unique
+  expiresAt      DateTime?
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([orgId, type])
+  @@index([refId])
+  @@map("credit_transaction")
+}
+
+model CreditPack {
+  id            String   @id @default(cuid())
+  name          String
+  credits       Int
+  priceUsd      Int
+  stripePriceId String?
+  expiryDays    Int?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  @@map("credit_pack")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EDITOR DRAFTS (autosave + crash recovery)
+// ══════════════════════════════════════════════════════════════════════════════
+
+model EditorDraft {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId     String?
+  org       Org?     @relation(fields: [orgId], references: [id])
+  projectId String
+  type      String
+  label     String?
+  elements  Json
+  createdAt DateTime @default(now())
+
+  @@index([userId, projectId])
+  @@index([userId, type, projectId])
+  @@index([projectId, orgId])
+  @@map("editor_draft")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BRAND DNA
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Brand {
+  id               String  @id @default(cuid())
+  orgId            String
+  org              Org     @relation(fields: [orgId], references: [id])
+  name             String
+  primaryColor     String  @default("#4f6ef7")
+  secondaryColor   String  @default("#a855f7")
+  accentColors     String[] @default([])
+  fontDisplay      String  @default("Georgia")
+  fontBody         String  @default("Arial")
+  fontMono         String  @default("Courier New")
+  voiceAttribs     Json    @default("{}")
+  logoUrl          String?
+  assetSamples     String[] @default([])
+  modelVersion     Int     @default(0)
+  consistencyScore Float   @default(0)
+  learningSignals  Json?
+  campaigns        Campaign[]
+  studioProjects   StudioProject[]
+  brandUploadedAssets BrandUploadedAsset[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("brand")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CAMPAIGNS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Campaign {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id])
+  brandId     String?
+  brand       Brand?    @relation(fields: [brandId], references: [id])
+  name        String
+  prompt      String    @db.Text
+  stylePreset String    @default("modern_minimal")
+  formats     String[]
+  status      String    @default("PENDING")
+  assets      Asset[]
+  jobs        Job[]
+  channels    String[]  @default([])
+  scheduledAt DateTime?
+  completedAt DateTime?
+  creditCost  Int       @default(0)
+  metadata    Json      @default("{}")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId])
+  @@index([status])
+  @@map("campaign")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ASSETS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Asset {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  orgId          String?
+  campaignId     String?
+  campaign       Campaign? @relation(fields: [campaignId], references: [id])
+  name           String
+  format         String
+  category       String
+  mimeType       String
+  s3Key          String
+  s3Bucket       String
+  s3Path         String?
+  width          Int
+  height         Int
+  fileSize       Int
+  tags           String[]  @default([])
+  layoutFamily   String?
+  svgSource      String?   @db.Text
+  metadata       Json      @default("{}")
+  brandScore     Float     @default(0)
+  hierarchyValid Boolean   @default(true)
+  retainUntil    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([campaignId])
+  @@index([format])
+  @@map("asset")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// JOBS — unified for Core and Studio
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Job {
+  id               String    @id @default(cuid())
+  type             String
+  status           String    @default("QUEUED")
+  userId           String
+  user             User      @relation(fields: [userId], references: [id])
+  orgId            String
+  org              Org       @relation(fields: [orgId], references: [id])
+  campaignId       String?
+  campaign         Campaign? @relation(fields: [campaignId], references: [id])
+  studioProjectId  String?
+  studioProject    StudioProject? @relation(fields: [studioProjectId], references: [id])
+
+  payload        Json
+  result         Json?
+  progress       Int     @default(0)
+  attempts       Int     @default(0)
+  maxAttempts    Int     @default(3)
+  idempotencyKey String? @unique
+
+  // Credit tracking — checklist §6.2
+  creditCost      Int     @default(0)
+  creditDeducted  Boolean @default(false)
+  creditRefunded  Boolean @default(false)
+  creditFinalized Boolean @default(false)
+
+  // Cost-protection — checklist §6.4
+  estimatedProviderCostUsd Float?
+  actualProviderCostUsd    Float?
+
+  startedAt   DateTime?
+  completedAt DateTime?
+  failedAt    DateTime?
+  canceledAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@map("job")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ANIMATION STUDIO PROJECTS — checklist §10
+// ══════════════════════════════════════════════════════════════════════════════
+
+model StudioProject {
+  id          String  @id @default(cuid())
+  orgId       String
+  org         Org     @relation(fields: [orgId], references: [id])
+  brandId     String?
+  brand       Brand?  @relation(fields: [brandId], references: [id])
+  name        String
+  description String? @db.Text
+  status      String  @default("draft")
+  settings    Json    @default("{}")
+  jobs        Job[]
+  deletedAt   DateTime?
+  deletedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, deletedAt])
+  @@map("studio_project")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// API KEYS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  permissions String[]  @default(["generate", "read"])
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  isRevoked   Boolean   @default(false)
+  dailyLimit  Int?
+  createdAt   DateTime  @default(now())
+
+  @@index([keyHash])
+  @@index([userId])
+  @@map("api_key")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// USAGE (lightweight event log for analytics)
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Usage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String
+  credits   Int
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("usage")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONTENT OS — checklist §9
+// ══════════════════════════════════════════════════════════════════════════════
+
+model ContentPack {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id])
+  name      String
+  theme     String
+  daysCount Int      @default(30)
+  items     Json     @default("[]")
+  status    String   @default("generating")
+  zipS3Key  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@map("content_pack")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WEBHOOKS
+// ══════════════════════════════════════════════════════════════════════════════
+
+model Webhook {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id])
+  url         String
+  secret      String
+  events      String[]
+  isActive    Boolean   @default(true)
+  failCount   Int       @default(0)
+  lastSuccess DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId])
+  @@map("webhook")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BILLING EVENTS — checklist §5.1
+// ══════════════════════════════════════════════════════════════════════════════
+
+model BillingEvent {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id])
+  stripeEvent String
+  type        String
+  payload     Json
+  processed   Boolean   @default(false)
+  processedAt DateTime?
+  error       String?   @db.Text
+  createdAt   DateTime  @default(now())
+
+  @@unique([stripeEvent])
+  @@index([orgId])
+  @@index([type])
+  @@index([processed, createdAt])
+  @@map("billing_event")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AUDIT LOG — checklist §12
+// ══════════════════════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id])
+  actorId    String
+  action     String
+  targetId   String?
+  targetType String?
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([orgId, createdAt])
+  @@index([actorId])
+  @@index([action])
+  @@map("audit_log")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// V16: AI FEEDBACK EVENTS — learning, A/B, benchmarking
+// ══════════════════════════════════════════════════════════════════════════════
+
+model AIFeedbackEvent {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  sessionId    String
+  jobId        String?
+  assetId      String?
+  eventType    String
+  format       String?
+  planKey      String?
+  variationIdx Int?
+  durationMs   Int?
+  qualityScore   Float?
+  userId         String?
+  layoutFamily   String?
+  stylePreset    String?
+  similarityHash String?
+  metadata       Json     @default("{}")
+  occurredAt     DateTime @default(now())
+
+  @@index([orgId])
+  @@index([eventType])
+  @@index([occurredAt(sort: Desc)])
+  @@index([similarityHash])
+  @@map("ai_feedback_event")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// V16: GENERATED ASSETS CACHE — similarity reuse + CDN
+// ══════════════════════════════════════════════════════════════════════════════
+
+model AIGeneratedAsset {
+  id                 String   @id @default(cuid())
+  orgId              String
+  org                Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  jobId              String?
+  assetType          String
+  quality            String
+  source             String
+  url                String
+  cdnUrl             String?
+  signedUrl          String?
+  signedUrlExpiresAt DateTime?
+  width              Int
+  height             Int
+  mimeType           String
+  maskUrl            String?
+  palette            Json     @default("[]")
+  perspectiveFit     Boolean  @default(false)
+  safetyValidated    Boolean  @default(false)
+  similarityHash     String?
+  promptUsed         String?  @db.Text
+  reuseCount         Int      @default(0)
+  creditCost         Int      @default(0)
+  providerCostUsd    Float    @default(0)
+  durationMs         Int      @default(0)
+  metadata           Json     @default("{}")
+  createdAt          DateTime @default(now())
+
+  // Asset Graph fields — used by control plane lineage tracking
+  brandId      String?
+  campaignId   String?
+  layoutFamily String?
+  stylePreset  String?
+  generatedAt  DateTime @default(now())
+
+  @@index([orgId])
+  @@index([orgId, similarityHash])
+  @@index([orgId, quality])
+  @@index([createdAt(sort: Desc)])
+  @@index([orgId, reuseCount(sort: Desc)])
+  @@index([orgId, brandId])
+  @@index([orgId, campaignId])
+  @@index([layoutFamily])
+  @@index([stylePreset])
+  @@map("ai_generated_asset")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MONITORING ALERT LOG
+// ══════════════════════════════════════════════════════════════════════════════
+
+model AlertLog {
+  id         String    @id
+  alertType  String
+  severity   String
+  title      String
+  message    String
+  orgId      String?
+  jobId      String?
+  value      Float?
+  threshold  Float?
+  metadata   Json      @default("{}")
+  resolvedAt DateTime?
+  firedAt    DateTime  @default(now())
+
+  @@index([severity, firedAt(sort: Desc)])
+  @@index([orgId, firedAt(sort: Desc)])
+  @@index([alertType, firedAt(sort: Desc)])
+  @@map("alert_log")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AI BENCHMARKING & CONTINUOUS IMPROVEMENT
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Per-asset render quality benchmark (append-only)
+model AIBenchmarkRecord {
+  id             String   @id
+  assetId        String
+  jobId          String
+  orgId          String
+  format         String
+  variationIdx   Int
+  stylePreset    String
+  outputFormat   String
+  overallScore   Float
+  brandAlignment Float
+  hierarchyScore Float
+  densityScore   Float
+  contrastScore  Float
+  violationCount Int
+  pipelineMs     Int
+  anyFallback    Boolean  @default(false)
+  layoutFamily   String
+  abVariants     Json     @default("{}")
+  stagePerfs     Json     @default("[]")
+  // Cost tracking fields
+  costGateBlocked Boolean         @default(false)
+  costEstimateUsd Float?
+  renderedAt      DateTime
+
+  // Control plane fields — added by v2 migration
+  routingMode     String?
+  stageBreakdown  Json     @default("[]")
+  routingDecisions Json    @default("{}")
+  fallbackCount   Int      @default(0)
+  totalCostUsd    Float    @default(0)
+  userSelected    Boolean  @default(false)
+  userExported    Boolean  @default(false)
+  userSelectedAt  DateTime?
+
+  @@index([orgId, renderedAt])
+  @@index([jobId])
+  @@index([format, orgId])
+  @@index([stylePreset, orgId])
+  @@index([routingMode])
+  @@index([userSelected])
+  @@index([overallScore])
+  @@map("ai_benchmark_record")
+}
+
+// Per-job aggregated benchmark summary
+model AIJobSummary {
+  jobId             String   @id
+  orgId             String
+  assetCount        Int
+  avgOverallScore   Float
+  avgPipelineMs     Int
+  avgBrandScore     Float
+  avgHierarchyScore Float
+  fallbackRate      Float
+  violationRate     Float
+  worstStage        String?
+  abVariants        Json     @default("{}")
+  completedAt       DateTime
+
+  @@index([orgId, completedAt])
+  @@map("ai_job_summary")
+}
+
+// Rolling style performance per org (upserted on each render)
+model AIStylePerformance {
+  id              String   @id
+  orgId           String
+  stylePreset     String
+  sampleCount     Int      @default(0)
+  avgQualityScore Float    @default(0)
+  avgPipelineMs   Float    @default(0)
+  avgViolations   Float    @default(0)
+  trend           String   @default("insufficient_data")
+  lastUpdated     DateTime @updatedAt
+
+  @@unique([orgId, stylePreset])
+  @@index([orgId])
+  @@map("ai_style_performance")
+}
+
+// Rolling format performance per org (upserted on each render)
+model AIFormatPerformance {
+  id              String   @id
+  orgId           String
+  format          String
+  sampleCount     Int      @default(0)
+  avgQualityScore Float    @default(0)
+  fallbackRate    Float    @default(0)
+  topLayoutFamily String?
+  lastUpdated     DateTime @updatedAt
+
+  @@unique([orgId, format])
+  @@index([orgId])
+  @@map("ai_format_performance")
+}
+
+// A/B experiment results per org × experiment × variant
+model AIABResult {
+  id              String   @id
+  orgId           String
+  experimentName  String
+  variant         String
+  sampleCount     Int      @default(0)
+  avgQualityScore Float    @default(0)
+  avgPipelineMs   Float    @default(0)
+  lastUpdated     DateTime @updatedAt
+
+  @@unique([orgId, experimentName, variant])
+  @@index([orgId, experimentName])
+  @@map("ai_ab_result")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AI PIPELINE TRACES — per-job metadata + per-stage execution records
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Structured per-stage pipeline traces per job
+model AIJobMetadata {
+  id                  String   @id
+  jobId               String   @unique
+  orgId               String
+  stageTimings        Json     @default("{}")
+  stageDecisions      Json     @default("{}")
+  fallbackReasons     Json     @default("[]")
+  abAssignments       Json     @default("{}")
+  stageOutputs        Json     @default("{}")
+  costGateResults     Json     @default("[]")
+  observabilityEvents Json     @default("[]")
+  overallScore        Float    @default(0)
+  totalAssets         Int      @default(0)
+  totalFallbacks      Int      @default(0)
+  totalViolations     Int      @default(0)
+  totalPipelineMs     Int      @default(0)
+  killSwitchActive             Boolean  @default(false)
+  globalSpendBlocked           Boolean  @default(false)
+  estimatedProviderCostUsd     Float?
+  actualProviderCostUsd        Float?
+  fallbackTriggers             Json     @default("[]")
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([overallScore])
+  @@map("ai_job_metadata")
+}
+
+// Per-stage per-asset execution record (append-only)
+model AIStageTrace {
+  id             String   @id
+  jobId          String
+  assetId        String
+  orgId          String
+  stageId        String
+  stageIdx       Int      @default(0)
+  durationMs     Int      @default(0)
+  ok             Boolean  @default(true)
+  fallback       Boolean  @default(false)
+  fallbackReason String?
+  decision       String?
+  inputHash      String?
+  outputSummary  Json     @default("{}")
+  errorMessage     String?
+  estimatedCostUsd Float?
+  actualCostUsd    Float?
+  createdAt        DateTime @default(now())
+
+  @@index([jobId])
+  @@index([assetId])
+  @@index([orgId, stageId])
+  @@index([fallback])
+  @@map("ai_stage_trace")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CREATIVE EXPLORATION AI ENGINE — persistence layer
+// ══════════════════════════════════════════════════════════════════════════════
+
+// One row per runExploration() call — audit + replay
+model ExplorationRun {
+  id                     String   @id
+  orgId                  String
+  org                    Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  jobId                  String?
+  brandId                String?
+  campaignId             String?
+  seed                   String
+  format                 String
+  poolSize               Int
+  targetResultCount      Int
+  highConfidenceCount    Int      @default(0)
+  experimentalCount      Int      @default(0)
+  totalExploreMs         Int      @default(0)
+  avgCompositeScore      Float    @default(0)
+  avgNoveltyScore        Float    @default(0)
+  explorationTemperature Float    @default(0.75)
+  stats                  Json?
+  pipelineContext        Json?
+  startedAt              DateTime  @default(now())
+  createdAt              DateTime  @default(now())
+  candidates             ExplorationCandidate[]
+
+  @@index([orgId])
+  @@index([jobId])
+  @@index([brandId])
+  @@index([campaignId])
+  @@index([createdAt(sort: Desc)])
+  @@map("exploration_runs")
+}
+
+// Individual candidates from each exploration run
+model ExplorationCandidate {
+  id               String         @id
+  runId            String
+  run              ExplorationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  orgId            String
+  generationIndex  Int
+  format           String
+  genome           Json
+  scores           Json?
+  noveltyScore     Float?
+  explorationScore Float?
+  confidenceTier   String?
+  rank             Int?
+  constraintPassed Boolean        @default(false)
+  accepted         Boolean        @default(false)
+  score            Float          @default(0)
+  repairLog        Json?
+  featureVector    Json?
+  createdAt        DateTime       @default(now())
+
+  @@index([runId])
+  @@index([orgId])
+  @@index([confidenceTier])
+  @@map("exploration_candidates")
+}
+
+// Feedback signals from user interactions — drives bandit learning
+model ExplorationFeedback {
+  id          String   @id
+  userId      String
+  orgId       String
+  brandId     String?
+  campaignId  String?
+  candidateId String
+  runId       String?
+  genome      Json
+  scores      Json
+  signalType  String
+  weight      Float
+  format      String
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
+  @@index([userId])
+  @@index([brandId])
+  @@index([createdAt(sort: Desc)])
+  @@index([signalType])
+  @@map("exploration_feedback")
+}
+
+// Per-org/brand bandit priors (upserted on every feedback batch)
+model ExplorationPrior {
+  id           String   @id
+  orgId        String
+  brandId      String?
+  priors       Json
+  priorVector  Json     @default("[]")
+  totalSignals Int      @default(0)
+  totalRuns    Int      @default(0)
+  avgScore     Float    @default(0)
+  updatedAt    DateTime @default(now()) @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@unique([orgId, brandId])
+  @@index([orgId])
+  @@index([brandId])
+  @@map("exploration_priors")
+}
+
+// Cross-session novelty archive (feature vectors, max 500 per org/brand)
+model ExplorationNoveltyArchive {
+  id          String   @id
+  orgId       String
+  brandId     String?
+  vectors     Json     @default("[]")
+  vectorCount Int      @default(0)
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@unique([orgId, brandId])
+  @@index([orgId])
+  @@map("exploration_novelty_archive")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BRAND ASSET LIBRARY — v13 Brand Asset → 2D Ad Video Generation System
+// ══════════════════════════════════════════════════════════════════════════════
+
+enum BrandAssetType {
+  logo
+  product
+  screenshot
+  packaging
+  pattern
+  icon
+  other
+}
+
+enum BrandAssetUsageRole {
+  logo_slot
+  product_slot
+  screenshot_slot
+  brand_reveal_slot
+  background_slot
+  accent_slot
+}
+
+enum BrandAssetProcessingStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+/// A user-uploaded brand asset (logo, product photo, screenshot, etc.)
+/// that has been processed by the AI pipeline and is ready for injection
+/// into 2D ad video scenes.
+model BrandUploadedAsset {
+  id     String @id @default(cuid())
+  orgId  String
+  org    Org    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  brandId String?
+  brand   Brand? @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  userId  String
+  user    User   @relation(fields: [userId], references: [id])
+
+  // ── Upload metadata ──────────────────────────────────────────────────────
+  name         String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  width        Int?
+  height       Int?
+  s3Key        String
+  s3Bucket     String
+  cdnUrl       String?
+  thumbnailUrl String?
+
+  // ── AI Classification ────────────────────────────────────────────────────
+  assetType                  BrandAssetType             @default(other)
+  usageRole                  BrandAssetUsageRole?
+  userRoleOverride           BrandAssetUsageRole?
+  classificationConfidence   Float                      @default(0)
+  aiAnalysis                 Json                       @default("{}")
+
+  // ── Processing Pipeline ──────────────────────────────────────────────────
+  processingStatus           BrandAssetProcessingStatus @default(pending)
+  processingStartedAt        DateTime?
+  processingCompletedAt      DateTime?
+  processingAttempts         Int                        @default(0)
+  processingError            String?                    @db.Text
+  pipelineStages             Json                       @default("{}")
+
+  // ── Processed Variants ───────────────────────────────────────────────────
+  // Background-removed cutout
+  cutoutS3Key   String?
+  cutoutCdnUrl  String?
+  // Vectorized SVG (optional)
+  vectorS3Key   String?
+  vectorCdnUrl  String?
+  // Color-enhanced version
+  enhancedS3Key String?
+  enhancedCdnUrl String?
+
+  // ── Brand Colors ─────────────────────────────────────────────────────────
+  extractedPalette Json    @default("[]")
+  primaryColor     String?
+  hasAlpha         Boolean @default(false)
+  subjectBbox      Json?
+
+  // ── Motion Intelligence ──────────────────────────────────────────────────
+  recommendedMotion     String?
+  recommendedTransition String?
+  scenePlacementHints   Json    @default("{}")
+
+  // ── Soft delete ──────────────────────────────────────────────────────────
+  deletedAt DateTime?
+  deletedBy String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([brandId])
+  @@index([userId])
+  @@index([assetType])
+  @@index([processingStatus])
+  @@index([orgId, processingStatus])
+  @@index([createdAt(sort: Desc)])
+  @@map("brand_uploaded_asset")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MOBILE PUSH TOKENS — Arkiol Mobile V2
+// Stores Expo push tokens for server-side push notification delivery.
+// ══════════════════════════════════════════════════════════════════════════════
+
+model MobilePushToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  platform  String   // "ios" | "android"
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("mobile_push_token")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AI ENGINE CONTROL PLANE — v2 Models
+// These models back the production-grade control plane governance system.
+// Each has a distinct, non-overlapping responsibility.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Engine Registration Audit Log
+// Append-only boot record of every engine contract ever registered.
+// Enables version history and regression attribution across deploys.
+model EngineRegistration {
+  id               String   @id @default(cuid())
+  name             String
+  version          String
+  purpose          String
+  executionStage   String
+  costClass        String
+  fallbackStrategy String
+  latencyTargetMs  Int
+  idempotent       Boolean  @default(true)
+  parallelSafe     Boolean  @default(false)
+  featureGated     Boolean  @default(false)
+  featureFlagKey   String?
+  alwaysRun        Boolean  @default(false)
+  registeredAt     DateTime @default(now())
+
+  @@unique([name, version])
+  @@index([name])
+  @@index([executionStage])
+  @@map("engine_registrations")
+}
+
+// Routing Plan Audit Log
+// Immutable record of every routing decision made before execution.
+// Written by persistRoutingPlan() BEFORE any stage runs.
+// Enables post-hoc "why did this job skip BrandDNAExtractor?" queries.
+model RoutingPlanLog {
+  id                  String   @id
+  jobId               String
+  orgId               String
+  mode                String
+  enabledEngines      String[]
+  disabledEngines     String[]
+  explorationParallel Boolean  @default(false)
+  budgetMs            Int
+  budgetUsd           Float
+  rationale           Json     @default("[]")
+  routedAt            DateTime @default(now())
+
+  @@index([jobId])
+  @@index([orgId])
+  @@index([mode])
+  @@index([routedAt])
+  @@map("routing_plan_logs")
+}
+
+// Job Checkpoint — Authoritative Crash Recovery Source
+// One row per job, upserted after each successful pipeline stage.
+// The ControlPlaneExecutor reads this on retry to skip completed stages.
+// DISTINCT from AIJobMetadata (which is observability-only).
+model JobCheckpoint {
+  id              String   @id @default(cuid())
+  jobId           String   @unique
+  orgId           String
+  stage           String
+  stageIdx        Int
+  stageOutputs    Json     @default("{}")
+  completedStages String[]
+  checkpointKey   String
+  attemptNumber   Int      @default(1)
+  savedAt         DateTime @default(now())
+
+  @@index([orgId])
+  @@index([savedAt])
+  @@map("job_checkpoints")
+}
+
+// Dead-Letter Job Table — Append-Only
+// Written by crashSafety.sendToDeadLetter() when a job exhausts retries
+// or encounters a permanent-class error code. Never deleted — audit trail.
+model DeadLetterJob {
+  id             String    @id @default(cuid())
+  jobId          String
+  orgId          String
+  userId         String
+  jobType        String    @default("generation")
+  errorCode      String
+  errorMessage   String
+  failureClass   String
+  attemptCount   Int       @default(0)
+  creditCost     Int       @default(0)
+  creditRefunded Boolean   @default(false)
+  payload        Json      @default("{}")
+  diagnostics    Json      @default("{}")
+  replayedAt     DateTime?
+  replayedBy     String?
+  deadLetteredAt DateTime  @default(now())
+
+  @@index([jobId])
+  @@index([orgId])
+  @@index([errorCode])
+  @@index([failureClass])
+  @@index([deadLetteredAt])
+  @@map("dead_letter_jobs")
+}
+
+// Asset Relationship Graph — Real Persisted Edges
+// Explicit lineage edges between all first-class platform entities.
+// Written by assetGraph.recordAssetRelationships() after every generation.
+// NOT inferred at query time — edges are authoritative at write time.
+// fromId+toId+relationship is unique (upsert-safe).
+model AssetRelationship {
+  id           String   @id @default(cuid())
+  orgId        String
+  fromId       String
+  fromType     String
+  toId         String
+  toType       String
+  relationship String
+  weight       Float    @default(1.0)
+  metadata     Json     @default("{}")
+  recordedAt   DateTime @default(now())
+
+  @@unique([fromId, toId, relationship])
+  @@index([orgId])
+  @@index([fromId])
+  @@index([toId])
+  @@index([relationship])
+  @@index([fromType])
+  @@index([toType])
+  @@index([recordedAt])
+  @@map("asset_relationships")
+}
+
+// Memory Signal Log — Unified Memory Write Audit
+// Every write to the unified memory layer logs a row here.
+// Enables: "who wrote to brand_dna for org X at time Y?"
+// Written by _auditWrite() inside every memory write function.
+model MemorySignalLog {
+  id              String   @id @default(cuid())
+  domain          String
+  orgId           String
+  writePermission String
+  recordCount     Int      @default(1)
+  writtenAt       DateTime @default(now())
+
+  @@index([orgId])
+  @@index([domain])
+  @@index([writtenAt])
+  @@map("memory_signal_logs")
+}
+
+// Worker Health Snapshot — Real-Time Worker Observability
+// One row per worker, upserted on each heartbeat.
+// Written by crashSafety.recordWorkerHealth().
+// Used by recoverStuckJobs() and admin dashboards.
+model WorkerHealthSnapshot {
+  workerId          String   @id
+  queueName         String
+  status            String
+  activeJobs        Int      @default(0)
+  completedLast5Min Int      @default(0)
+  failedLast5Min    Int      @default(0)
+  avgJobDurationMs  Float    @default(0)
+  lastHeartbeatAt   DateTime @default(now())
+
+  @@index([queueName])
+  @@index([status])
+  @@index([lastHeartbeatAt])
+  @@map("worker_health_snapshots")
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// BATCH GENERATION — PRO / STUDIO plans only
+// ══════════════════════════════════════════════════════════════════════════════
+//
+// A BatchJob groups N individual generation jobs submitted in one API call.
+// Each child Job has batchId set so it can be aggregated.
+// Status is derived: PENDING → RUNNING (first job starts) →
+//   COMPLETED (all jobs done) | PARTIAL (some failed) | FAILED (all failed)
+
+model BatchJob {
+  id          String   @id @default(cuid())
+  orgId       String
+  org         Org      @relation(fields: [orgId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  // Aggregate status
+  status         String   @default("PENDING")   // PENDING | RUNNING | COMPLETED | PARTIAL | FAILED | CANCELLED
+  totalJobs      Int
+  completedJobs  Int      @default(0)
+  failedJobs     Int      @default(0)
+  cancelledJobs  Int      @default(0)
+
+  // Credit snapshot — reserved upfront
+  totalCreditCost Int     @default(0)
+
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // The constituent jobs (each Job has batchId field)
+  jobs        BatchJobItem[]
+
+  @@index([orgId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("batch_jobs")
+}
+
+// Junction table: links a BatchJob to its constituent Job rows
+model BatchJobItem {
+  id         String   @id @default(cuid())
+  batchId    String
+  batch      BatchJob @relation(fields: [batchId], references: [id])
+  jobId      String   @unique          // each child job belongs to at most one batch
+  promptIdx  Int                       // 0-based index of the prompt in the batch request
+  createdAt  DateTime @default(now())
+
+  @@index([batchId])
+  @@index([jobId])
+  @@map("batch_job_items")
+}
+
