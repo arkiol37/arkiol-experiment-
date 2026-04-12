@@ -37,7 +37,7 @@ export const logger = pino({
   serializers: {
     err:   pino.stdSerializers.err,
     error: pino.stdSerializers.err,
-    req:   (req) => ({ method: req.method, url: req.url, id: req.id }),
+    req:   (req: { method?: string; url?: string; id?: string }) => ({ method: req.method, url: req.url, id: req.id }),
   },
 });
 

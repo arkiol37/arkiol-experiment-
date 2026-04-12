@@ -50,7 +50,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // HQ upgrade: adds (static_hq - static) extra credits per asset.
   const hqExtra = hqUpgrade ? (CREDIT_COSTS.static_hq - CREDIT_COSTS.static) : 0;
   const totalCredits = formats.reduce(
-    (acc, fmt) => acc + (getCreditCost(fmt, includeGif && GIF_ELIGIBLE_FORMATS.has(fmt)) + hqExtra) * variations, 0
+    (acc: number, fmt: string) => acc + (getCreditCost(fmt, includeGif && GIF_ELIGIBLE_FORMATS.has(fmt)) + hqExtra) * variations, 0
   );
   const estimatedCostUSD = totalCredits * COST_PER_CREDIT_USD;
   const marginSafe       = estimatedCostUSD <= MAX_COST_PER_RENDER_USD;

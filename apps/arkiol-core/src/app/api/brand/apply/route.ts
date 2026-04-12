@@ -52,7 +52,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const accent      = brand.accentColors?.[0] ?? primary;
 
   // Apply brand to each element
-  const updates = elements.map((el, idx) => {
+  type BrandElement = z.infer<typeof ApplyBrandSchema>["elements"][number];
+  const updates = elements.map((el: BrandElement, idx: number) => {
     const update: Record<string, any> = { id: el.id };
 
     if (el.type === "text") {

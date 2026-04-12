@@ -152,7 +152,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   // ── Credit pre-check (soft — no deduction yet, deducted at execution) ────
-  const creditCost = genParams.formats.reduce((acc, fmt) => {
+  const creditCost = genParams.formats.reduce((acc: number, fmt: string) => {
     return acc + getCreditCost(fmt, genParams.includeGif) * genParams.variations;
   }, 0);
   // Founder/owner bypasses credit pre-check entirely

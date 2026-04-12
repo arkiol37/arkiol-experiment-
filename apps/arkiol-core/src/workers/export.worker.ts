@@ -164,10 +164,10 @@ const exportWorker = new Worker<ExportJobPayload>(
       exportBuffer = await new Promise<Buffer>((resolve, reject) => {
         const chunks: Buffer[] = [];
         const archive = archiver("zip", { zlib: { level: 6 } });
-        archive.on("data",    chunk => chunks.push(chunk));
+        archive.on("data",    (chunk: Buffer) => chunks.push(chunk));
         archive.on("end",     ()    => resolve(Buffer.concat(chunks)));
-        archive.on("error",   err   => reject(err));
-        archive.on("warning", err   => {
+        archive.on("error",   (err: Error) => reject(err));
+        archive.on("warning", (err: Error & { code?: string }) => {
           if (err.code !== "ENOENT") reject(err);
         });
 
@@ -306,7 +306,7 @@ const exportWorker = new Worker<ExportJobPayload>(
 
 // ── Failure handler ───────────────────────────────────────────────────────────
 
-exportWorker.on("failed", async (job, err) => {
+exportWorker.on("failed", async (job: Job<ExportJobPayload> | undefined, err: Error) => {
   if (!job) return;
   const { exportJobId, orgId, userId } = job.data;
   logError(err, { jobId: exportJobId, attempt: job.attemptsMade, queue: "arkiol:exports" });
@@ -335,7 +335,7 @@ exportWorker.on("failed", async (job, err) => {
   }, {
     removeOnComplete: false,
     removeOnFail:     false,
-  }).catch(dlqErr => logError(dlqErr, { stage: "dlq_enqueue_export", jobId: exportJobId }));
+  }).catch((dlqErr: unknown) => logError(dlqErr, { stage: "dlq_enqueue_export", jobId: exportJobId }));
 
   await prisma.job.update({
     where: { id: exportJobId },
@@ -361,7 +361,7 @@ exportWorker.on("failed", async (job, err) => {
   }, `[export-worker] Export job ${exportJobId} moved to DLQ after ${job.attemptsMade} attempts`);
 });
 
-exportWorker.on("error", err => logError(err, { stage: "export_worker_error" }));
+exportWorker.on("error", (err: Error) => logError(err, { stage: "export_worker_error" }));
 logger.info("[export-worker] Started — listening for export jobs on arkiol:exports");
 
 process.on("SIGTERM", async () => {

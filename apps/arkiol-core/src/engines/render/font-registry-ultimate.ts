@@ -109,10 +109,10 @@ function downloadFile(url: string, dest: string): Promise<void> {
   return new Promise((resolve, reject) => {
     if (fs.existsSync(dest)) { resolve(); return; }
     const file = fs.createWriteStream(dest);
-    https.get(url, response => {
+    https.get(url, (response: NodeJS.ReadableStream) => {
       response.pipe(file);
       file.on("finish", () => { file.close(); resolve(); });
-    }).on("error", err => {
+    }).on("error", (err: Error) => {
       fs.unlink(dest, () => {});
       reject(err);
     });

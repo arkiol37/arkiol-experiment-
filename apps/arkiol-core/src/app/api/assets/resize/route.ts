@@ -225,7 +225,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     "Assets generated before the SVG source feature was enabled support raster-only resize.");
 
   // ── Skip same-format targets ───────────────────────────────────────────────
-  const filteredFormats = targetFormats.filter(f => f !== source.format);
+  const filteredFormats = targetFormats.filter((f: string) => f !== source.format);
   if (filteredFormats.length === 0) {
     throw new ApiError(400,
       `All requested formats are the same as the source (${source.format}). Choose different target formats.`

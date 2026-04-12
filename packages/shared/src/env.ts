@@ -24,6 +24,8 @@ export type SharedEnv = {
   STRIPE_PRICE_TOPUP_2000?: string;
   // Webhook security
   WEBHOOK_SECRET_KEY?: string;
+  AUTOMATION_WEBHOOK_SECRET?: string;
+  WEBHOOK_DEFAULT_SECRET?: string;
   // AWS / S3
   AWS_ACCESS_KEY_ID?: string;
   AWS_SECRET_ACCESS_KEY?: string;

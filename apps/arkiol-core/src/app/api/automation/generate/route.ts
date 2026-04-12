@@ -173,7 +173,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   if (!org) throw new ApiError(403, "Organization not found", "ORG_NOT_FOUND");
 
   // ── Verify brandId ownership for each job ────────────────────────────────
-  const brandIds = [...new Set(jobs.map(j => j.brandId).filter(Boolean) as string[])];
+  type AutomationJob = z.infer<typeof AutomationJobSchema>;
+  const brandIds = [...new Set(jobs.map((j: AutomationJob) => j.brandId).filter(Boolean) as string[])];
   if (brandIds.length > 0) {
     const brands = await prisma.brand.findMany({
       where:  { id: { in: brandIds }, orgId },
@@ -220,8 +221,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   }
 
   // ── Credit pre-check (TOCTOU-safe: will re-verify inside transaction) ────
-  const totalCreditCost = jobs.reduce((acc, j) =>
-    acc + j.formats.reduce((fa, fmt) => fa + getCreditCost(fmt, false) * j.variations, 0), 0
+  const totalCreditCost = jobs.reduce((acc: number, j: AutomationJob) =>
+    acc + j.formats.reduce((fa: number, fmt: string) => fa + getCreditCost(fmt, false) * j.variations, 0), 0
   );
 
   // Founder/owner bypasses all credit checks
@@ -266,7 +267,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
     for (let idx = 0; idx < jobs.length; idx++) {
       const j          = jobs[idx];
-      const creditCost = j.formats.reduce((a: number, f) => a + getCreditCost(f, false) * j.variations, 0);
+      const creditCost = j.formats.reduce((a: number, f: string) => a + getCreditCost(f, false) * j.variations, 0);
 
       const job = await tx.job.create({
         data: {
@@ -323,7 +324,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   for (const { jobId } of createdJobs) {
     const j          = jobs[createdJobs.findIndex(cj => cj.jobId === jobId)];
     if (!j) continue;
-    const creditCost = j.formats.reduce((a: number, f) => a + getCreditCost(f, false) * j.variations, 0);
+    const creditCost = j.formats.reduce((a: number, f: string) => a + getCreditCost(f, false) * j.variations, 0);
     await holdCredits(orgId, jobId, creditCost, { prisma: prisma as any }).catch(() => {});
   }
 

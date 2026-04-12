@@ -78,7 +78,7 @@ function calcJobCredits(item: BulkJobItem): number {
   const hqExtraPerStatic = item.hqUpgrade
     ? (CREDIT_COSTS.static_hq - CREDIT_COSTS.static)
     : 0;
-  return item.formats.reduce((acc, fmt) => {
+  return item.formats.reduce((acc: number, fmt: string) => {
     const base   = getCreditCost(fmt, item.includeGif && GIF_ELIGIBLE_FORMATS.has(fmt));
     const hqExtra = item.hqUpgrade ? hqExtraPerStatic : 0;
     return acc + (base + hqExtra) * item.variations;
@@ -181,8 +181,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // mapped to the existing job and skipped during creation.
   const existingByKey = new Map<string, string>(); // key → existing jobId
   const idemKeys = jobItems
-    .map(it => it.idempotencyKey)
-    .filter((k): k is string => !!k);
+    .map((it: BulkJobItem) => it.idempotencyKey)
+    .filter((k: string | undefined): k is string => !!k);
 
   if (idemKeys.length > 0) {
     const existing = await prisma.job.findMany({
@@ -201,9 +201,9 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // ── Credit calculation ──────────────────────────────────────────────────────
   // Only count credits for items that will actually create new jobs
   const newItems = jobItems.filter(
-    it => !it.idempotencyKey || !existingByKey.has(it.idempotencyKey)
+    (it: BulkJobItem) => !it.idempotencyKey || !existingByKey.has(it.idempotencyKey)
   );
-  const totalCreditCost = newItems.reduce((acc, it) => acc + calcJobCredits(it), 0);
+  const totalCreditCost = newItems.reduce((acc: number, it: BulkJobItem) => acc + calcJobCredits(it), 0);
   const estimatedCostUSD = totalCreditCost * COST_PER_CREDIT_USD;
 
   if (!isFounder && estimatedCostUSD > MAX_COST_PER_BATCH_USD) {
@@ -241,7 +241,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // Run intelligence pipeline concurrently for all new items — one pipeline call
   // per unique (prompt+format) combination so bulk jobs with the same prompt share it.
   const intelligenceMetas: Record<string, unknown>[] = await Promise.all(
-    newItems.map(async (item) => {
+    newItems.map(async (item: BulkJobItem) => {
       try {
         const brandKit = item.brandId
           ? await prisma.brand.findFirst({ where: { id: item.brandId, orgId } })
@@ -395,7 +395,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   // ── Response ────────────────────────────────────────────────────────────────
   const totalAssets = jobItems.reduce(
-    (acc, it) => acc + it.formats.length * it.variations,
+    (acc: number, it: BulkJobItem) => acc + it.formats.length * it.variations,
     0
   );
 

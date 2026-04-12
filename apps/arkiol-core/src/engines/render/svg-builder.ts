@@ -216,12 +216,12 @@ export function renderSvg(
       const rad   = (angle * Math.PI) / 180;
       const x2    = 50 + 50 * Math.sin(rad);
       const y2    = 50 - 50 * Math.cos(rad);
-      const stops = grad.colors.map((c, i) =>
+      const stops = grad.colors.map((c: string, i: number) =>
         `<stop offset="${Math.round(i / (grad.colors.length - 1) * 100)}%" stop-color="${c}"/>`
       ).join("");
       defs += `<linearGradient id="bg" x1="0%" y1="0%" x2="${x2.toFixed(1)}%" y2="${y2.toFixed(1)}%">${stops}</linearGradient>`;
     } else if (grad.type === "radial") {
-      const stops = grad.colors.map((c, i) =>
+      const stops = grad.colors.map((c: string, i: number) =>
         `<stop offset="${Math.round(i / (grad.colors.length - 1) * 100)}%" stop-color="${c}"/>`
       ).join("");
       defs += `<radialGradient id="bg" cx="50%" cy="50%" r="70%">${stops}</radialGradient>`;

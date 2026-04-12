@@ -54,9 +54,10 @@ const worker = new Worker<WebhookPayload>(
     let signingKey: string;
     try {
       signingKey = decryptWebhookSecret(webhook.secret);
-    } catch (decryptErr: any) {
+    } catch (decryptErr: unknown) {
+      const errMsg = decryptErr instanceof Error ? decryptErr.message : String(decryptErr);
       logger.error(
-        { webhookId: webhook.id, orgId, error: decryptErr.message },
+        { webhookId: webhook.id, orgId, error: errMsg },
         "[webhook-worker] Failed to decrypt webhook secret — aborting delivery. " +
         "If this webhook was created before the AES-GCM upgrade, delete and re-create it."
       );
@@ -65,7 +66,7 @@ const worker = new Worker<WebhookPayload>(
         where: { id: webhook.id },
         data:  { isActive: false, failCount: { increment: 1 } },
       }).catch(() => {});
-      throw new Error(`Cannot decrypt webhook secret for ${webhookId}: ${decryptErr.message}`);
+      throw new Error(`Cannot decrypt webhook secret for ${webhookId}: ${errMsg}`);
     }
 
     // Generate HMAC-SHA256 signature using the decrypted plaintext secret.
@@ -158,7 +159,7 @@ const worker = new Worker<WebhookPayload>(
   }
 );
 
-worker.on("failed", (job, err) => {
+worker.on("failed", (job: Job<WebhookPayload> | undefined, err: Error) => {
   if (job) logError(err, { jobId: job.id, queue: "arkiol:webhooks" });
 });
 
@@ -191,7 +192,7 @@ export async function deliverWebhooks(
     .slice(0, 24);
 
   await Promise.all(
-    webhooks.map((wh, i) => {
+    webhooks.map((wh: { id: string }, i: number) => {
       const deliveryId = `${eventKey}_${wh.id.slice(0, 8)}`;
       return webhookQueue.add(
         "deliver",
@@ -259,8 +260,8 @@ export async function deliverDirectWebhook(
       } finally {
         clearTimeout(timeout);
       }
-    } catch (err: any) {
-      lastErr = err;
+    } catch (err: unknown) {
+      lastErr = err instanceof Error ? err : new Error(String(err));
     }
     // Exponential back-off: 1s, 3s, 9s
     if (attempt < 3) await new Promise(r => setTimeout(r, 1000 * Math.pow(3, attempt - 1)));

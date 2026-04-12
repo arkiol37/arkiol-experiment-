@@ -191,13 +191,13 @@ export function RegisterForm({ googleEnabled }: { googleEnabled: boolean }) {
                 <div>
                   <label className="ark-label" htmlFor="reg-name">Full name</label>
                   <input id="reg-name" className="ark-field" type="text" value={name}
-                    onChange={e => setName(e.target.value)} placeholder="Your name"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="Your name"
                     required autoComplete="name" autoFocus />
                 </div>
                 <div>
                   <label className="ark-label" htmlFor="reg-email">Email address</label>
                   <input id="reg-email" className="ark-field" type="email" value={email}
-                    onChange={e => setEmail(e.target.value)} placeholder="you@company.com"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="you@company.com"
                     required autoComplete="email" />
                 </div>
               </div>
@@ -208,9 +208,9 @@ export function RegisterForm({ googleEnabled }: { googleEnabled: boolean }) {
                   <label className="ark-label" htmlFor="reg-pw">Password</label>
                   <div className="pw-wrap">
                     <input id="reg-pw" className="ark-field" type={showPw?"text":"password"} value={password}
-                      onChange={e => setPassword(e.target.value)} placeholder="8+ characters"
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} placeholder="8+ characters"
                       required autoComplete="new-password" />
-                    <button type="button" className="pw-eye" onClick={() => setShowPw(v => !v)}
+                    <button type="button" className="pw-eye" onClick={() => setShowPw((v: boolean) => !v)}
                       title={showPw?"Hide":"Show"}>
                       <EyeIcon open={showPw} />
                     </button>
@@ -220,9 +220,9 @@ export function RegisterForm({ googleEnabled }: { googleEnabled: boolean }) {
                   <label className="ark-label" htmlFor="reg-confirm">Confirm password</label>
                   <div className="pw-wrap">
                     <input id="reg-confirm" className="ark-field" type={showConfirm?"text":"password"} value={confirm}
-                      onChange={e => setConfirm(e.target.value)} placeholder="Repeat password"
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setConfirm(e.target.value)} placeholder="Repeat password"
                       required autoComplete="new-password" />
-                    <button type="button" className="pw-eye" onClick={() => setShowConfirm(v => !v)}
+                    <button type="button" className="pw-eye" onClick={() => setShowConfirm((v: boolean) => !v)}
                       title={showConfirm?"Hide":"Show"}>
                       <EyeIcon open={showConfirm} />
                     </button>

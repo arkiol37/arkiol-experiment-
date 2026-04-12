@@ -37,7 +37,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const { description, examples = [] } = parsed.data;
 
   const examplesText = examples.length
-    ? `\n\nExisting brand copy examples:\n${examples.map((e, i) => `${i + 1}. "${e}"`).join("\n")}`
+    ? `\n\nExisting brand copy examples:\n${examples.map((e: string, i: number) => `${i + 1}. "${e}"`).join("\n")}`
     : "";
 
   const result = await chatJSON(

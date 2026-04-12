@@ -344,7 +344,7 @@ const worker = new Worker<GenerationPayload>(
 
     // Build the flat task list upfront so we can compute totalTasks for progress
     type TaskDef = { format: string; vi: number; taskLabel: string };
-    const taskDefs: TaskDef[] = formats.flatMap(format =>
+    const taskDefs: TaskDef[] = formats.flatMap((format: string) =>
       Array.from({ length: variations }, (_, vi) => ({ format, vi, taskLabel: `${format}@v${vi}` }))
     );
 
@@ -463,11 +463,10 @@ const worker = new Worker<GenerationPayload>(
         const creditCost = getCreditCost(format, false);
         totalCreditCost += creditCost;
 
-        const asset = await checkAssetIdempotency(prisma as any, {
-          jobId: jobId ?? assetId,
-          format,
-          variationIndex: vi,
-        }) ?? await prisma.asset.create({
+        const idemCheck = await checkAssetIdempotency(prisma as any, jobId ?? assetId, format, vi);
+        const asset = (idemCheck.exists && idemCheck.assetId)
+          ? { id: idemCheck.assetId }
+          : await prisma.asset.create({
           data: {
             id:             assetId,
             userId,
@@ -523,7 +522,7 @@ const worker = new Worker<GenerationPayload>(
               } : {}),
             },
           },
-        });  // close prisma.asset.create passed to checkAssetIdempotency
+        });
         jobBenchmarks.push(orchestrated.benchmark);
 
         // ── Record asset graph relationships (fire-and-forget) ────────────
@@ -550,11 +549,12 @@ const worker = new Worker<GenerationPayload>(
           jobId,
           orchestrated.render.assetId,
           orgId,
-          orchestrated.stages ? Object.entries(orchestrated.stages).map(([id, s]: [string, any], idx) => ({
+          orchestrated.stages ? Object.entries(orchestrated.stages).map(([id, s]: [string, any]) => ({
             stageId:    id,
             durationMs: s?.durationMs ?? 0,
             ok:         !s?.fallback,
             fallback:   s?.fallback ?? false,
+            errorCount: s?.errorCount ?? 0,
             fallbackReason: s?.fallbackReason,
             decision:   s?.data ? JSON.stringify(s.data).slice(0, 200) : undefined,
           })) : []
@@ -789,7 +789,7 @@ const worker = new Worker<GenerationPayload>(
     // finalizeCredits is idempotent — safe even if holdCredits was already
     // called at the API layer. Prevents double-charge via creditFinalized flag.
     if (totalCreditCost > 0 && createdAssetIds.length > 0) {
-      await finalizeCredits(orgId, jobId, totalCreditCost, { prisma: prisma as any, logger }).catch(err => {
+      await finalizeCredits(orgId, jobId, totalCreditCost, { prisma: prisma as any, logger }).catch((err: unknown) => {
         logger.error({ jobId, orgId, err }, '[generation-worker] finalizeCredits failed');
       });
     }
@@ -802,11 +802,7 @@ const worker = new Worker<GenerationPayload>(
     }
 
     // Route through crashSafety FSM — prevents illegal state transitions
-    await crashSafety.transitionJob(jobId, 'completed', {
-      result: { assetIds: createdAssetIds, creditCost: totalCreditCost, assetCount: createdAssetIds.length },
-      completedAt: new Date(),
-      progress: 100,
-    });
+    await crashSafety.transitionJob(jobId, 'completed');
 
     await job.updateProgress(100);
     completedLast5Min++;
@@ -821,7 +817,7 @@ const worker = new Worker<GenerationPayload>(
       const downloadUrls: string[] = await Promise.all(
         createdAssetIds.map(aid =>
           prisma.asset.findUnique({ where: { id: aid }, select: { s3Key: true } })
-            .then(a => a?.s3Key ? getSignedDownloadUrl(a.s3Key).catch(() => "") : "")
+            .then((a: { s3Key: string | null } | null) => a?.s3Key ? getSignedDownloadUrl(a.s3Key).catch(() => "") : "")
         )
       ).then(urls => urls.filter(Boolean));
 
@@ -950,7 +946,7 @@ const worker = new Worker<GenerationPayload>(
     if (campaignId) {
       deliverWebhooks(orgId, "campaign.completed", {
         campaignId, jobId, assetCount: createdAssetIds.length, creditCost: totalCreditCost,
-      }).catch(err => logError(err, { stage: "webhook_delivery", jobId }));
+      }).catch((err: unknown) => logError(err, { stage: "webhook_delivery", jobId }));
     }
 
     return { assetIds: createdAssetIds, creditCost: totalCreditCost };
@@ -970,7 +966,7 @@ const worker = new Worker<GenerationPayload>(
   })()
 );
 
-worker.on("failed", async (job, err) => {
+worker.on("failed", async (job: Job<GenerationPayload> | undefined, err: Error) => {
   if (!job) return;
   logError(err, { jobId: job.id, attempt: job.attemptsMade, queue: "arkiol:generation" });
 
@@ -1012,7 +1008,7 @@ worker.on("failed", async (job, err) => {
     }, {
       removeOnComplete: false,
       removeOnFail:     false,
-    }).catch(dlqErr => logError(dlqErr, { stage: "dlq_enqueue", jobId: job.data.jobId }));
+    }).catch((dlqErr: unknown) => logError(dlqErr, { stage: "dlq_enqueue", jobId: job.data.jobId }));
 
     await prisma.job.update({
       where: { id: job.data.jobId },
@@ -1040,9 +1036,10 @@ worker.on("failed", async (job, err) => {
         job.data.jobId,
         `permanent_failure:${extractErrorCode(err, 'PIPELINE_ERROR')}`,
         { prisma: prisma as any, logger }
-      ).catch(refundErr => {
+      ).catch((refundErr: unknown) => {
+        const msg = refundErr instanceof Error ? refundErr.message : String(refundErr);
         logger.error(
-          { jobId: job.data.jobId, orgId: job.data.orgId, err: refundErr.message },
+          { jobId: job.data.jobId, orgId: job.data.orgId, err: msg },
           '[generation-worker] CRITICAL: refundCredits failed on permanent failure — manual review required'
         );
       });
@@ -1092,7 +1089,7 @@ worker.on("failed", async (job, err) => {
   }
 });
 
-worker.on("error", (err) => logError(err, { stage: "worker_error" }));
+worker.on("error", (err: Error) => logError(err, { stage: "worker_error" }));
 
 logger.info("[generation-worker] Started -- listening for jobs");
 

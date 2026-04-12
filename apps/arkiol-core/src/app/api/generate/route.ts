@@ -201,7 +201,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // Credit cost calculation
   const totalAssets = input.formats.length * input.variations;
   const hqExtraCostPerStaticAsset = input.hqUpgrade ? (CREDIT_COSTS.static_hq - CREDIT_COSTS.static) : 0;
-  const creditCost  = input.formats.reduce((acc, fmt) => {
+  const creditCost  = input.formats.reduce((acc: number, fmt: string) => {
     const baseCost = getCreditCost(fmt, input.includeGif && GIF_ELIGIBLE_FORMATS.has(fmt));
     const hqExtra  = input.hqUpgrade ? hqExtraCostPerStaticAsset : 0;
     return acc + (baseCost + hqExtra) * input.variations;

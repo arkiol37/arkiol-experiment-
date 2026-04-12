@@ -185,7 +185,7 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
               <div>
                 <label className="ark-label" htmlFor="login-email">Email address</label>
                 <input id="login-email" className="ark-field" type="email" value={email}
-                  onChange={e => setEmail(e.target.value)} placeholder="you@company.com"
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)} placeholder="you@company.com"
                   required autoComplete="email" autoFocus />
               </div>
 
@@ -194,16 +194,16 @@ export function LoginForm({ googleEnabled }: { googleEnabled: boolean }) {
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:7 }}>
                   <label className="ark-label" htmlFor="login-pw" style={{ margin:0 }}>Password</label>
                   <Link href="/reset-password" style={{ fontSize:12.5, color:"#4f8ef7", textDecoration:"none", opacity:.8 }}
-                    onMouseEnter={e=>(e.currentTarget.style.opacity="1")}
-                    onMouseLeave={e=>(e.currentTarget.style.opacity=".8")}>
+                    onMouseEnter={(e: React.MouseEvent<HTMLAnchorElement>)=>(e.currentTarget.style.opacity="1")}
+                    onMouseLeave={(e: React.MouseEvent<HTMLAnchorElement>)=>(e.currentTarget.style.opacity=".8")}>
                     Forgot password?
                   </Link>
                 </div>
                 <div className="pw-wrap">
                   <input id="login-pw" className="ark-field" type={showPw?"text":"password"} value={password}
-                    onChange={e => setPassword(e.target.value)} placeholder="••••••••"
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)} placeholder="••••••••"
                     required autoComplete="current-password" />
-                  <button type="button" className="pw-eye" onClick={() => setShowPw(v => !v)}
+                  <button type="button" className="pw-eye" onClick={() => setShowPw((v: boolean) => !v)}
                     title={showPw ? "Hide password" : "Show password"}>
                     <EyeIcon open={showPw} />
                   </button>

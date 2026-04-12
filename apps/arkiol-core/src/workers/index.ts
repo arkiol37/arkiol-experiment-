@@ -80,5 +80,5 @@ async function gracefulShutdown(signal: string) {
 
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT",  () => gracefulShutdown("SIGINT"));
-process.on("uncaughtException",  (err)    => logger.error({ err },    "[workers] Uncaught exception"));
-process.on("unhandledRejection", (reason) => logger.error({ reason }, "[workers] Unhandled rejection"));
+process.on("uncaughtException",  (err: Error)    => logger.error({ err },    "[workers] Uncaught exception"));
+process.on("unhandledRejection", (reason: unknown) => logger.error({ reason }, "[workers] Unhandled rejection"));
