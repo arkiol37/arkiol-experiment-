@@ -67,17 +67,21 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       let thumbnailUrl: string | null = null;
       let downloadUrl:  string | null = null;
 
-      if (a.s3Key && !a.s3Key.startsWith('inline:') && hasS3) {
-        try {
-          const url = await getSignedDownloadUrl(a.s3Key, 3600).catch(() => null);
-          thumbnailUrl = url;
-          downloadUrl  = url;
-        } catch { /* no-op */ }
-      }
+      try {
+        if (a.s3Key && !a.s3Key.startsWith('inline:') && hasS3) {
+          try {
+            const url = await getSignedDownloadUrl(a.s3Key, 3600).catch(() => null);
+            thumbnailUrl = url;
+            downloadUrl  = url;
+          } catch { /* no-op */ }
+        }
 
-      // Inline SVG fallback: encode as data URL so the <img> tag renders it
-      if (!thumbnailUrl && a.svgSource) {
-        thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(a.svgSource).toString('base64')}`;
+        // Inline SVG fallback: encode as data URL so the <img> tag renders it
+        if (!thumbnailUrl && a.svgSource) {
+          thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(a.svgSource).toString('base64')}`;
+        }
+      } catch (err) {
+        console.warn(`[api/assets] Failed to resolve URLs for asset ${a.id}:`, err);
       }
 
       // Omit raw svgSource from list response (can be large; use /api/assets/[id] for full data)

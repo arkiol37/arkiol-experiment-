@@ -197,6 +197,7 @@ export function ArkiolArtView() {
   const [filter,   setFilter]   = useState<string>("all");
   const [search,   setSearch]   = useState("");
   const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page,     setPage]     = useState(1);
   const [hasMore,  setHasMore]  = useState(false);
@@ -205,6 +206,7 @@ export function ArkiolArtView() {
 
   const load = useCallback(async (p = 1, reset = false) => {
     setLoading(true);
+    setError(null);
     const params = new URLSearchParams({
       page: String(p), limit: "24",
       ...(filter !== "all" && { format: filter }),
@@ -212,7 +214,12 @@ export function ArkiolArtView() {
       sort: sortBy,
     });
     const res  = await fetch(`/api/assets?${params}`).catch(() => null);
-    const data = res ? await res.json().catch(() => ({})) : {};
+    if (!res || !res.ok) {
+      setError(res ? `Failed to load designs (${res.status})` : "Network error — could not reach the server");
+      setLoading(false);
+      return;
+    }
+    const data = await res.json().catch(() => ({}));
     const list = data.assets ?? [];
     setAssets(prev => reset ? list : [...prev, ...list]);
     setHasMore(list.length === 24);
@@ -293,6 +300,13 @@ export function ArkiolArtView() {
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="ak-shimmer" style={{ borderRadius: "var(--radius-2xl)", aspectRatio: "4/3" }} />
           ))}
+        </div>
+      ) : error ? (
+        <div style={{ textAlign: "center", padding: "80px 24px", background: "var(--bg-elevated)", borderRadius: "var(--radius-2xl)", border: "1px dashed rgba(239,68,68,0.3)" }}>
+          <div style={{ width: 72, height: 72, borderRadius: "var(--radius-2xl)", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, margin: "0 auto 20px" }}>!</div>
+          <h3 style={{ fontSize: 20, fontWeight: 400, fontFamily: "var(--font-display)", margin: "0 0 10px", letterSpacing: "-0.04em" }}>Something went wrong</h3>
+          <p style={{ color: "var(--text-muted)", fontSize: 14, maxWidth: 400, margin: "0 auto 26px", lineHeight: 1.6 }}>{error}</p>
+          <button onClick={() => load(1, true)} className="ak-btn ak-btn-primary" style={{ padding: "11px 28px" }}>Retry</button>
         </div>
       ) : assets.length === 0 ? (
         <div style={{ textAlign: "center", padding: "80px 24px", background: "var(--bg-elevated)", borderRadius: "var(--radius-2xl)", border: "1px dashed rgba(124,127,250,0.2)" }}>
