@@ -1,0 +1,49 @@
+{
+  "name": "arkiol",
+  "version": "25.0.0",
+  "private": true,
+  "description": "ARKIOL v3 — AI-Powered Design & Animation Studio Platform",
+  "workspaces": [
+    "apps/arkiol-core",
+    "apps/animation-studio",
+    "apps/animation-studio/backend",
+    "apps/animation-studio/frontend",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/arkiol-core",
+    "dev:studio": "npm run dev --workspace=apps/animation-studio",
+    "build": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run build --workspace=packages/shared && npm run build --workspace=apps/arkiol-core",
+    "build:all": "npm run build --workspace=packages/shared && npm run build --workspace=apps/arkiol-core && npm run build --workspace=apps/animation-studio/backend",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "type-check": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run type-check --workspaces --if-present",
+    "db:migrate": "npx prisma migrate dev --schema=packages/shared/prisma/schema.prisma",
+    "db:deploy": "npx prisma migrate deploy --schema=packages/shared/prisma/schema.prisma",
+    "db:seed": "npm run db:seed --workspace=@arkiol/shared",
+    "smoke-test": "tsx packages/shared/scripts/smoke-test.ts",
+    "dev:all": "concurrently --names=core,studio --prefix-colors=cyan,magenta \"npm run dev --workspace=apps/arkiol-core\" \"npm run dev --workspace=apps/animation-studio\"",
+    "build:studio": "npm run build --workspace=apps/animation-studio/backend",
+    "worker:core": "npm run worker:prod --workspace=apps/arkiol-core",
+    "worker:studio": "npm run worker --workspace=apps/animation-studio/backend",
+    "verify": "tsx scripts/verify.ts",
+    "db:generate": "npx prisma generate --schema=packages/shared/prisma/schema.prisma",
+    "db:studio": "npx prisma studio --schema=packages/shared/prisma/schema.prisma",
+    "test:unit": "npm run test:unit --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspaces --if-present",
+    "prisma:generate": "npx prisma generate --schema=packages/shared/prisma/schema.prisma",
+    "prisma:migrate": "npx prisma migrate deploy --schema=packages/shared/prisma/schema.prisma",
+    "verify:quick": "tsx scripts/verify.ts --quick",
+    "smoke:http": "tsx scripts/ci/http-smoke-tests.ts",
+    "vercel-build": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run build --workspace=packages/shared && npm run vercel-build --workspace=apps/arkiol-core"
+  },
+  "engines": {
+    "node": "20.x",
+    "npm": ">=10.0.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "tsx": "^4.16.2"
+  }
+}
