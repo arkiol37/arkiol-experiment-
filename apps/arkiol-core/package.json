@@ -87,6 +87,6 @@
     "gif-encoder-2": "^1.0.4"
   },
   "engines": {
-    "node": ">=20.x"
+    "node": "20.x"
   }
 }
