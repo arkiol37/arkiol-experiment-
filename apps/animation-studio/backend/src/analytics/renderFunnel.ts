@@ -1,3 +1,0 @@
-const data = new Map<string, { step: string; timestamp: Date }[]>();
-export function trackFunnelStep(jobId: string, step: string): void { const e = data.get(jobId) || []; e.push({ step, timestamp: new Date() }); data.set(jobId, e); }
-export function getFunnelMetrics(): { step: string; count: number; dropOffRate: number }[] { const steps = ['brief_submitted','storyboard_generated','render_started','render_complete','exported']; const counts: Record<string, number> = {}; steps.forEach(s => counts[s] = 0); for (const entries of data.values()) for (const e of entries) if (counts[e.step] !== undefined) counts[e.step]++; return steps.map((s, i) => ({ step: s, count: counts[s], dropOffRate: i > 0 && counts[steps[i-1]] > 0 ? 1 - counts[s] / counts[steps[i-1]] : 0 })); }
