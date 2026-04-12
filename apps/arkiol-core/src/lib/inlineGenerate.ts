@@ -72,110 +72,126 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     const format = formats[0];
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
-
-    const orchestratorInput = {
-      jobId,
-      orgId,
-      campaignId: campaignId ?? jobId,
-      format,
-      variationIdx: 0,
-      stylePreset,
-      archetypeOverride: archetypeOverride as any,
-      outputFormat: "png",
-      pngScale: 1,
-      brief,
-      brand: brand ? {
-        primaryColor:   brand.primaryColor,
-        secondaryColor: brand.secondaryColor,
-        fontDisplay:    brand.fontDisplay,
-        fontBody:       brand.fontBody,
-        voiceAttribs:   brand.voiceAttribs as Record<string, number>,
-        colors:         [brand.primaryColor, brand.secondaryColor],
-        fonts:          brand.fontDisplay ? [{ family: brand.fontDisplay }] : [],
-        tone:           brand.voiceAttribs ? Object.keys(brand.voiceAttribs as object) : [],
-      } : undefined,
-      requestedVariations:  variations,
-      maxAllowedVariations: variations,
-    };
-
-    await prisma.job.update({ where: { id: jobId }, data: { progress: 30 } }).catch(() => {});
-
-    const orchestrated = await runGenerationPipeline(orchestratorInput);
-    const result       = orchestrated.render;
-    const assetId      = result.assetId;
-
-    await prisma.job.update({ where: { id: jobId }, data: { progress: 70 } }).catch(() => {});
-
-    // Upload to S3 if configured
-    let s3Key:  string | null = null;
-    let svgKey: string | null = null;
-
-    if (detectCapabilities().storage) {
-      try {
-        const { uploadToS3, buildS3Key } = require("./s3");
-        s3Key  = buildS3Key(orgId, assetId, "png");
-        svgKey = buildS3Key(orgId, assetId, "svg");
-        await Promise.all([
-          uploadToS3(s3Key,  result.buffer,                          "image/png"),
-          uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
-        ]);
-      } catch (s3Err: any) {
-        console.warn("[inline-generate] S3 upload failed, using inline SVG:", s3Err.message);
-        s3Key  = null;
-        svgKey = null;
-      }
-    }
-
-    // Resolve thumbnailUrl for immediate display in the frontend:
-    //   - When S3 is configured: build the S3 URL path (client fetches via signed URL)
-    //   - When S3 is absent:     encode SVG as base64 data URL for inline rendering
-    let thumbnailUrl: string | null = null;
-    if (s3Key && detectCapabilities().storage) {
-      try {
-        const { getSignedDownloadUrl } = require("./s3");
-        thumbnailUrl = await getSignedDownloadUrl(s3Key, 3600).catch(() => null);
-      } catch { /* no-op */ }
-    }
-    if (!thumbnailUrl && result.svgSource) {
-      thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(result.svgSource).toString("base64")}`;
-    }
-
-    // Create asset record
     const { getCreditCost, getCategoryLabel } = require("./types");
-    const creditCost = getCreditCost(format, false);
 
-    await prisma.asset.create({
-      data: {
-        id:           assetId,
-        userId,
+    const brandInput = brand ? {
+      primaryColor:   brand.primaryColor,
+      secondaryColor: brand.secondaryColor,
+      fontDisplay:    brand.fontDisplay,
+      fontBody:       brand.fontBody,
+      voiceAttribs:   brand.voiceAttribs as Record<string, number>,
+      colors:         [brand.primaryColor, brand.secondaryColor],
+      fonts:          brand.fontDisplay ? [{ family: brand.fontDisplay }] : [],
+      tone:           brand.voiceAttribs ? Object.keys(brand.voiceAttribs as object) : [],
+    } : undefined;
+
+    // Generate each variation with a distinct variationIdx so the pipeline
+    // picks different themes, layouts, and copy per variation.
+    const totalVariations = Math.max(1, variations);
+    const allAssetIds: string[] = [];
+    let totalCreditCost = 0;
+    let lastThumbnailUrl: string | null = null;
+    let lastResult: any = null;
+    let totalPipelineMs = 0;
+
+    for (let vi = 0; vi < totalVariations; vi++) {
+      const progressBase = 20 + Math.floor((vi / totalVariations) * 65);
+      await prisma.job.update({ where: { id: jobId }, data: { progress: progressBase } }).catch(() => {});
+
+      const orchestrated = await runGenerationPipeline({
+        jobId,
         orgId,
-        campaignId:   campaignId ?? null,
-        name:         `${format}-v1`,
+        campaignId: campaignId ?? jobId,
         format,
-        category:     getCategoryLabel(format),
-        mimeType:     "image/png",
-        s3Key:        s3Key ?? `inline:${assetId}`,
-        s3Bucket:     process.env.S3_BUCKET_NAME ?? "inline",
-        width:        result.width,
-        height:       result.height,
-        fileSize:     result.fileSize,
-        layoutFamily: result.layoutFamily,
-        svgSource:    result.svgSource,
-        brandScore:   result.brandScore,
-        hierarchyValid: result.hierarchyValid,
-        metadata: {
-          layoutVariation:  result.layoutVariation,
-          violations:       result.violations?.slice(0, 10) ?? [],
-          svgKey:           svgKey ?? null,
-          durationMs:       result.durationMs,
-          pipelineMs:       orchestrated.totalPipelineMs,
-          anyFallback:      orchestrated.anyFallback,
-          allStagesPassed:  orchestrated.allStagesPassed,
-          inlineGenerated:  true,
-          thumbnailUrl,   // stored so editor/load can serve it without re-signing
-        } as any,
-      },
-    });
+        variationIdx: vi,
+        stylePreset,
+        archetypeOverride: archetypeOverride as any,
+        outputFormat: "png",
+        pngScale: 1,
+        brief,
+        brand: brandInput,
+        requestedVariations:  totalVariations,
+        maxAllowedVariations: totalVariations,
+      });
+
+      const result  = orchestrated.render;
+      const assetId = result.assetId;
+      totalPipelineMs += orchestrated.totalPipelineMs ?? 0;
+
+      // Upload to S3 if configured
+      let s3Key:  string | null = null;
+      let svgKey: string | null = null;
+
+      if (detectCapabilities().storage) {
+        try {
+          const { uploadToS3, buildS3Key } = require("./s3");
+          s3Key  = buildS3Key(orgId, assetId, "png");
+          svgKey = buildS3Key(orgId, assetId, "svg");
+          await Promise.all([
+            uploadToS3(s3Key,  result.buffer,                          "image/png"),
+            uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
+          ]);
+        } catch (s3Err: any) {
+          console.warn("[inline-generate] S3 upload failed, using inline SVG:", s3Err.message);
+          s3Key  = null;
+          svgKey = null;
+        }
+      }
+
+      // Resolve thumbnailUrl
+      let thumbnailUrl: string | null = null;
+      if (s3Key && detectCapabilities().storage) {
+        try {
+          const { getSignedDownloadUrl } = require("./s3");
+          thumbnailUrl = await getSignedDownloadUrl(s3Key, 3600).catch(() => null);
+        } catch { /* no-op */ }
+      }
+      if (!thumbnailUrl && result.svgSource) {
+        thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(result.svgSource).toString("base64")}`;
+      }
+
+      // Create asset record
+      const creditCost = getCreditCost(format, false);
+      totalCreditCost += creditCost;
+
+      await prisma.asset.create({
+        data: {
+          id:           assetId,
+          userId,
+          orgId,
+          campaignId:   campaignId ?? null,
+          name:         `${format}-v${vi + 1}`,
+          format,
+          category:     getCategoryLabel(format),
+          mimeType:     "image/png",
+          s3Key:        s3Key ?? `inline:${assetId}`,
+          s3Bucket:     process.env.S3_BUCKET_NAME ?? "inline",
+          width:        result.width,
+          height:       result.height,
+          fileSize:     result.fileSize,
+          layoutFamily: result.layoutFamily,
+          svgSource:    result.svgSource,
+          brandScore:   result.brandScore,
+          hierarchyValid: result.hierarchyValid,
+          metadata: {
+            layoutVariation:  result.layoutVariation,
+            violations:       result.violations?.slice(0, 10) ?? [],
+            svgKey:           svgKey ?? null,
+            durationMs:       result.durationMs,
+            pipelineMs:       orchestrated.totalPipelineMs,
+            anyFallback:      orchestrated.anyFallback,
+            allStagesPassed:  orchestrated.allStagesPassed,
+            inlineGenerated:  true,
+            variationIdx:     vi,
+            thumbnailUrl,
+          } as any,
+        },
+      });
+
+      allAssetIds.push(assetId);
+      lastThumbnailUrl = thumbnailUrl;
+      lastResult = result;
+    }
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});
 
@@ -183,13 +199,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     try {
       await prisma.org.update({
         where: { id: orgId },
-        data:  { creditBalance: { decrement: creditCost } },
+        data:  { creditBalance: { decrement: totalCreditCost } },
       });
     } catch (creditErr: any) {
       console.warn("[inline-generate] Credit deduction failed:", creditErr.message);
     }
 
-    // Mark job COMPLETED — include thumbnailUrl so GeneratePanel renders preview immediately
+    // Mark job COMPLETED
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -197,23 +213,21 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         progress:    100,
         completedAt: new Date(),
         result: {
-          assetIds:        [assetId],
-          creditCost,
-          totalAssets:     1,
-          durationMs:      orchestrated.totalPipelineMs,
+          assetIds:        allAssetIds,
+          creditCost:      totalCreditCost,
+          totalAssets:     allAssetIds.length,
+          durationMs:      totalPipelineMs,
           inlineGenerated: true,
-          // Immediate preview support — frontend reads this to show thumbnail
-          // without waiting for a second /api/assets fetch
-          thumbnailUrl,
-          svgSource:       result.svgSource ?? null,
+          thumbnailUrl:    lastThumbnailUrl,
+          svgSource:       lastResult?.svgSource ?? null,
           format,
-          width:           result.width,
-          height:          result.height,
+          width:           lastResult?.width,
+          height:          lastResult?.height,
         } as any,
       },
     });
 
-    console.info(`[inline-generate] Job ${jobId} completed: asset=${assetId}, ${orchestrated.totalPipelineMs}ms`);
+    console.info(`[inline-generate] Job ${jobId} completed: ${allAssetIds.length} assets, ${totalPipelineMs}ms`);
 
   } catch (err: any) {
     console.error(`[inline-generate] Job ${jobId} failed:`, err.message);
