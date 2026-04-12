@@ -1,23 +1,16 @@
 // apps/arkiol-core/scripts/vercel-prisma-generate.cjs
 // Reliable Prisma client generation for builds (Vercel, CI, local).
-const { execFileSync } = require('node:child_process');
-const fs = require('node:fs');
+// Uses npx which resolves Prisma from the workspace regardless of hoisting.
+const { execSync } = require('node:child_process');
 const path = require('node:path');
 
-const repoRoot = path.resolve(__dirname, '../../..');
-const schemaPath = path.resolve(repoRoot, 'packages/shared/prisma/schema.prisma');
-const prismaBin = path.resolve(repoRoot, 'node_modules/.bin/prisma');
+const schemaPath = path.resolve(__dirname, '../../../packages/shared/prisma/schema.prisma');
 console.log('[prisma-generate] Schema:', schemaPath);
 
 try {
-  const command = fs.existsSync(prismaBin) ? prismaBin : 'npx';
-  const args = fs.existsSync(prismaBin)
-    ? ['generate', `--schema=${schemaPath}`]
-    : ['--yes', 'prisma', 'generate', `--schema=${schemaPath}`];
-
-  execFileSync(command, args, {
+  execSync(`npx prisma generate --schema="${schemaPath}"`, {
     stdio: 'inherit',
-    cwd: repoRoot,
+    cwd: path.resolve(__dirname, '../../..'),
     env: process.env,
   });
   console.log('[prisma-generate] Success');
