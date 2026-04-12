@@ -137,7 +137,7 @@ export function AnimationStudioView() {
       </div>
 
       {tab === "create" ? (
-        <div style={{ display:"grid", gridTemplateColumns:"minmax(0, 1fr) minmax(300px, 360px)", gap:24, alignItems:"start" }} className="ak-studio-layout">
+        <div style={{ display:"grid", gridTemplateColumns:"minmax(0, 1fr) minmax(280px, 340px)", gap:24, alignItems:"start", maxWidth:"100%" }} className="ak-studio-layout">
           <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
 
             {/* Mode picker */}

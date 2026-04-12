@@ -1,8 +1,7 @@
 "use client";
-// CanvasFullPage — Canva-style full-screen workspace.
-// Escapes the sidebar layout visually via fixed positioning while
-// still inheriting session/auth from parent (dashboard) layout.
-// Back-to-Dashboard control always visible in the top chrome.
+// CanvasFullPage — Canva-style workspace.
+// Renders within the SidebarLayout (normal flow) so it stays
+// properly constrained within the main content area beside the sidebar.
 
 import React from "react";
 import Link from "next/link";
@@ -11,20 +10,16 @@ import { CanvasEditorShell } from "./CanvasEditorShell";
 export function CanvasFullPage() {
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "var(--bg-base)", display: "flex", flexDirection: "column",
+      display: "flex", flexDirection: "column",
+      minHeight: "100vh", width: "100%",
       overflow: "hidden",
     }}>
-      {/* Top chrome — shown only when not in active edit mode.
-          CanvasEditorShell renders its own edit-mode bar (← New Canvas)
-          so we wrap and only show chrome on the picker step.
-          We use a lightweight wrapper here that always shows the back control. */}
+      {/* Top chrome */}
       <div style={{
         height: 52, flexShrink: 0, display: "flex", alignItems: "center",
         gap: 14, padding: "0 20px",
         borderBottom: "1px solid var(--border)",
         background: "var(--bg-surface)",
-        zIndex: 201,
       }}>
         <Link
           href="/dashboard"
@@ -59,7 +54,7 @@ export function CanvasFullPage() {
       </div>
 
       {/* Canvas content */}
-      <div className="ak-workspace-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
         <CanvasEditorShell />
       </div>
     </div>

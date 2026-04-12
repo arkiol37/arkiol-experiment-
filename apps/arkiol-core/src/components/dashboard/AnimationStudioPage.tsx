@@ -1,7 +1,7 @@
 "use client";
-// AnimationStudioPage — full-screen wrapper around AnimationStudioView.
-// Uses a fixed full-screen overlay so it escapes the sidebar layout visually
-// while still inheriting session/auth from the parent (dashboard) layout.
+// AnimationStudioPage — renders within the SidebarLayout.
+// Uses normal flow (not fixed overlay) so it stays properly
+// constrained within the main content area beside the sidebar.
 
 import React from "react";
 import Link from "next/link";
@@ -10,17 +10,16 @@ import { AnimationStudioView } from "./AnimationStudioView";
 export function AnimationStudioPage() {
   return (
     <div style={{
-      position: "fixed", inset: 0, zIndex: 200,
-      background: "var(--bg-base)", display: "flex", flexDirection: "column",
+      display: "flex", flexDirection: "column",
+      minHeight: "100vh", width: "100%",
       overflow: "hidden",
     }}>
-      {/* Top chrome bar — consistent with CanvasEditorShell pattern */}
+      {/* Top chrome bar */}
       <div style={{
         height: 52, flexShrink: 0, display: "flex", alignItems: "center",
         gap: 14, padding: "0 20px",
         borderBottom: "1px solid var(--border)",
         background: "var(--bg-surface)",
-        zIndex: 201,
       }}>
         <Link
           href="/dashboard"
@@ -38,7 +37,6 @@ export function AnimationStudioPage() {
 
         <div style={{ width: 1, height: 18, background: "var(--border)" }} />
 
-        {/* Wordmark */}
         <span style={{ fontSize: 13, fontWeight: 400, fontFamily: "var(--font-display)", letterSpacing: "-0.02em", color: "var(--text-primary)" }}>
           Arkiol
         </span>
@@ -57,7 +55,7 @@ export function AnimationStudioPage() {
       </div>
 
       {/* Studio content — scrollable */}
-      <div className="ak-workspace-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", WebkitOverflowScrolling: "touch" }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden" }}>
         <AnimationStudioView />
       </div>
     </div>
