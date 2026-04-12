@@ -54,6 +54,20 @@ export async function withRetry<T>(
   throw lastErr;
 }
 
+// ── Error introspection helpers ───────────────────────────────────────────────
+
+/**
+ * Safely extract a string `code` property from an Error
+ * (e.g. NodeJS.ErrnoException or custom error subclasses).
+ */
+export function extractErrorCode(err: Error, fallback: string): string {
+  if ("code" in err) {
+    const code = (err as Error & { code: unknown }).code;
+    if (typeof code === "string") return code;
+  }
+  return fallback;
+}
+
 // ── Capability guard helpers ──────────────────────────────────────────────────
 
 /** Returns a 503 response when a required capability is missing */

@@ -44,7 +44,7 @@ import { SpendGuardError } from "../engines/render/pipeline";
 import { uploadToS3, buildS3Key, getSignedDownloadUrl } from "../lib/s3";
 import { getOpenAIClient }                              from "../lib/openai";
 import { getCreditCost, getCategoryLabel, GIF_ELIGIBLE_FORMATS } from "../lib/types";
-import { withRetry }   from "../lib/error-handling";
+import { withRetry, extractErrorCode } from "../lib/error-handling";
 import { logJobEvent, logError, logger } from "../lib/logger";
 import { dlqQueue } from "../lib/queue";
 import { deliverWebhooks, deliverDirectWebhook } from "./webhook.worker";
@@ -994,7 +994,7 @@ worker.on("failed", async (job, err) => {
     // ── Write to authoritative DeadLetterJob table (crash safety) ────────
     // This is the permanent record — BullMQ's DLQ is ephemeral by comparison.
     const crashSafety = createCrashSafetyService({ prisma, logger });
-    await crashSafety.sendToDeadLetter(job.data.jobId, err.code ?? 'PIPELINE_ERROR', err.message, {
+    await crashSafety.sendToDeadLetter(job.data.jobId, extractErrorCode(err, 'PIPELINE_ERROR'), err.message, {
       attemptCount: job.attemptsMade, maxAttempts, stack: err.stack,
     }).catch(() => {});
 
@@ -1038,7 +1038,7 @@ worker.on("failed", async (job, err) => {
       await refundCredits(
         job.data.orgId,
         job.data.jobId,
-        `permanent_failure:${err.code ?? 'PIPELINE_ERROR'}`,
+        `permanent_failure:${extractErrorCode(err, 'PIPELINE_ERROR')}`,
         { prisma: prisma as any, logger }
       ).catch(refundErr => {
         logger.error(

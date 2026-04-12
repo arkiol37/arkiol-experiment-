@@ -13,7 +13,7 @@
 import { Worker, Job }   from "bullmq";
 import { prisma }        from "../lib/prisma";
 import { uploadToS3, buildS3Key, getSignedDownloadUrl } from "../lib/s3";
-import { withRetry }     from "../lib/error-handling";
+import { withRetry, extractErrorCode } from "../lib/error-handling";
 import { logJobEvent, logError, logger } from "../lib/logger";
 import { dlqQueue }      from "../lib/queue";
 import sharp             from "sharp";
@@ -317,7 +317,7 @@ exportWorker.on("failed", async (job, err) => {
 
   // Write to authoritative DeadLetterJob table (survives Redis restarts)
   const crashSafety = createCrashSafetyService({ prisma, logger });
-  await crashSafety.sendToDeadLetter(exportJobId, err.code ?? 'EXPORT_FAILED', err.message, {
+  await crashSafety.sendToDeadLetter(exportJobId, extractErrorCode(err, 'EXPORT_FAILED'), err.message, {
     attemptCount: job.attemptsMade, maxAttempts, format: job.data.format,
   }).catch(() => {});
 
