@@ -2,7 +2,7 @@
   "name": "@arkiol/core",
   "version": "25.0.0",
   "private": true,
-  "description": "ARKIOL v3 \u2014 Core Design Platform",
+  "description": "ARKIOL v3 — Core Design Platform",
   "scripts": {
     "dev": "next dev",
     "build": "node scripts/vercel-prisma-generate.cjs && next build",
@@ -87,6 +87,6 @@
     "gif-encoder-2": "^1.0.4"
   },
   "engines": {
-    "node": "20.x"
+    "node": ">=20"
   }
 }
