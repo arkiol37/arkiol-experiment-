@@ -2,7 +2,7 @@
   "name": "arkiol",
   "version": "25.0.0",
   "private": true,
-  "description": "ARKIOL v3 \u2014 AI-Powered Design & Animation Studio Platform",
+  "description": "ARKIOL v3 — AI-Powered Design & Animation Studio Platform",
   "workspaces": [
     "apps/arkiol-core",
     "apps/animation-studio",
@@ -13,11 +13,11 @@
   "scripts": {
     "dev": "npm run dev --workspace=apps/arkiol-core",
     "dev:studio": "npm run dev --workspace=apps/animation-studio",
-    "build": "npm run build --workspace=packages/shared && npm run build --workspace=apps/arkiol-core",
+    "build": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run build --workspace=packages/shared && npm run build --workspace=apps/arkiol-core",
     "build:all": "npm run build --workspace=packages/shared && npm run build --workspace=apps/arkiol-core && npm run build --workspace=apps/animation-studio/backend",
     "test": "npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "type-check": "npm run type-check --workspaces --if-present",
+    "type-check": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run type-check --workspaces --if-present",
     "db:migrate": "npx prisma migrate dev --schema=packages/shared/prisma/schema.prisma",
     "db:deploy": "npx prisma migrate deploy --schema=packages/shared/prisma/schema.prisma",
     "db:seed": "npm run db:seed --workspace=@arkiol/shared",
@@ -36,10 +36,10 @@
     "prisma:migrate": "npx prisma migrate deploy --schema=packages/shared/prisma/schema.prisma",
     "verify:quick": "tsx scripts/verify.ts --quick",
     "smoke:http": "tsx scripts/ci/http-smoke-tests.ts",
-    "vercel-build": "npm run build --workspace=packages/shared && npm run vercel-build --workspace=apps/arkiol-core"
+    "vercel-build": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run build --workspace=packages/shared && npm run vercel-build --workspace=apps/arkiol-core"
   },
   "engines": {
-    "node": "20.x",
+    "node": ">=20",
     "npm": ">=10.0.0"
   },
   "devDependencies": {
