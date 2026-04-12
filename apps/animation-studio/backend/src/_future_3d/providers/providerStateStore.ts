@@ -1,6 +1,0 @@
-export interface ProviderState { name: string; healthy: boolean; avgLatencyMs: number; errorRate: number; lastSuccess: Date | null; lastError: Date | null; consecutiveErrors: number; circuitOpen: boolean; }
-const state = new Map<string, ProviderState>();
-export function getProviderState(name: string): ProviderState { if (!state.has(name)) state.set(name, { name, healthy: true, avgLatencyMs: 5000, errorRate: 0, lastSuccess: null, lastError: null, consecutiveErrors: 0, circuitOpen: false }); return state.get(name)!; }
-export function recordSuccess(name: string, latencyMs: number): void { const s = getProviderState(name); s.healthy = true; s.avgLatencyMs = s.avgLatencyMs * 0.8 + latencyMs * 0.2; s.lastSuccess = new Date(); s.consecutiveErrors = 0; s.circuitOpen = false; s.errorRate = Math.max(0, s.errorRate * 0.9); }
-export function recordError(name: string): void { const s = getProviderState(name); s.lastError = new Date(); s.consecutiveErrors++; s.errorRate = Math.min(1, s.errorRate + 0.1); if (s.consecutiveErrors >= 3) { s.circuitOpen = true; s.healthy = false; } }
-export function selectBestProvider(providers: string[]): string { const c = providers.map(p => getProviderState(p)).filter(s => !s.circuitOpen); if (c.length === 0) return providers[0]; c.sort((a, b) => a.errorRate - b.errorRate || a.avgLatencyMs - b.avgLatencyMs); return c[0].name; }
