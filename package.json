@@ -39,7 +39,7 @@
     "vercel-build": "npx prisma generate --schema=packages/shared/prisma/schema.prisma && npm run build --workspace=packages/shared && npm run vercel-build --workspace=apps/arkiol-core"
   },
   "engines": {
-    "node": ">=20.x",
+    "node": "20.x",
     "npm": ">=10.0.0"
   },
   "devDependencies": {
