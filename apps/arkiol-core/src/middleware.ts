@@ -68,11 +68,22 @@ async function middleware(req: NextRequest): Promise<NextResponse> {
     !isCsrfExempt(pathname)
   ) {
     const origin = req.headers.get('origin');
-    const appUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '';
-    if (appUrl && origin && !origin.startsWith(appUrl)) {
-      return withSecurityHeaders(
-        NextResponse.json({ error: 'CSRF: Cross-origin request blocked' }, { status: 403 })
-      );
+    if (origin) {
+      // Same-origin: compare Origin against the actual request host.
+      // This correctly handles Vercel preview deployments, custom domains,
+      // and cases where NEXTAUTH_URL doesn't match the deployment URL.
+      const requestOrigin = req.nextUrl.origin;
+      const isSameOrigin = origin === requestOrigin;
+
+      // Also allow origins that match the configured app URL
+      const appUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? '';
+      const matchesAppUrl = appUrl && origin.startsWith(appUrl);
+
+      if (!isSameOrigin && !matchesAppUrl) {
+        return withSecurityHeaders(
+          NextResponse.json({ error: 'CSRF: Cross-origin request blocked' }, { status: 403 })
+        );
+      }
     }
   }
 
