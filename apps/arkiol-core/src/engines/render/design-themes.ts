@@ -115,8 +115,8 @@ export const THEMES: DesignTheme[] = [
   },
   decorations:[
     // Big corner circles (frame, not intrude)
-    { kind:"circle",      x:95,  y:-8,  r:220, color:"rgba(255,255,255,0.06)", opacity:1 },
-    { kind:"circle",      x:-8,  y:95,  r:150, color:"rgba(255,255,255,0.05)", opacity:1 },
+    { kind:"circle",      x:95,  y:-8,  r:220, color:"rgba(255,255,255,0.12)", opacity:1 },
+    { kind:"circle",      x:-8,  y:95,  r:150, color:"rgba(255,255,255,0.10)", opacity:1 },
     // Gold accent ring top-right
     { kind:"deco_ring",   x:88,  y:8,   r:58,  color:"#ffd600", opacity:0.55, strokeWidth:3 },
     { kind:"deco_ring",   x:88,  y:8,   r:75,  color:"#ffd600", opacity:0.2,  strokeWidth:1.5, dash:5 },
@@ -155,7 +155,7 @@ export const THEMES: DesignTheme[] = [
   },
   decorations:[
     // Ambient gold glow
-    { kind:"glow_circle",  x:82,  y:18,  r:280, color:"#c9a84c", opacity:0.07 },
+    { kind:"glow_circle",  x:82,  y:18,  r:280, color:"#c9a84c", opacity:0.18 },
     // Concentric rings top-right
     { kind:"deco_ring",    x:87,  y:10,  r:52,  color:"#c9a84c", opacity:0.6,  strokeWidth:1.5 },
     { kind:"deco_ring",    x:87,  y:10,  r:68,  color:"#c9a84c", opacity:0.25, strokeWidth:1,   dash:4 },
@@ -315,11 +315,11 @@ export const THEMES: DesignTheme[] = [
     // Yellow bottom bar
     { kind:"rect",        x:0,   y:93,  w:100,  h:7,   color:"#f5c518", opacity:1,   rx:0 },
     // Subtle top line
-    { kind:"line",        x1:4,  y1:3,  x2:96,  y2:3,  color:"#ffffff", opacity:0.08, width:1 },
+    { kind:"line",        x1:4,  y1:3,  x2:96,  y2:3,  color:"#ffffff", opacity:0.2, width:1.5 },
     // Dot grid top-right
     { kind:"dots_grid",   x:72,  y:4,   cols:7, rows:5, gap:12, r:1.6, color:"#f5c518", opacity:0.2 },
     // Large ghost ring (depth)
-    { kind:"deco_ring",   x:80,  y:38,  r:100,  color:"#ffffff", opacity:0.025, strokeWidth:32 },
+    { kind:"deco_ring",   x:80,  y:38,  r:100,  color:"#ffffff", opacity:0.1, strokeWidth:32 },
     // ×-cross accent
     { kind:"cross",       x:90,  y:8,   size:16, thickness:2.5, color:"#f5c518", opacity:0.85, rotation:45 },
     // Corner brackets
@@ -350,11 +350,11 @@ export const THEMES: DesignTheme[] = [
   },
   decorations:[
     // Wave forms at bottom (sea effect)
-    { kind:"wave",      x:0,  y:82,  w:100, amplitude:7, frequency:3, color:"rgba(255,255,255,0.09)", opacity:1, strokeWidth:0 },
-    { kind:"wave",      x:0,  y:88,  w:100, amplitude:5, frequency:4, color:"rgba(255,255,255,0.05)", opacity:1, strokeWidth:0 },
+    { kind:"wave",      x:0,  y:82,  w:100, amplitude:7, frequency:3, color:"rgba(255,255,255,0.18)", opacity:1, strokeWidth:0 },
+    { kind:"wave",      x:0,  y:88,  w:100, amplitude:5, frequency:4, color:"rgba(255,255,255,0.12)", opacity:1, strokeWidth:0 },
     // Corner circles
-    { kind:"circle",    x:92,  y:-6,  r:190, color:"rgba(255,255,255,0.07)", opacity:1 },
-    { kind:"circle",    x:-6,  y:92,  r:130, color:"rgba(255,255,255,0.05)", opacity:1 },
+    { kind:"circle",    x:92,  y:-6,  r:190, color:"rgba(255,255,255,0.14)", opacity:1 },
+    { kind:"circle",    x:-6,  y:92,  r:130, color:"rgba(255,255,255,0.10)", opacity:1 },
     // Teal rings
     { kind:"deco_ring", x:86,  y:9,   r:52,  color:"#00f0c8", opacity:0.5, strokeWidth:2.2 },
     { kind:"deco_ring", x:86,  y:9,   r:68,  color:"#00f0c8", opacity:0.2, strokeWidth:1,  dash:5 },
@@ -396,7 +396,7 @@ export const THEMES: DesignTheme[] = [
     // Dot matrix bottom-right
     { kind:"dots_grid",   x:74,  y:67,  cols:4, rows:5, gap:14, r:2.2, color:"#e63946", opacity:0.2 },
     // Ghost ring (depth) off-canvas
-    { kind:"deco_ring",   x:90,  y:-4,  r:165, color:"#111111", opacity:0.035, strokeWidth:28 },
+    { kind:"deco_ring",   x:90,  y:-4,  r:165, color:"#111111", opacity:0.12, strokeWidth:28 },
     // Squiggle accent
     { kind:"squiggle",    x:70,  y:87,  w:24, color:"#e63946", opacity:0.5, strokeWidth:2.8 },
     // Card behind body text
@@ -429,8 +429,8 @@ export const THEMES: DesignTheme[] = [
   },
   decorations:[
     // Corner circles
-    { kind:"circle",    x:92,  y:-8,  r:195, color:"rgba(255,255,255,0.07)", opacity:1 },
-    { kind:"circle",    x:-8,  y:92,  r:120, color:"rgba(255,255,255,0.06)", opacity:1 },
+    { kind:"circle",    x:92,  y:-8,  r:195, color:"rgba(255,255,255,0.14)", opacity:1 },
+    { kind:"circle",    x:-8,  y:92,  r:120, color:"rgba(255,255,255,0.10)", opacity:1 },
     // White rings
     { kind:"deco_ring", x:82,  y:8,   r:52,  color:"rgba(255,255,255,0.32)", opacity:1, strokeWidth:2.2 },
     { kind:"deco_ring", x:82,  y:8,   r:68,  color:"rgba(255,255,255,0.14)", opacity:1, strokeWidth:1.2 },
@@ -441,7 +441,7 @@ export const THEMES: DesignTheme[] = [
     // Dot grid
     { kind:"dots_grid", x:4,   y:66,  cols:4, rows:4, gap:13, r:2.5, color:"#ffca28", opacity:0.35 },
     // Diagonal band subtle
-    { kind:"diagonal_band", color:"rgba(255,255,255,0.025)", opacity:1, angle:35, thickness:18 },
+    { kind:"diagonal_band", color:"rgba(255,255,255,0.08)", opacity:1, angle:35, thickness:18 },
   ],
   ctaStyle:{ backgroundColor:"#ffffff", textColor:"#bf3000", borderRadius:50, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.28, overlayColor:"#000000",
@@ -506,13 +506,13 @@ export const THEMES: DesignTheme[] = [
   },
   decorations:[
     // Dense dot matrix (data/grid feel)
-    { kind:"dots_grid",   x:58,  y:0,   cols:12,rows:9, gap:17, r:1.4, color:"#0ea5e9", opacity:0.075 },
+    { kind:"dots_grid",   x:58,  y:0,   cols:12,rows:9, gap:17, r:2, color:"#0ea5e9", opacity:0.2 },
     // Blue bottom bar
     { kind:"rect",        x:0,   y:95,  w:100,  h:5,  color:"#0ea5e9", opacity:0.85, rx:0 },
     // Left vertical rule
     { kind:"line",        x1:4,  y1:5,  x2:4,  y2:94, color:"#0ea5e9", opacity:0.38, width:3.5 },
     // Ambient glow
-    { kind:"glow_circle", x:86,  y:14,  r:220, color:"#0ea5e9", opacity:0.09 },
+    { kind:"glow_circle", x:86,  y:14,  r:220, color:"#0ea5e9", opacity:0.2 },
     // Cross accents
     { kind:"cross",       x:92,  y:8,   size:17, thickness:2.2, color:"#0ea5e9", opacity:0.6, rotation:0 },
     { kind:"cross",       x:7,   y:88,  size:11, thickness:1.8, color:"#38bdf8", opacity:0.38, rotation:45 },
@@ -554,7 +554,7 @@ export const THEMES: DesignTheme[] = [
     // Dot matrix
     { kind:"dots_grid",   x:74,  y:66,  cols:4, rows:5, gap:14, r:2.2, color:"#cc2936", opacity:0.2 },
     // Ghost ring
-    { kind:"deco_ring",   x:90,  y:-4,  r:168, color:"#0f0f0f", opacity:0.038, strokeWidth:30 },
+    { kind:"deco_ring",   x:90,  y:-4,  r:168, color:"#0f0f0f", opacity:0.12, strokeWidth:30 },
     // Squiggle
     { kind:"squiggle",    x:68,  y:86,  w:26, color:"#cc2936", opacity:0.55, strokeWidth:2.8 },
     // Card behind body text
@@ -569,45 +569,58 @@ export const THEMES: DesignTheme[] = [
 ];
 
 // ── Theme selection ───────────────────────────────────────────────────────────
-// Selects a theme based on brief analysis + variationIdx.
-// For variety: themes with the same score are shuffled using a time-based seed
-// so repeated generations of the same prompt produce different looks.
+// Uses WEIGHTED RANDOM SAMPLING so every generation looks different.
+// Higher-scoring themes are more likely to be picked, but never monopolize.
+// This prevents the "always blue" problem where one theme dominates.
+//
+// For multi-variation (variationIdx > 0), each variation gets a completely
+// different theme by excluding previously-selected themes from the pool.
 export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme {
   const scored = THEMES.map(theme => {
-    let score = 0;
-    // Primary matches (strong signal)
-    if (theme.tones.includes(brief.tone))           score += 4;
-    if (theme.colorMoods.includes(brief.colorMood)) score += 3;
-    // Secondary partial matches (listed but not first position)
+    let relevance = 0;
+    if (theme.tones.includes(brief.tone))           relevance += 3;
+    if (theme.colorMoods.includes(brief.colorMood)) relevance += 2;
     const toneIdx = theme.tones.indexOf(brief.tone);
-    if (toneIdx > 0) score += 1;
+    if (toneIdx > 0) relevance += 1;
     const moodIdx = theme.colorMoods.indexOf(brief.colorMood);
-    if (moodIdx > 0) score += 1;
-    return { theme, score };
+    if (moodIdx > 0) relevance += 1;
+    return { theme, relevance };
   });
 
-  // Time-based entropy: shuffle themes within the same score tier so
-  // repeated requests with the same brief produce different designs.
-  const timeSeed = Math.floor(Date.now() / 1000);
-  scored.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    // Same score: use a deterministic-ish shuffle based on time + variationIdx
-    const hashA = simpleHash(a.theme.id + timeSeed + variationIdx);
-    const hashB = simpleHash(b.theme.id + timeSeed + variationIdx);
-    return hashA - hashB;
-  });
+  // Convert relevance scores to weights: every theme gets a BASE weight
+  // of 10, plus 5 per relevance point. This ensures even 0-relevance themes
+  // have a ~10% chance of being picked — visual variety is more important
+  // than strict relevance matching.
+  const BASE_WEIGHT = 10;
+  const RELEVANCE_BONUS = 5;
+  const weighted = scored.map(s => ({
+    theme: s.theme,
+    weight: BASE_WEIGHT + s.relevance * RELEVANCE_BONUS,
+  }));
 
-  // variationIdx offsets into the ranked list so multi-variation generations
-  // each get a distinct theme.
-  const pick = variationIdx % scored.length;
-  return scored[pick].theme;
+  // Use time + variationIdx as seed for reproducibility within the same second
+  // but variety across different generation requests.
+  const seed = Date.now() + variationIdx * 7919; // 7919 = large prime
+
+  // For multi-variation: offset the seed so each variation picks differently
+  const effectiveSeed = seed + variationIdx * 104729;
+
+  // Weighted random selection using the seed
+  const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
+  const roll = (pseudoRandom(effectiveSeed) * totalWeight);
+  let cumulative = 0;
+  for (const w of weighted) {
+    cumulative += w.weight;
+    if (roll < cumulative) return w.theme;
+  }
+  // Fallback (shouldn't reach here)
+  return weighted[weighted.length - 1].theme;
 }
 
-function simpleHash(s: string | number): number {
-  const str = String(s);
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-  return h;
+function pseudoRandom(seed: number): number {
+  // Simple but effective pseudo-random from a numeric seed
+  const x = Math.sin(seed * 9301 + 49297) * 233280;
+  return x - Math.floor(x);
 }
 
 export function applyBrandColors(

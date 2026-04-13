@@ -113,15 +113,18 @@ export async function buildUltimateSvgContent(
   brand?: { primaryColor: string; secondaryColor: string; fontDisplay: string },
   variationIdx = 0,
 ): Promise<BuildResult> {
-  // ── Cache lookup — skip GPT call on hit (bulk generation speedup) ─────────
-  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx);
-  const cached   = svgCacheGet(cacheKey);
-  if (cached) return cached;
-
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
+
+  // Select theme FIRST (randomized), then include theme ID in cache key
+  // so different themes don't serve stale cached content.
   let theme    = selectTheme(brief, variationIdx);
   if (brand) theme = applyBrandColors(theme, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
+
+  // ── Cache lookup — keyed on theme + brief so theme variety is preserved ───
+  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx) + ':' + theme.id;
+  const cached   = svgCacheGet(cacheKey);
+  if (cached) return cached;
 
   const contentZoneLines = zones
     .filter(z => !["background","image","accent"].includes(z.id))
