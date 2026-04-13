@@ -42,6 +42,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
   } = params;
 
   try {
+    // Initialize fonts for Vercel/serverless — downloads Google Fonts TTFs
+    // to /tmp so buildUltimateFontFaces() can base64-embed them in SVG.
+    // Critical for sharp PNG rendering with custom typography.
+    try {
+      const { initUltimateFonts } = require("../engines/render/font-registry-ultimate");
+      await initUltimateFonts();
+    } catch (fontErr: any) {
+      console.warn("[inline-generate] Font init failed (non-fatal):", fontErr.message);
+    }
+
     // Mark job as RUNNING
     await prisma.job.update({
       where: { id: jobId },

@@ -131,12 +131,21 @@ export async function buildUltimateSvgContent(
     }).join("\n");
 
   const systemPrompt = [
-    "You are a copywriter for a professional design platform.",
+    "You are a world-class copywriter creating text for premium design templates (Canva-level quality).",
     "Format: " + format + ". Canvas: " + dims.width + "x" + dims.height + "px. Theme: " + theme.name + ".",
-    "Brief: " + JSON.stringify(brief.headline) + " - " + brief.intent + " - Tone: " + brief.tone + " - Audience: " + brief.audience + ".",
-    "Write punchy on-brand text for each zone. Be concise — each zone has strict size limits.",
+    "Brief: " + JSON.stringify(brief.headline) + " — Intent: " + brief.intent + " — Tone: " + brief.tone + " — Audience: " + brief.audience + ".",
+    "",
+    "Write PREMIUM, attention-grabbing text for each zone. Quality standards:",
+    "• Headlines: Bold, emotional, use power words. Create desire or urgency. Never generic.",
+    "• Subheads: Expand on headline with a specific benefit or compelling detail.",
+    "• Body: Concrete, scannable. Use numbers, specifics, or social proof when fitting.",
+    "• CTA: Action-oriented verb + clear value. 'Get Started Free' > 'Click Here'.",
+    "• Badge: Short status label. E.g. 'NEW', 'LIMITED', '#1 RATED', 'BEST SELLER'.",
+    "• Eyebrow: 1-3 word category/context label above headline.",
+    "",
     "Available zones:\n" + contentZoneLines,
-    "Rules: headline ≤50 chars, be bold & short. cta 2-4 words. badge SHOUTED. eyebrow 1-3 words max.",
+    "Rules: headline ≤50 chars. cta 2-4 words. badge SHOUTED (uppercase). eyebrow 1-3 words max.",
+    "NEVER use placeholder text. NEVER repeat the brief verbatim. Transform the brief into marketing copy.",
     "themeOverride: pick theme ID when brief strongly implies it, else 'auto'.",
     "Respond ONLY with valid JSON. No markdown, no explanation.",
   ].join("\n");

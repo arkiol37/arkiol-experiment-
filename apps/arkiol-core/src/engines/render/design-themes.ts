@@ -569,21 +569,45 @@ export const THEMES: DesignTheme[] = [
 ];
 
 // ── Theme selection ───────────────────────────────────────────────────────────
+// Selects a theme based on brief analysis + variationIdx.
+// For variety: themes with the same score are shuffled using a time-based seed
+// so repeated generations of the same prompt produce different looks.
 export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme {
   const scored = THEMES.map(theme => {
     let score = 0;
+    // Primary matches (strong signal)
     if (theme.tones.includes(brief.tone))           score += 4;
     if (theme.colorMoods.includes(brief.colorMood)) score += 3;
-    // Secondary partial matches
-    const toneIdx   = theme.tones.indexOf(brief.tone);
-    if (toneIdx > 0) score += 1; // listed but not first
+    // Secondary partial matches (listed but not first position)
+    const toneIdx = theme.tones.indexOf(brief.tone);
+    if (toneIdx > 0) score += 1;
+    const moodIdx = theme.colorMoods.indexOf(brief.colorMood);
+    if (moodIdx > 0) score += 1;
     return { theme, score };
   });
-  scored.sort((a, b) => b.score - a.score || a.theme.id.localeCompare(b.theme.id));
-  // Use variationIdx to pick different themes — each variation gets a
-  // distinct look instead of always returning the top-scored theme.
+
+  // Time-based entropy: shuffle themes within the same score tier so
+  // repeated requests with the same brief produce different designs.
+  const timeSeed = Math.floor(Date.now() / 1000);
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    // Same score: use a deterministic-ish shuffle based on time + variationIdx
+    const hashA = simpleHash(a.theme.id + timeSeed + variationIdx);
+    const hashB = simpleHash(b.theme.id + timeSeed + variationIdx);
+    return hashA - hashB;
+  });
+
+  // variationIdx offsets into the ranked list so multi-variation generations
+  // each get a distinct theme.
   const pick = variationIdx % scored.length;
   return scored[pick].theme;
+}
+
+function simpleHash(s: string | number): number {
+  const str = String(s);
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+  return h;
 }
 
 export function applyBrandColors(

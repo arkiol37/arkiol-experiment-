@@ -105,11 +105,18 @@ export const ULTIMATE_CHAR_WIDTH_RATIOS: Record<string, number> = {
 };
 
 // ── Font download (Google Fonts) ─────────────────────────────────────────────
-function downloadFile(url: string, dest: string): Promise<void> {
+function downloadFile(url: string, dest: string, redirects = 3): Promise<void> {
   return new Promise((resolve, reject) => {
     if (fs.existsSync(dest)) { resolve(); return; }
     const file = fs.createWriteStream(dest);
-    https.get(url, (response: NodeJS.ReadableStream) => {
+    https.get(url, (response: any) => {
+      // Follow redirects (Google Fonts CDN may 301/302)
+      if ([301, 302, 307, 308].includes(response.statusCode) && response.headers.location && redirects > 0) {
+        file.close();
+        fs.unlink(dest, () => {});
+        downloadFile(response.headers.location, dest, redirects - 1).then(resolve, reject);
+        return;
+      }
       response.pipe(file);
       file.on("finish", () => { file.close(); resolve(); });
     }).on("error", (err: Error) => {
@@ -132,10 +139,12 @@ export interface FontInitResult {
 /**
  * Initialize the ultimate font system.
  * Downloads missing Google Fonts TTFs to the cache dir, then registers all
- * available fonts with node-canvas. Call once at worker startup.
+ * available fonts with node-canvas (if available).
  *
- * In serverless environments (no canvas, no network), this gracefully degrades
- * to the base font registry (DejaVu/Liberation bundled fonts).
+ * IMPORTANT: Fonts are ALWAYS downloaded to disk, even without canvas.
+ * This is critical for Vercel/serverless: buildUltimateFontFaces() needs the
+ * local TTF files to base64-embed them in SVG, which is the only way sharp
+ * (libvips) can render custom fonts in PNG output.
  */
 export async function initUltimateFonts(): Promise<FontInitResult> {
   if (ultimateRegistered) {
@@ -153,17 +162,16 @@ export async function initUltimateFonts(): Promise<FontInitResult> {
     return { ok: false, registered: 0, downloaded: 0, errors: [`Cannot create font cache dir: ${e.message}`] };
   }
 
-  // Try to load canvas
+  // Try to load canvas (optional — only needed for GIF rendering, not SVG/PNG)
   let registerFont: ((p: string, props: object) => void) | null = null;
   try {
     registerFont = require("canvas").registerFont;
   } catch {
-    // Canvas not available — SVG output still works via @font-face CDN references
-    // but PNG canvas rendering will fall back to system fonts.
-    return { ok: true, registered: 0, downloaded: 0, errors: ["canvas not available (serverless env)"] };
+    // Canvas not available (serverless). Font download still proceeds below
+    // so buildUltimateFontFaces() can base64-embed TTFs into SVG for sharp.
   }
 
-  // Download missing fonts
+  // Download missing fonts — ALWAYS, even without canvas
   const GOOGLE_FONTS_BASE = "https://fonts.gstatic.com/s";
   // Font file URL map — these are the canonical Google Fonts CDN paths
   const FONT_CDN_PATHS: Record<string, string> = {
