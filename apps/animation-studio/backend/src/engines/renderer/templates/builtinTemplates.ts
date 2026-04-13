@@ -220,7 +220,7 @@ export const PRODUCT_HERO_TEMPLATE: ExecutableTemplate = {
   supportedAspects: ['9:16', '1:1', '16:9'],
   canvasSizes: STANDARD_CANVAS,
   safeArea: SAFE_AREA,
-  background: { type: 'gradient', stops: [{ color: '#1a1a2e', position: 0 }, { color: '#16213e', position: 1 }], angle: 180 },
+  background: { type: 'gradient', stops: [{ color: '#090909', position: 0 }, { color: '#1c1206', position: 1 }], angle: 180 },
   defaultDurationMs: 5000,
   transitions: { entryType: 'zoom-in', entryDurationMs: 500, exitType: 'crossfade', exitDurationMs: 400 },
   slots: [
@@ -547,7 +547,7 @@ export const TESTIMONIAL_TEMPLATE: ExecutableTemplate = {
   supportedAspects: ['9:16', '1:1', '16:9'],
   canvasSizes: STANDARD_CANVAS,
   safeArea: SAFE_AREA,
-  background: { type: 'gradient', stops: [{ color: '#1a1a2e', position: 0 }, { color: '#0f3460', position: 1 }], angle: 180 },
+  background: { type: 'gradient', stops: [{ color: '#0c001f', position: 0 }, { color: '#1a0045', position: 1 }], angle: 180 },
   defaultDurationMs: 6000,
   transitions: { entryType: 'crossfade', entryDurationMs: 500, exitType: 'crossfade', exitDurationMs: 400 },
   slots: [

@@ -82,7 +82,7 @@ export interface BuildResult { content: SvgContent; violations: string[]; }
 
 const TextOnlySchema = z.object({
   textContents: z.array(z.object({ zoneId: z.string(), text: z.string().max(400) })),
-  themeOverride: z.enum(["vibrant_burst","dark_luxe","lush_green","floral_romance","cosmic_purple","power_black","ocean_blue","clean_minimal","sunset_warm","sage_wellness","navy_pro","modern_editorial","auto"]).optional(),
+  themeOverride: z.enum(["vibrant_burst","dark_luxe","lush_green","floral_romance","cosmic_purple","power_black","ocean_blue","clean_minimal","sunset_warm","sage_wellness","navy_pro","modern_editorial","peach_bliss","tropical_paradise","retro_pop","golden_hour","lavender_dream","sky_fresh","coral_energy","earth_coffee","auto"]).optional(),
 });
 
 // ── Font size targeting — zone-height driven like Canva ───────────────────────
@@ -455,7 +455,7 @@ function buildFallbackTextContent(zones: Zone[], brief: BriefAnalysis) {
 }
 
 function renderBasicFallback(zones: Zone[], content: SvgContent, width: number, height: number): string {
-  let els = `<rect width="${width}" height="${height}" fill="${content.backgroundColor ?? '#1a1a2e'}"/>`;
+  let els = `<rect width="${width}" height="${height}" fill="${content.backgroundColor ?? '#f8f7f4'}"/>`;
   for (const tc of content.textContents) {
     const zone = zones.find(z => z.id === tc.zoneId);
     if (!zone || !tc.text?.trim()) continue;

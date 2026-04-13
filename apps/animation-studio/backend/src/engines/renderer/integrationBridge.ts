@@ -91,16 +91,20 @@ function buildCameraKeyframes(preset: CameraPresetName, durationMs: number): Cam
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const MOOD_BACKGROUNDS: Record<string, BackgroundDef> = {
-  Luxury:     { type: 'gradient', stops: [{ color: '#1a0a2e', position: 0 }, { color: '#2d1b4e', position: 0.5 }, { color: '#0d0d0d', position: 1 }], angle: 135 },
+  Luxury:     { type: 'gradient', stops: [{ color: '#1c1206', position: 0 }, { color: '#2c1810', position: 0.5 }, { color: '#0d0d0d', position: 1 }], angle: 135 },
   Energetic:  { type: 'gradient', stops: [{ color: '#ff4e50', position: 0 }, { color: '#f9d423', position: 1 }], angle: 120 },
-  Minimal:    { type: 'gradient', stops: [{ color: '#f5f5f5', position: 0 }, { color: '#e8e8e8', position: 1 }], angle: 180 },
-  Cinematic:  { type: 'gradient', stops: [{ color: '#0f0c29', position: 0 }, { color: '#302b63', position: 0.5 }, { color: '#24243e', position: 1 }], angle: 135 },
-  Playful:    { type: 'gradient', stops: [{ color: '#a8ff78', position: 0 }, { color: '#78ffd6', position: 1 }], angle: 120 },
-  Emotional:  { type: 'gradient', stops: [{ color: '#2b5876', position: 0 }, { color: '#4e4376', position: 1 }], angle: 135 },
-  Corporate:  { type: 'gradient', stops: [{ color: '#141e30', position: 0 }, { color: '#243b55', position: 1 }], angle: 160 },
-  Bold:       { type: 'gradient', stops: [{ color: '#000000', position: 0 }, { color: '#1a1a2e', position: 1 }], angle: 180 },
-  Calm:       { type: 'gradient', stops: [{ color: '#ddd6f3', position: 0 }, { color: '#faaca8', position: 1 }], angle: 135 },
-  Tech:       { type: 'gradient', stops: [{ color: '#0f0c29', position: 0 }, { color: '#1a2980', position: 0.5 }, { color: '#26d0ce', position: 1 }], angle: 135 },
+  Minimal:    { type: 'gradient', stops: [{ color: '#f8f7f4', position: 0 }, { color: '#f3edff', position: 1 }], angle: 180 },
+  Cinematic:  { type: 'gradient', stops: [{ color: '#0c001f', position: 0 }, { color: '#1a0045', position: 0.5 }, { color: '#0c0028', position: 1 }], angle: 135 },
+  Playful:    { type: 'gradient', stops: [{ color: '#ffe0f0', position: 0 }, { color: '#fff0e0', position: 0.5 }, { color: '#e0f0ff', position: 1 }], angle: 120 },
+  Emotional:  { type: 'gradient', stops: [{ color: '#fdf4f7', position: 0 }, { color: '#fce4ec', position: 1 }], angle: 135 },
+  Corporate:  { type: 'gradient', stops: [{ color: '#091525', position: 0 }, { color: '#0d2444', position: 1 }], angle: 160 },
+  Bold:       { type: 'gradient', stops: [{ color: '#090909', position: 0 }, { color: '#1c1206', position: 1 }], angle: 180 },
+  Calm:       { type: 'gradient', stops: [{ color: '#ecf3ed', position: 0 }, { color: '#d6eada', position: 1 }], angle: 135 },
+  Tech:       { type: 'gradient', stops: [{ color: '#0c001f', position: 0 }, { color: '#7c3aed', position: 0.5 }, { color: '#e879f9', position: 1 }], angle: 135 },
+  Warm:       { type: 'gradient', stops: [{ color: '#fff5ee', position: 0 }, { color: '#ffe8d6', position: 1 }], angle: 140 },
+  Fresh:      { type: 'gradient', stops: [{ color: '#e8f4fd', position: 0 }, { color: '#d4ecfb', position: 1 }], angle: 145 },
+  Creative:   { type: 'gradient', stops: [{ color: '#f3edff', position: 0 }, { color: '#ede4ff', position: 1 }], angle: 140 },
+  Nature:     { type: 'gradient', stops: [{ color: '#0b2117', position: 0 }, { color: '#163828', position: 1 }], angle: 150 },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -340,7 +344,7 @@ export function bridgeSimpleScene(params: {
       primaryColor: params.brandColors.primary,
       secondaryColor: params.brandColors.secondary,
       accentColor: params.brandColors.accent,
-      backgroundColor: '#1a1a2e',
+      backgroundColor: params.brandColors.primary || '#f8f7f4',
     } : undefined,
   };
 

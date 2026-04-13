@@ -89,7 +89,7 @@ export function EditorShell() {
     const fallback: EditorInit = {
       projectId:    assetId,
       elements:     [],
-      bgColor:      "#1a1a2e",
+      bgColor:      "#f8f7f4",
       canvasWidth:  fallbackDims.width,
       canvasHeight: fallbackDims.height,
     };
@@ -106,7 +106,7 @@ export function EditorShell() {
       setEditorInit({
         projectId:    data.projectId ?? assetId,
         elements:     data.elements  ?? [],
-        bgColor:      bgEl?.fill ?? "#1a1a2e",
+        bgColor:      bgEl?.fill ?? "#f8f7f4",
         canvasWidth:  data.canvasWidth  ?? fallbackDims.width,
         canvasHeight: data.canvasHeight ?? fallbackDims.height,
       });

@@ -130,10 +130,10 @@ async function buildBackground(
           .raw()
           .toBuffer();
       }
-      return createSolidBuffer(width, height, '#1a1a2e');
+      return createSolidBuffer(width, height, '#f8f7f4');
 
     default:
-      return createSolidBuffer(width, height, '#1a1a2e');
+      return createSolidBuffer(width, height, '#f8f7f4');
   }
 }
 

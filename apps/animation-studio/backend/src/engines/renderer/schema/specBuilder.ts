@@ -84,16 +84,20 @@ export interface SpecBuilderResult {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 const MOOD_BACKGROUNDS: Record<string, BackgroundDef> = {
-  Luxury:     { type: 'gradient', stops: [{ color: '#1a0a2e', position: 0 }, { color: '#2d1b4e', position: 0.5 }, { color: '#0d0d0d', position: 1 }], angle: 135 },
+  Luxury:     { type: 'gradient', stops: [{ color: '#1c1206', position: 0 }, { color: '#2c1810', position: 0.5 }, { color: '#0d0d0d', position: 1 }], angle: 135 },
   Energetic:  { type: 'gradient', stops: [{ color: '#ff4e50', position: 0 }, { color: '#f9d423', position: 1 }], angle: 120 },
-  Minimal:    { type: 'gradient', stops: [{ color: '#f5f5f5', position: 0 }, { color: '#e8e8e8', position: 1 }], angle: 180 },
-  Cinematic:  { type: 'gradient', stops: [{ color: '#0f0c29', position: 0 }, { color: '#302b63', position: 0.5 }, { color: '#24243e', position: 1 }], angle: 135 },
-  Playful:    { type: 'gradient', stops: [{ color: '#a8ff78', position: 0 }, { color: '#78ffd6', position: 1 }], angle: 120 },
-  Emotional:  { type: 'gradient', stops: [{ color: '#2b5876', position: 0 }, { color: '#4e4376', position: 1 }], angle: 135 },
-  Corporate:  { type: 'gradient', stops: [{ color: '#141e30', position: 0 }, { color: '#243b55', position: 1 }], angle: 160 },
-  Bold:       { type: 'gradient', stops: [{ color: '#000000', position: 0 }, { color: '#1a1a2e', position: 1 }], angle: 180 },
-  Calm:       { type: 'gradient', stops: [{ color: '#ddd6f3', position: 0 }, { color: '#faaca8', position: 1 }], angle: 135 },
-  Tech:       { type: 'gradient', stops: [{ color: '#0f0c29', position: 0 }, { color: '#1a2980', position: 0.5 }, { color: '#26d0ce', position: 1 }], angle: 135 },
+  Minimal:    { type: 'gradient', stops: [{ color: '#f8f7f4', position: 0 }, { color: '#f3edff', position: 1 }], angle: 180 },
+  Cinematic:  { type: 'gradient', stops: [{ color: '#0c001f', position: 0 }, { color: '#1a0045', position: 0.5 }, { color: '#0c0028', position: 1 }], angle: 135 },
+  Playful:    { type: 'gradient', stops: [{ color: '#ffe0f0', position: 0 }, { color: '#fff0e0', position: 0.5 }, { color: '#e0f0ff', position: 1 }], angle: 120 },
+  Emotional:  { type: 'gradient', stops: [{ color: '#fdf4f7', position: 0 }, { color: '#fce4ec', position: 1 }], angle: 135 },
+  Corporate:  { type: 'gradient', stops: [{ color: '#091525', position: 0 }, { color: '#0d2444', position: 1 }], angle: 160 },
+  Bold:       { type: 'gradient', stops: [{ color: '#090909', position: 0 }, { color: '#1c1206', position: 1 }], angle: 180 },
+  Calm:       { type: 'gradient', stops: [{ color: '#ecf3ed', position: 0 }, { color: '#d6eada', position: 1 }], angle: 135 },
+  Tech:       { type: 'gradient', stops: [{ color: '#0c001f', position: 0 }, { color: '#7c3aed', position: 0.5 }, { color: '#e879f9', position: 1 }], angle: 135 },
+  Warm:       { type: 'gradient', stops: [{ color: '#fff5ee', position: 0 }, { color: '#ffe8d6', position: 1 }], angle: 140 },
+  Fresh:      { type: 'gradient', stops: [{ color: '#e8f4fd', position: 0 }, { color: '#d4ecfb', position: 1 }], angle: 145 },
+  Creative:   { type: 'gradient', stops: [{ color: '#f3edff', position: 0 }, { color: '#ede4ff', position: 1 }], angle: 140 },
+  Nature:     { type: 'gradient', stops: [{ color: '#0b2117', position: 0 }, { color: '#163828', position: 1 }], angle: 150 },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -221,7 +225,7 @@ function buildLayerContent(
 
   // Shape / container
   if (slot.type === 'shape' || slot.type === 'container') {
-    const fill = slot.style.backgroundColor || brand.accentColor || '#4F46E5';
+    const fill = slot.style.backgroundColor || brand.accentColor || brand.primaryColor || '#e8734a';
     const content: ShapeLayerContent = {
       type: 'shape',
       fill,
@@ -337,12 +341,32 @@ export function buildRenderSpecs(input: SpecBuilderInput): SpecBuilderResult {
   const isCinematic = intent.renderMode === 'Cinematic Ad';
   const platform = input.platform || intent.platform || 'instagram';
 
-  // Build brand spec
+  // Build brand spec — diverse fallback palette rotates so outputs never look
+  // monotonically blue.  Keyed off a simple hash of the intent text so the
+  // same brief produces the same colors, but *different* briefs get different
+  // palettes.
+  const _brandPalettes = [
+    { primary: '#e8734a', secondary: '#f4a574', accent: '#ff6b6b', bg: '#fff5ee' },  // peach/coral
+    { primary: '#00b894', secondary: '#fdcb6e', accent: '#00b894', bg: '#e8f8f0' },  // tropical teal
+    { primary: '#ff2d87', secondary: '#ffd23f', accent: '#a855f7', bg: '#ffe0f0' },  // retro pop
+    { primary: '#f0a500', secondary: '#ffd166', accent: '#f59e0b', bg: '#1c1206' },  // golden amber
+    { primary: '#7c5cbf', secondary: '#b39ddb', accent: '#7c5cbf', bg: '#f3edff' },  // lavender
+    { primary: '#0288d1', secondary: '#4fc3f7', accent: '#0288d1', bg: '#e8f4fd' },  // sky fresh
+    { primary: '#e63946', secondary: '#f1faee', accent: '#e63946', bg: '#f8f7f4' },  // editorial red
+    { primary: '#c2185b', secondary: '#f48fb1', accent: '#c2185b', bg: '#fdf4f7' },  // floral rose
+    { primary: '#2ecc71', secondary: '#52d68a', accent: '#00e676', bg: '#0b2117' },  // lush green
+    { primary: '#f4511e', secondary: '#ffd600', accent: '#ff7043', bg: '#f4511e' },  // vibrant burst
+    { primary: '#d4a574', secondary: '#e8c9a0', accent: '#d4a574', bg: '#2c1810' },  // earth coffee
+    { primary: '#ff6b6b', secondary: '#feca57', accent: '#ee5a24', bg: '#ff6b6b' },  // coral energy
+  ];
+  const _intentStr = intent.description || intent.mood || 'default';
+  const _intentHash = _intentStr.split('').reduce((h: number, c: string) => (h * 31 + c.charCodeAt(0)) | 0, 0);
+  const _pal = _brandPalettes[Math.abs(_intentHash) % _brandPalettes.length];
   const globalBrand: BrandSpec = {
-    primaryColor: brandData?.primaryColor || '#4F46E5',
-    secondaryColor: brandData?.secondaryColor || '#7C3AED',
-    accentColor: brandData?.accentColor || '#06B6D4',
-    backgroundColor: brandData?.backgroundColor || '#1a1a2e',
+    primaryColor: brandData?.primaryColor || _pal.primary,
+    secondaryColor: brandData?.secondaryColor || _pal.secondary,
+    accentColor: brandData?.accentColor || _pal.accent,
+    backgroundColor: brandData?.backgroundColor || _pal.bg,
     logoSrc: brandData?.logoUrl,
     logoIsTransparent: true,
   };

@@ -18,7 +18,8 @@ import { BriefAnalysis } from "../ai/brief-analyzer";
 export type ThemeFont =
   | "Montserrat" | "Playfair Display" | "Oswald"  | "Poppins"
   | "Raleway"    | "Nunito"           | "Lato"     | "Bebas Neue"
-  | "DM Sans"    | "Cormorant Garamond";
+  | "DM Sans"    | "Cormorant Garamond"
+  | "Nunito Sans";
 
 export interface ThemePalette {
   background: string; surface: string;  primary:   string;
@@ -566,20 +567,365 @@ export const THEMES: DesignTheme[] = [
   overlayOpacity:0.0, overlayColor:"#000000",
 },
 
+// ══════════════════════════════════════════════════════════════════════════════
+// 13. PEACH BLISS — Self-care, beauty, wellness tips  (warm peach-to-coral)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"peach_bliss", name:"Peach Bliss",
+  tones:["warm","playful","minimal"], colorMoods:["warm","light","muted"],
+  headlineSizeMultiplier:1.24,
+  palette:{ background:"#fff5ee", surface:"rgba(255,255,255,0.85)", primary:"#e8734a",
+    secondary:"#f4a574", text:"#3d1e0e", textMuted:"#8b5e4b", highlight:"#e8734a" },
+  background:{ kind:"linear_gradient", colors:["#fff5ee","#ffe8d6","#ffdbc4"], angle:155 },
+  typography:{
+    display:"Nunito", body:"Lato",
+    headline: { fontFamily:"Nunito", fontWeight:800, color:"#3d1e0e", letterSpacing:-0.015, fontSizeMultiplier:1.24 },
+    subhead:  { fontFamily:"Lato",   fontWeight:400, color:"#8b5e4b", letterSpacing:0.03 },
+    body_text:{ fontFamily:"Lato",   fontWeight:400, color:"#8b5e4b" },
+    cta:      { fontFamily:"Nunito", fontWeight:700, color:"#ffffff" },
+    badge:    { fontFamily:"Nunito", fontWeight:700, color:"#e8734a", textTransform:"uppercase", letterSpacing:0.16 },
+    eyebrow:  { fontFamily:"Nunito", fontWeight:600, color:"#f4a574", textTransform:"uppercase", letterSpacing:0.24 },
+  },
+  decorations:[
+    // Soft corner blobs
+    { kind:"blob",       x:88,  y:-4,  size:280, color:"rgba(232,115,74,0.1)",  opacity:1, seed:31 },
+    { kind:"blob",       x:-6,  y:86,  size:220, color:"rgba(244,165,116,0.12)", opacity:1, seed:53 },
+    // Warm circles
+    { kind:"circle",     x:92,  y:6,   r:120, color:"rgba(232,115,74,0.08)", opacity:1 },
+    { kind:"circle",     x:5,   y:90,  r:90,  color:"rgba(244,165,116,0.1)", opacity:1 },
+    // Decorative flowers
+    { kind:"flower",     x:90,  y:8,   r:36, petals:7, color:"#f4a574", opacity:0.5 },
+    { kind:"flower",     x:6,   y:86,  r:24, petals:5, color:"#e8734a", opacity:0.35 },
+    // Card panel behind body
+    { kind:"card_panel", x:5,   y:56,  w:90, h:28, color:"rgba(255,255,255,0.75)", opacity:1, rx:16 },
+    // Short accent line
+    { kind:"line",       x1:6,  y1:14, x2:24, y2:14, color:"#e8734a", opacity:0.5, width:2.5 },
+    // Corner dots
+    { kind:"dots_grid",  x:4,   y:4,   cols:3, rows:3, gap:12, r:2.2, color:"#e8734a", opacity:0.2 },
+    // Squiggle accent
+    { kind:"squiggle",   x:68,  y:86,  w:22, color:"#f4a574", opacity:0.5, strokeWidth:2.5 },
+  ],
+  ctaStyle:{ backgroundColor:"#e8734a", textColor:"#ffffff", borderRadius:50, paddingH:34, paddingV:15, shadow:true },
+  overlayOpacity:0.0, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 14. TROPICAL PARADISE — Travel, summer, vacation  (teal-to-yellow gradient)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"tropical_paradise", name:"Tropical Paradise",
+  tones:["energetic","playful","bold"], colorMoods:["vibrant","warm","light"],
+  headlineSizeMultiplier:1.36,
+  palette:{ background:"#006d5b", surface:"rgba(255,255,255,0.12)", primary:"#00b894",
+    secondary:"#fdcb6e", text:"#ffffff", textMuted:"rgba(255,255,255,0.82)", highlight:"#fdcb6e" },
+  background:{ kind:"mesh", colors:["#006d5b","#00b894","#009688"] },
+  typography:{
+    display:"Poppins", body:"Lato",
+    headline: { fontFamily:"Poppins",    fontWeight:900, color:"#ffffff", letterSpacing:-0.02, fontSizeMultiplier:1.36 },
+    subhead:  { fontFamily:"Lato",       fontWeight:400, color:"rgba(255,255,255,0.9)" },
+    body_text:{ fontFamily:"Lato",       fontWeight:400, color:"rgba(255,255,255,0.78)" },
+    cta:      { fontFamily:"Poppins",    fontWeight:700, color:"#006d5b", textTransform:"uppercase" },
+    badge:    { fontFamily:"Montserrat", fontWeight:700, color:"#ffffff", textTransform:"uppercase", letterSpacing:0.14 },
+    eyebrow:  { fontFamily:"Montserrat", fontWeight:600, color:"#fdcb6e", textTransform:"uppercase", letterSpacing:0.22 },
+  },
+  decorations:[
+    // Sun circle top-right
+    { kind:"circle",     x:88,  y:-5,  r:200, color:"rgba(253,203,110,0.18)", opacity:1 },
+    { kind:"glow_circle",x:88,  y:5,   r:160, color:"#fdcb6e", opacity:0.12 },
+    // Yellow ring accents
+    { kind:"deco_ring",  x:86,  y:10,  r:55,  color:"#fdcb6e", opacity:0.5,  strokeWidth:2.2 },
+    { kind:"deco_ring",  x:86,  y:10,  r:72,  color:"#fdcb6e", opacity:0.22, strokeWidth:1, dash:5 },
+    // Wave forms at bottom (ocean effect)
+    { kind:"wave",       x:0,   y:84,  w:100, amplitude:6, frequency:3, color:"rgba(255,255,255,0.14)", opacity:1, strokeWidth:0 },
+    { kind:"wave",       x:0,   y:90,  w:100, amplitude:4, frequency:4, color:"rgba(255,255,255,0.1)",  opacity:1, strokeWidth:0 },
+    // Bottom gold bar
+    { kind:"rect",       x:0,   y:95.5,w:100, h:4.5, color:"#fdcb6e", opacity:0.85, rx:0 },
+    // Cross accents
+    { kind:"cross",      x:7,   y:8,   size:18, thickness:2.8, color:"rgba(255,255,255,0.4)", opacity:1, rotation:45 },
+    // Dot grid bottom-left
+    { kind:"dots_grid",  x:4,   y:68,  cols:4, rows:4, gap:14, r:2.5, color:"#fdcb6e", opacity:0.32 },
+    // Corner bracket
+    { kind:"corner_bracket", x:5, y:5, size:22, color:"#fdcb6e", opacity:0.5, strokeWidth:2, corner:"tl" },
+  ],
+  ctaStyle:{ backgroundColor:"#fdcb6e", textColor:"#006d5b", borderRadius:50, paddingH:38, paddingV:16, shadow:true },
+  overlayOpacity:0.22, overlayColor:"#004d40",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 15. RETRO POP — Fun, 90s vibe, social media tips  (pink + yellow + purple)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"retro_pop", name:"Retro Pop",
+  tones:["playful","energetic","bold"], colorMoods:["vibrant","warm","light"],
+  headlineSizeMultiplier:1.38,
+  palette:{ background:"#ffe0f0", surface:"rgba(255,255,255,0.6)", primary:"#ff2d87",
+    secondary:"#ffd23f", text:"#2d0033", textMuted:"#7a3d6e", highlight:"#ff2d87" },
+  background:{ kind:"linear_gradient", colors:["#ffe0f0","#fff0e0","#ffe0f0"], angle:135 },
+  typography:{
+    display:"Montserrat", body:"Nunito",
+    headline: { fontFamily:"Montserrat", fontWeight:900, color:"#2d0033", letterSpacing:-0.02, fontSizeMultiplier:1.38 },
+    subhead:  { fontFamily:"Nunito",     fontWeight:400, color:"#7a3d6e" },
+    body_text:{ fontFamily:"Nunito",     fontWeight:400, color:"#7a3d6e" },
+    cta:      { fontFamily:"Montserrat", fontWeight:800, color:"#ffffff", textTransform:"uppercase" },
+    badge:    { fontFamily:"Montserrat", fontWeight:700, color:"#ff2d87", textTransform:"uppercase", letterSpacing:0.16 },
+    eyebrow:  { fontFamily:"Montserrat", fontWeight:700, color:"#ff2d87", textTransform:"uppercase", letterSpacing:0.24 },
+  },
+  decorations:[
+    // Big colorful circles
+    { kind:"circle",     x:90,  y:-6,  r:180, color:"rgba(255,45,135,0.12)", opacity:1 },
+    { kind:"circle",     x:-6,  y:88,  r:140, color:"rgba(255,210,63,0.18)", opacity:1 },
+    { kind:"circle",     x:50,  y:50,  r:380, color:"rgba(168,85,247,0.04)", opacity:1 },
+    // Yellow accent shapes
+    { kind:"rect",       x:0,   y:94,  w:100, h:6,  color:"#ffd23f", opacity:0.85, rx:0 },
+    { kind:"accent_bar", x:0,   y:0,   w:100, h:0.6, color:"#ff2d87", rx:0 },
+    // Dot grid pattern
+    { kind:"dots_grid",  x:72,  y:4,   cols:5, rows:5, gap:14, r:3, color:"#ff2d87", opacity:0.2 },
+    { kind:"dots_grid",  x:4,   y:68,  cols:4, rows:4, gap:13, r:2.5, color:"#ffd23f", opacity:0.3 },
+    // Fun cross accents
+    { kind:"cross",      x:88,  y:88,  size:16, thickness:3, color:"#ff2d87", opacity:0.5, rotation:45 },
+    { kind:"cross",      x:8,   y:8,   size:14, thickness:2.5, color:"#ffd23f", opacity:0.55, rotation:0 },
+    // Card panel
+    { kind:"card_panel", x:5,   y:56,  w:90, h:28, color:"rgba(255,255,255,0.72)", opacity:1, rx:18 },
+    // Squiggle
+    { kind:"squiggle",   x:62,  y:86,  w:28, color:"#ff2d87", opacity:0.45, strokeWidth:3 },
+  ],
+  ctaStyle:{ backgroundColor:"#ff2d87", textColor:"#ffffff", borderRadius:50, paddingH:38, paddingV:16, shadow:true },
+  overlayOpacity:0.0, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 16. GOLDEN HOUR — Motivation, coaching, productivity  (warm amber-gold)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"golden_hour", name:"Golden Hour",
+  tones:["warm","bold","professional"], colorMoods:["warm","vibrant","muted"],
+  headlineSizeMultiplier:1.3,
+  palette:{ background:"#1c1206", surface:"rgba(255,200,60,0.06)", primary:"#f0a500",
+    secondary:"#ffd166", text:"#ffffff", textMuted:"rgba(255,255,255,0.62)", highlight:"#ffd166" },
+  background:{ kind:"linear_gradient", colors:["#1c1206","#2d1e0e","#1c1206"], angle:150 },
+  typography:{
+    display:"Raleway", body:"Lato",
+    headline: { fontFamily:"Raleway", fontWeight:900, color:"#ffffff", letterSpacing:-0.02, fontSizeMultiplier:1.3 },
+    subhead:  { fontFamily:"Lato",    fontWeight:300, color:"rgba(255,255,255,0.6)", letterSpacing:0.08 },
+    body_text:{ fontFamily:"Lato",    fontWeight:400, color:"rgba(255,255,255,0.5)" },
+    cta:      { fontFamily:"Raleway", fontWeight:800, color:"#1c1206", textTransform:"uppercase", letterSpacing:0.08 },
+    badge:    { fontFamily:"Raleway", fontWeight:700, color:"#ffd166", textTransform:"uppercase", letterSpacing:0.2 },
+    eyebrow:  { fontFamily:"Lato",    fontWeight:400, color:"#ffd166", textTransform:"uppercase", letterSpacing:0.28 },
+  },
+  decorations:[
+    // Amber glow
+    { kind:"glow_circle", x:80,  y:16,  r:300, color:"#f0a500", opacity:0.18 },
+    // Concentric gold rings
+    { kind:"deco_ring",   x:85,  y:12,  r:55,  color:"#ffd166", opacity:0.5,  strokeWidth:1.8 },
+    { kind:"deco_ring",   x:85,  y:12,  r:72,  color:"#f0a500", opacity:0.22, strokeWidth:1, dash:4 },
+    { kind:"deco_ring",   x:85,  y:12,  r:92,  color:"#f0a500", opacity:0.1,  strokeWidth:0.8 },
+    // Left gold bar
+    { kind:"accent_bar",  x:0,   y:8,   w:0.6, h:82, color:"#f0a500", rx:0 },
+    // Bottom gold line
+    { kind:"rect",        x:0,   y:95,  w:100, h:5,  color:"#f0a500", opacity:0.8, rx:0 },
+    // Dot matrix
+    { kind:"dots_grid",   x:70,  y:70,  cols:5, rows:5, gap:13, r:1.4, color:"#ffd166", opacity:0.18 },
+    // Arc accent
+    { kind:"arc_stroke",  x:4,   y:6,   r:38, startAngle:90, endAngle:180, color:"#ffd166", opacity:0.28, strokeWidth:1.2 },
+    // Diagonal band
+    { kind:"diagonal_band", color:"rgba(240,165,0,0.06)", opacity:1, angle:32, thickness:20 },
+  ],
+  ctaStyle:{ backgroundColor:"#f0a500", textColor:"#1c1206", borderRadius:4, paddingH:36, paddingV:16, shadow:true },
+  overlayOpacity:0.48, overlayColor:"#1c1206",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 17. LAVENDER DREAM — Creativity, mindfulness, study tips  (soft purple pastel)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"lavender_dream", name:"Lavender Dream",
+  tones:["minimal","warm","playful"], colorMoods:["light","cool","muted"],
+  headlineSizeMultiplier:1.22,
+  palette:{ background:"#f3edff", surface:"rgba(255,255,255,0.8)", primary:"#7c5cbf",
+    secondary:"#b39ddb", text:"#1e0a3c", textMuted:"#6a4d8a", highlight:"#7c5cbf" },
+  background:{ kind:"linear_gradient", colors:["#f3edff","#ede4ff","#f3edff"], angle:140 },
+  typography:{
+    display:"DM Sans", body:"Lato",
+    headline: { fontFamily:"DM Sans", fontWeight:700, color:"#1e0a3c", letterSpacing:-0.015, fontSizeMultiplier:1.22 },
+    subhead:  { fontFamily:"Lato",    fontWeight:400, color:"#6a4d8a" },
+    body_text:{ fontFamily:"Lato",    fontWeight:400, color:"#6a4d8a" },
+    cta:      { fontFamily:"DM Sans", fontWeight:700, color:"#ffffff", textTransform:"uppercase" },
+    badge:    { fontFamily:"DM Sans", fontWeight:600, color:"#7c5cbf", textTransform:"uppercase", letterSpacing:0.16 },
+    eyebrow:  { fontFamily:"DM Sans", fontWeight:600, color:"#b39ddb", textTransform:"uppercase", letterSpacing:0.24 },
+  },
+  decorations:[
+    // Soft blobs
+    { kind:"blob",       x:88,  y:-4,  size:250, color:"rgba(124,92,191,0.08)",  opacity:1, seed:19 },
+    { kind:"blob",       x:-5,  y:84,  size:200, color:"rgba(179,157,219,0.1)",  opacity:1, seed:41 },
+    // Flowers
+    { kind:"flower",     x:90,  y:8,   r:30, petals:6, color:"#b39ddb", opacity:0.45 },
+    { kind:"flower",     x:5,   y:88,  r:20, petals:5, color:"#7c5cbf", opacity:0.3 },
+    // Card panel
+    { kind:"card_panel", x:5,   y:56,  w:90, h:26, color:"rgba(255,255,255,0.78)", opacity:1, rx:16 },
+    // Deco ring
+    { kind:"deco_ring",  x:88,  y:86,  r:34, color:"#7c5cbf", opacity:0.16, strokeWidth:1.2 },
+    // Short accent
+    { kind:"line",       x1:6,  y1:14, x2:20, y2:14, color:"#7c5cbf", opacity:0.5, width:2 },
+    // Dots
+    { kind:"dots_grid",  x:4,   y:4,   cols:3, rows:3, gap:11, r:2, color:"#b39ddb", opacity:0.22 },
+    // Squiggle
+    { kind:"squiggle",   x:66,  y:86,  w:24, color:"#7c5cbf", opacity:0.42, strokeWidth:2.2 },
+    // Top accent bar
+    { kind:"accent_bar", x:0,   y:0,   w:100, h:0.5, color:"#7c5cbf", rx:0 },
+  ],
+  ctaStyle:{ backgroundColor:"#7c5cbf", textColor:"#ffffff", borderRadius:50, paddingH:34, paddingV:14, shadow:true },
+  overlayOpacity:0.0, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 18. SKY FRESH — Fitness, health, hydration  (bright sky blue + white)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"sky_fresh", name:"Sky Fresh",
+  tones:["energetic","bold","warm"], colorMoods:["cool","light","vibrant"],
+  headlineSizeMultiplier:1.32,
+  palette:{ background:"#e8f4fd", surface:"rgba(255,255,255,0.8)", primary:"#0288d1",
+    secondary:"#4fc3f7", text:"#042a44", textMuted:"#3a6e8a", highlight:"#0288d1" },
+  background:{ kind:"linear_gradient", colors:["#e8f4fd","#d4ecfb","#e8f4fd"], angle:145 },
+  typography:{
+    display:"Poppins", body:"Lato",
+    headline: { fontFamily:"Poppins", fontWeight:800, color:"#042a44", letterSpacing:-0.02, fontSizeMultiplier:1.32 },
+    subhead:  { fontFamily:"Lato",    fontWeight:400, color:"#3a6e8a" },
+    body_text:{ fontFamily:"Lato",    fontWeight:400, color:"#3a6e8a" },
+    cta:      { fontFamily:"Poppins", fontWeight:700, color:"#ffffff", textTransform:"uppercase" },
+    badge:    { fontFamily:"Poppins", fontWeight:600, color:"#0288d1", textTransform:"uppercase", letterSpacing:0.14 },
+    eyebrow:  { fontFamily:"Poppins", fontWeight:600, color:"#4fc3f7", textTransform:"uppercase", letterSpacing:0.22 },
+  },
+  decorations:[
+    // Big soft circles
+    { kind:"circle",     x:90,  y:-4,  r:200, color:"rgba(2,136,209,0.08)", opacity:1 },
+    { kind:"circle",     x:-5,  y:88,  r:150, color:"rgba(79,195,247,0.1)", opacity:1 },
+    // Wave shapes (fresh water feel)
+    { kind:"wave",       x:0,   y:84,  w:100, amplitude:5, frequency:3, color:"rgba(2,136,209,0.12)", opacity:1, strokeWidth:0 },
+    { kind:"wave",       x:0,   y:90,  w:100, amplitude:3, frequency:5, color:"rgba(79,195,247,0.08)", opacity:1, strokeWidth:0 },
+    // Card panel
+    { kind:"card_panel", x:5,   y:55,  w:90, h:28, color:"rgba(255,255,255,0.75)", opacity:1, rx:14 },
+    // Ring accent
+    { kind:"deco_ring",  x:86,  y:10,  r:48, color:"#0288d1", opacity:0.3, strokeWidth:2 },
+    { kind:"deco_ring",  x:86,  y:10,  r:64, color:"#4fc3f7", opacity:0.14, strokeWidth:1, dash:4 },
+    // Top accent
+    { kind:"rect",       x:0,   y:0,   w:100, h:0.5, color:"#0288d1", opacity:0.6, rx:0 },
+    // Bottom line
+    { kind:"line",       x1:6,  y1:95, x2:50, y2:95, color:"#0288d1", opacity:0.35, width:2 },
+    // Dots
+    { kind:"dots_grid",  x:4,   y:4,   cols:4, rows:3, gap:14, r:2.2, color:"#4fc3f7", opacity:0.22 },
+  ],
+  ctaStyle:{ backgroundColor:"#0288d1", textColor:"#ffffff", borderRadius:50, paddingH:36, paddingV:16, shadow:true },
+  overlayOpacity:0.0, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 19. CORAL ENERGY — Marketing, food, lifestyle  (bold coral-to-pink)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"coral_energy", name:"Coral Energy",
+  tones:["bold","energetic","urgent"], colorMoods:["vibrant","warm"],
+  headlineSizeMultiplier:1.38,
+  palette:{ background:"#ff6b6b", surface:"rgba(255,255,255,0.14)", primary:"#ff6b6b",
+    secondary:"#feca57", text:"#ffffff", textMuted:"rgba(255,255,255,0.82)", highlight:"#feca57" },
+  background:{ kind:"mesh", colors:["#ff6b6b","#ee5a24","#ff6b6b"] },
+  typography:{
+    display:"Montserrat", body:"Lato",
+    headline: { fontFamily:"Montserrat", fontWeight:900, color:"#ffffff", letterSpacing:-0.025, fontSizeMultiplier:1.38 },
+    subhead:  { fontFamily:"Lato",       fontWeight:400, color:"rgba(255,255,255,0.9)" },
+    body_text:{ fontFamily:"Lato",       fontWeight:400, color:"rgba(255,255,255,0.78)" },
+    cta:      { fontFamily:"Montserrat", fontWeight:800, color:"#ff6b6b", textTransform:"uppercase" },
+    badge:    { fontFamily:"Montserrat", fontWeight:700, color:"#ffffff", textTransform:"uppercase", letterSpacing:0.16 },
+    eyebrow:  { fontFamily:"Montserrat", fontWeight:700, color:"#feca57", textTransform:"uppercase", letterSpacing:0.22 },
+  },
+  decorations:[
+    // Big white corner circles
+    { kind:"circle",     x:92,  y:-8,  r:200, color:"rgba(255,255,255,0.12)", opacity:1 },
+    { kind:"circle",     x:-8,  y:92,  r:140, color:"rgba(255,255,255,0.1)",  opacity:1 },
+    // Yellow ring accents
+    { kind:"deco_ring",  x:88,  y:8,   r:56,  color:"#feca57", opacity:0.55, strokeWidth:2.5 },
+    { kind:"deco_ring",  x:88,  y:8,   r:74,  color:"#feca57", opacity:0.2,  strokeWidth:1.2, dash:5 },
+    // Yellow bottom bar
+    { kind:"rect",       x:0,   y:95,  w:100, h:5,  color:"#feca57", opacity:0.9, rx:0 },
+    // Dot grid
+    { kind:"dots_grid",  x:4,   y:68,  cols:5, rows:4, gap:14, r:2.8, color:"#feca57", opacity:0.35 },
+    // Cross accents
+    { kind:"cross",      x:7,   y:7,   size:18, thickness:3, color:"rgba(255,255,255,0.42)", opacity:1, rotation:45 },
+    { kind:"cross",      x:88,  y:86,  size:13, thickness:2, color:"rgba(255,255,255,0.3)",  opacity:1, rotation:0 },
+    // Diagonal band
+    { kind:"diagonal_band", color:"rgba(255,255,255,0.06)", opacity:1, angle:38, thickness:22 },
+  ],
+  ctaStyle:{ backgroundColor:"#ffffff", textColor:"#ff6b6b", borderRadius:50, paddingH:40, paddingV:18, shadow:true },
+  overlayOpacity:0.18, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 20. EARTH COFFEE — Café, books, cozy, artisan  (rich brown + cream)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"earth_coffee", name:"Earth Coffee",
+  tones:["warm","professional","minimal"], colorMoods:["warm","muted","dark"],
+  headlineSizeMultiplier:1.22,
+  palette:{ background:"#2c1810", surface:"rgba(255,235,200,0.06)", primary:"#d4a574",
+    secondary:"#e8c9a0", text:"#fff5e6", textMuted:"rgba(255,245,230,0.55)", highlight:"#d4a574" },
+  background:{ kind:"linear_gradient", colors:["#2c1810","#3e2419","#2c1810"], angle:155 },
+  typography:{
+    display:"Playfair Display", body:"Lato",
+    headline: { fontFamily:"Playfair Display", fontWeight:700, color:"#fff5e6", letterSpacing:-0.01, fontSizeMultiplier:1.22 },
+    subhead:  { fontFamily:"Lato",             fontWeight:300, color:"rgba(255,245,230,0.58)", letterSpacing:0.1 },
+    body_text:{ fontFamily:"Lato",             fontWeight:400, color:"rgba(255,245,230,0.45)" },
+    cta:      { fontFamily:"Lato",             fontWeight:700, color:"#2c1810", letterSpacing:0.1 },
+    badge:    { fontFamily:"Lato",             fontWeight:700, color:"#d4a574", textTransform:"uppercase", letterSpacing:0.22 },
+    eyebrow:  { fontFamily:"Lato",             fontWeight:400, color:"#d4a574", textTransform:"uppercase", letterSpacing:0.28 },
+  },
+  decorations:[
+    // Warm cream glow
+    { kind:"glow_circle",  x:80,  y:18, r:280, color:"#d4a574", opacity:0.15 },
+    // Cream rings
+    { kind:"deco_ring",    x:86,  y:10, r:50,  color:"#d4a574", opacity:0.5,  strokeWidth:1.5 },
+    { kind:"deco_ring",    x:86,  y:10, r:66,  color:"#d4a574", opacity:0.22, strokeWidth:1, dash:4 },
+    { kind:"deco_ring",    x:86,  y:10, r:84,  color:"#d4a574", opacity:0.1,  strokeWidth:0.8 },
+    // Left bar
+    { kind:"accent_bar",   x:0,   y:10, w:0.55, h:78, color:"#d4a574", rx:0 },
+    // Bottom rule
+    { kind:"line",         x1:4,  y1:96, x2:96, y2:96, color:"#d4a574", opacity:0.22, width:0.8 },
+    // Dot matrix
+    { kind:"dots_grid",    x:72,  y:72, cols:5, rows:5, gap:13, r:1.2, color:"#d4a574", opacity:0.16 },
+    // Arc
+    { kind:"arc_stroke",   x:4,   y:6,  r:35, startAngle:90, endAngle:180, color:"#d4a574", opacity:0.22, strokeWidth:1 },
+    // Noise overlay for texture
+    { kind:"noise_overlay", opacity:0.04 },
+  ],
+  ctaStyle:{ backgroundColor:"#d4a574", textColor:"#2c1810", borderRadius:4, paddingH:36, paddingV:15 },
+  overlayOpacity:0.42, overlayColor:"#2c1810",
+},
+
 ];
 
 // ── Theme selection ───────────────────────────────────────────────────────────
-// Uses WEIGHTED RANDOM SAMPLING so every generation looks different.
-// Higher-scoring themes are more likely to be picked, but never monopolize.
-// This prevents the "always blue" problem where one theme dominates.
+// Uses SHUFFLE-BASED SELECTION with light relevance boost.
+// The key insight: VISUAL VARIETY is far more important than strict matching.
+// Every theme is viable for every brief — it's the text that carries meaning.
 //
-// For multi-variation (variationIdx > 0), each variation gets a completely
-// different theme by excluding previously-selected themes from the pool.
+// Algorithm:
+//  1. Shuffle the entire theme pool using a time-based seed
+//  2. Apply a light relevance boost (matching themes get picked slightly more)
+//  3. For multi-variation (variationIdx > 0), deterministically pick a DIFFERENT
+//     theme by stepping through the shuffled list
+//
+// This guarantees that consecutive generations produce visually distinct results,
+// preventing the "always blue" or "always dark" problem.
+
+// Track recently used themes to avoid repetition across close-in-time generations
+const _recentThemeIds: string[] = [];
+const RECENT_HISTORY_SIZE = 6;
+
 export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme {
   const scored = THEMES.map(theme => {
     let relevance = 0;
-    if (theme.tones.includes(brief.tone))           relevance += 3;
-    if (theme.colorMoods.includes(brief.colorMood)) relevance += 2;
+    if (theme.tones.includes(brief.tone))           relevance += 2;
+    if (theme.colorMoods.includes(brief.colorMood)) relevance += 1;
+    // Bonus for secondary tone/mood matches
     const toneIdx = theme.tones.indexOf(brief.tone);
     if (toneIdx > 0) relevance += 1;
     const moodIdx = theme.colorMoods.indexOf(brief.colorMood);
@@ -587,34 +933,42 @@ export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme
     return { theme, relevance };
   });
 
-  // Convert relevance scores to weights: every theme gets a BASE weight
-  // of 10, plus 5 per relevance point. This ensures even 0-relevance themes
-  // have a ~10% chance of being picked — visual variety is more important
-  // than strict relevance matching.
-  const BASE_WEIGHT = 10;
-  const RELEVANCE_BONUS = 5;
-  const weighted = scored.map(s => ({
-    theme: s.theme,
-    weight: BASE_WEIGHT + s.relevance * RELEVANCE_BONUS,
-  }));
+  // Every theme gets a strong BASE weight (15) with only a small relevance
+  // bonus (3 per point). This ensures the full color spectrum is used.
+  const BASE_WEIGHT = 15;
+  const RELEVANCE_BONUS = 3;
 
-  // Use time + variationIdx as seed for reproducibility within the same second
-  // but variety across different generation requests.
-  const seed = Date.now() + variationIdx * 7919; // 7919 = large prime
+  // Penalise recently-used themes so back-to-back generations look different
+  const weighted = scored.map(s => {
+    let weight = BASE_WEIGHT + s.relevance * RELEVANCE_BONUS;
+    const recIdx = _recentThemeIds.indexOf(s.theme.id);
+    if (recIdx !== -1) {
+      // More recent = heavier penalty (most recent gets 80% penalty)
+      const recency = 1 - recIdx / RECENT_HISTORY_SIZE;
+      weight *= Math.max(0.2, 1 - recency * 0.8);
+    }
+    return { theme: s.theme, weight };
+  });
 
-  // For multi-variation: offset the seed so each variation picks differently
-  const effectiveSeed = seed + variationIdx * 104729;
+  // Use time + variationIdx as seed. Each variationIdx gets a wildly different
+  // seed so multi-variation batches always use different themes.
+  const seed = Date.now() + variationIdx * 104729;
 
-  // Weighted random selection using the seed
+  // Weighted random selection
   const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
-  const roll = (pseudoRandom(effectiveSeed) * totalWeight);
+  const roll = pseudoRandom(seed) * totalWeight;
   let cumulative = 0;
+  let selected = weighted[weighted.length - 1].theme;
   for (const w of weighted) {
     cumulative += w.weight;
-    if (roll < cumulative) return w.theme;
+    if (roll < cumulative) { selected = w.theme; break; }
   }
-  // Fallback (shouldn't reach here)
-  return weighted[weighted.length - 1].theme;
+
+  // Record the selection in recent history
+  _recentThemeIds.unshift(selected.id);
+  if (_recentThemeIds.length > RECENT_HISTORY_SIZE) _recentThemeIds.pop();
+
+  return selected;
 }
 
 function pseudoRandom(seed: number): number {

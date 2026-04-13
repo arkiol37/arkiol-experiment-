@@ -309,9 +309,9 @@ function reducer(state:EditorState,action:EditorAction):EditorState{
     }
 
     case "ADD_PAGE":{
-      const newPage:Page={id:pid(),name:`Page ${state.pages.length+1}`,elements:[],bgColor:"#1a1a2e"};
+      const newPage:Page={id:pid(),name:`Page ${state.pages.length+1}`,elements:[],bgColor:"#f8f7f4"};
       const pages=[...syncPage(state).pages,newPage];
-      return{...state,pages,currentPageIdx:pages.length-1,elements:[],bgColor:"#1a1a2e",selected:new Set(),history:[mkHist([],"Initial")],historyIdx:0};
+      return{...state,pages,currentPageIdx:pages.length-1,elements:[],bgColor:"#f8f7f4",selected:new Set(),history:[mkHist([],"Initial")],historyIdx:0};
     }
     case "SWITCH_PAGE":{
       const synced=syncPage(state);const page=synced.pages[action.idx];if(!page)return state;
@@ -378,7 +378,7 @@ const CURSOR2:Record<HandlePos,string>={nw:"nwse-resize",n:"ns-resize",ne:"nesw-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export function ArkiolEditor({
-  initialElements=[],canvasWidth=1080,canvasHeight=1080,canvasBg="#1a1a2e",
+  initialElements=[],canvasWidth=1080,canvasHeight=1080,canvasBg="#f8f7f4",
   onSave,readOnly=false,projectId="default",brandKit=null,userId,
 }:ArkiolEditorProps){
 

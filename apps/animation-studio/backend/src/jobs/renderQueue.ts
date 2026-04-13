@@ -627,7 +627,7 @@ renderQueue.process(config.RENDER_CONCURRENCY, async (job: Job<RenderJobData>) =
       primaryColor: brandPalette[0],
       secondaryColor: brandPalette[1] || brandPalette[0],
       accentColor: brandPalette[2] || brandPalette[0],
-      backgroundColor: '#1a1a2e',
+      backgroundColor: brandPalette[0] || '#f8f7f4',
       logoUrl: (renderConfig as any).logoUrl,
       fontFamily: (renderConfig as any).fontFamily,
     } : undefined;

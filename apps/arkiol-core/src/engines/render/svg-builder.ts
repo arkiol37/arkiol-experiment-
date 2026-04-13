@@ -137,8 +137,8 @@ Rules:
   const parsed = SvgContentSchema.safeParse(raw);
   if (!parsed.success) {
     const fallback: SvgContent = {
-      backgroundColor: brief.primaryColor ?? "#1a1a2e",
-      backgroundGradient: { type: "linear", colors: [brief.primaryColor ?? "#1a1a2e", "#0f3460"], angle: 135 },
+      backgroundColor: brief.primaryColor ?? "#f8f7f4",
+      backgroundGradient: { type: "linear", colors: [brief.primaryColor ?? "#f8f7f4", "#0f3460"], angle: 135 },
       textContents: zones
         .filter(z => z.required && z.id !== "background")
         .map(z => ({

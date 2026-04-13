@@ -28,6 +28,7 @@ export type UltimateFont =
   | "Poppins"
   | "Raleway"
   | "Nunito"
+  | "Nunito Sans"
   | "Lato"
   | "Bebas Neue"
   | "DM Sans"
@@ -87,6 +88,12 @@ export const ULTIMATE_FONTS: FontVariant[] = [
   // Cormorant Garamond — high-fashion editorial
   { family: "Cormorant Garamond", weight: 600, style: "normal", googleId: "Cormorant+Garamond:wght@600", file: "CormorantGaramond-SemiBold.ttf" },
   { family: "Cormorant Garamond", weight: 700, style: "normal", googleId: "Cormorant+Garamond:wght@700", file: "CormorantGaramond-Bold.ttf" },
+
+  // Nunito — rounded friendly sans for warm/playful themes (peach, wellness)
+  { family: "Nunito", weight: 400, style: "normal", googleId: "Nunito:wght@400", file: "Nunito-Regular.ttf" },
+  { family: "Nunito", weight: 600, style: "normal", googleId: "Nunito:wght@600", file: "Nunito-SemiBold.ttf" },
+  { family: "Nunito", weight: 700, style: "normal", googleId: "Nunito:wght@700", file: "Nunito-Bold.ttf" },
+  { family: "Nunito", weight: 800, style: "normal", googleId: "Nunito:wght@800", file: "Nunito-ExtraBold.ttf" },
 ];
 
 // ── Char-width ratios for text measurement (em units at 100px) ───────────────
@@ -101,6 +108,7 @@ export const ULTIMATE_CHAR_WIDTH_RATIOS: Record<string, number> = {
   "DM Sans":            0.51,
   "Cormorant Garamond": 0.48,
   "Nunito":             0.53,
+  "Nunito Sans":        0.52,
   "Bebas Neue":         0.44,
 };
 

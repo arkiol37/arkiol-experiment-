@@ -132,11 +132,11 @@ async function loadImage(
     const w = targetWidth || 400;
     const h = targetHeight || 400;
     logger.info(`[AssetPipeline] Generating placeholder for failed asset: ${src.substring(0, 80)}`);
-    // Create a subtle branded placeholder (dark gradient)
+    // Create a subtle branded placeholder (warm neutral gradient)
     const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">
       <defs><linearGradient id="pg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" style="stop-color:#2a2a3e;stop-opacity:1"/>
-        <stop offset="100%" style="stop-color:#1a1a2e;stop-opacity:1"/>
+        <stop offset="0%" style="stop-color:#f1ece3;stop-opacity:1"/>
+        <stop offset="100%" style="stop-color:#e8e0d4;stop-opacity:1"/>
       </linearGradient></defs>
       <rect width="${w}" height="${h}" fill="url(#pg)"/>
     </svg>`;

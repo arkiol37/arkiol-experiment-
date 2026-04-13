@@ -628,7 +628,7 @@ async function renderGifFromSpec(
 
   // Extract zone-resolved text elements for GIF frames
   // Key insight: we use spec.zones for geometry, content.textContents for text
-  const bgColor   = content.backgroundColor ?? "#1a1a2e";
+  const bgColor   = content.backgroundColor ?? "#f8f7f4";
   const gradColors = content.backgroundGradient?.type !== "none"
     ? content.backgroundGradient?.colors ?? [bgColor]
     : [bgColor];

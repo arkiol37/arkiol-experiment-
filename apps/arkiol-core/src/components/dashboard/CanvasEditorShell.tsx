@@ -40,14 +40,18 @@ const PRESETS = [
 ];
 
 const BG_PRESETS = [
-  { label:"Deep Dark",  v:"#1a1a2e" },
+  { label:"Ivory",      v:"#f8f7f4" },
   { label:"White",      v:"#ffffff" },
-  { label:"Slate",      v:"#0f172a" },
-  { label:"Ivory",      v:"#faf7f2" },
-  { label:"Indigo",     v:"linear-gradient(135deg,#7c7ffa,#5558e0)" },
-  { label:"Aurora",     v:"linear-gradient(135deg,#22d3ee,#7c7ffa 50%,#f472b6)" },
+  { label:"Peach",      v:"#fff5ee" },
+  { label:"Lavender",   v:"#f3edff" },
+  { label:"Sky",        v:"#e8f4fd" },
+  { label:"Sage",       v:"#ecf3ed" },
+  { label:"Deep Dark",  v:"#090909" },
+  { label:"Coffee",     v:"#2c1810" },
   { label:"Sunset",     v:"linear-gradient(135deg,#f59e6b,#f472b6)" },
-  { label:"Emerald",    v:"linear-gradient(135deg,#34d399,#22d3ee)" },
+  { label:"Coral",      v:"linear-gradient(135deg,#ff6b6b,#ee5a24)" },
+  { label:"Tropical",   v:"linear-gradient(135deg,#00b894,#fdcb6e)" },
+  { label:"Aurora",     v:"linear-gradient(135deg,#7c5cbf,#e879f9)" },
 ];
 
 const FEATURES = [
@@ -67,7 +71,7 @@ interface Cfg { label:string; w:number; h:number; bg:string; projectId:string; e
 export function CanvasEditorShell() {
   const [step,    setStep]    = useState<"pick"|"edit">("pick");
   const [cfg,     setCfg]     = useState<Cfg|null>(null);
-  const [bg,      setBg]      = useState("#1a1a2e");
+  const [bg,      setBg]      = useState("#f8f7f4");
   const [cW,      setCW]      = useState(1080);
   const [cH,      setCH]      = useState(1080);
   const [showC,   setShowC]   = useState(false);
@@ -132,7 +136,7 @@ export function CanvasEditorShell() {
           ))}
           <label style={{ position:"relative", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", width:34, height:34, borderRadius:"var(--radius-md)", border:"2px dashed var(--border-strong)" }} title="Custom color">
             <span style={{ fontSize:14 }}>🎨</span>
-            <input type="color" value={bg.startsWith("#")?bg:"#1a1a2e"} onChange={e=>setBg(e.target.value)} style={{ position:"absolute", width:0, height:0, opacity:0 }}/>
+            <input type="color" value={bg.startsWith("#")?bg:"#f8f7f4"} onChange={e=>setBg(e.target.value)} style={{ position:"absolute", width:0, height:0, opacity:0 }}/>
           </label>
         </div>
       </div>

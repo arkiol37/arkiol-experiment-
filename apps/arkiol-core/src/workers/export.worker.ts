@@ -76,7 +76,7 @@ async function buildGif(asset: {
   const dims    = FORMAT_DIMS[asset.format] ?? { width: asset.width, height: asset.height };
   const meta    = asset.metadata as Record<string, unknown> | null ?? {};
   const brief   = (meta.brief ?? {}) as Record<string, unknown>;
-  const bgColor = (brief.backgroundColor as string | undefined) ?? "#1a1a2e";
+  const bgColor = (brief.backgroundColor as string | undefined) ?? "#f8f7f4";
   const headline = (brief.headline as string | undefined) ?? asset.name;
   const subhead  = (brief.subhead as string | undefined) ?? "";
 
