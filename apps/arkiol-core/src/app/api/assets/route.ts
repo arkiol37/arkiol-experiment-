@@ -30,34 +30,44 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   const search     = url.searchParams.get("q");
   const sortBy     = url.searchParams.get("sort") === "brandScore" ? "brandScore" : "createdAt";
 
-  const assets = await prisma.asset.findMany({
-    where: {
-      userId: user.id,
-      ...(format     ? { format }     : {}),
-      ...(category   ? { category }   : {}),
-      ...(campaignId ? { campaignId } : {}),
-      ...(tag        ? { tags: { has: tag } } : {}),
-      ...(search     ? { name: { contains: search, mode: "insensitive" } } : {}),
-    },
-    orderBy: sortBy === "brandScore" ? { brandScore: "desc" } : { createdAt: "desc" },
-    skip:    (page - 1) * limit,
-    take:    limit,
-    select: {
-      id: true, name: true, format: true, category: true,
-      mimeType: true, width: true, height: true, fileSize: true,
-      tags: true, layoutFamily: true, brandScore: true,
-      hierarchyValid: true, s3Key: true, s3Bucket: true,
-      svgSource: true,
-      campaignId: true, createdAt: true,
-    },
-  });
+  let assets: any[] = [];
+  let total = 0;
+  let thisWeek = 0;
 
-  const total = await prisma.asset.count({ where: { userId: user.id } });
+  try {
+    assets = await prisma.asset.findMany({
+      where: {
+        userId: user.id,
+        ...(format     ? { format }     : {}),
+        ...(category   ? { category }   : {}),
+        ...(campaignId ? { campaignId } : {}),
+        ...(tag        ? { tags: { has: tag } } : {}),
+        ...(search     ? { name: { contains: search, mode: "insensitive" } } : {}),
+      },
+      orderBy: sortBy === "brandScore" ? { brandScore: "desc" } : { createdAt: "desc" },
+      skip:    (page - 1) * limit,
+      take:    limit,
+      select: {
+        id: true, name: true, format: true, category: true,
+        mimeType: true, width: true, height: true, fileSize: true,
+        tags: true, layoutFamily: true, brandScore: true,
+        hierarchyValid: true, s3Key: true, s3Bucket: true,
+        svgSource: true,
+        campaignId: true, createdAt: true,
+      },
+    });
 
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-  const thisWeek = await prisma.asset.count({
-    where: { userId: user.id, createdAt: { gte: weekAgo } },
-  });
+    total = await prisma.asset.count({ where: { userId: user.id } });
+
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    thisWeek = await prisma.asset.count({
+      where: { userId: user.id, createdAt: { gte: weekAgo } },
+    });
+  } catch (dbErr: any) {
+    console.error("[api/assets] Database query failed:", dbErr.message);
+    // Return empty result instead of 500 when DB query fails
+    return NextResponse.json({ assets: [], total: 0, thisWeek: 0, page, limit, dbError: true });
+  }
 
   const hasS3 = detectCapabilities().storage;
 
