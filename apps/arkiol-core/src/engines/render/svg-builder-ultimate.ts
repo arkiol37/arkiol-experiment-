@@ -118,7 +118,7 @@ export async function buildUltimateSvgContent(
 
   // Select theme FIRST (randomized), then include theme ID in cache key
   // so different themes don't serve stale cached content.
-  let theme    = selectTheme(brief, variationIdx);
+  let theme    = THEMES[0];
   if (brand) theme = applyBrandColors(theme, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
 
   // ── Cache lookup — keyed on theme + brief so theme variety is preserved ───
