@@ -504,13 +504,13 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     _injectedAssets: injectedAssets,
   } as any;
 
-  const buildResult = await buildUltimateSvgContent(
-    spec.zones,
-    enrichedBrief,
-    input.format,
-    input.brand,
-    input.variationIdx,
-  );
+const buildResult = await buildUltimateSvgContent(
+  spec.zones,
+  enrichedBrief,
+  input.format,
+  input.brand,
+  0,
+);
   violations.push(...buildResult.violations);
 
   // ── Stage 5: Hierarchy enforcement ────────────────────────────────────
