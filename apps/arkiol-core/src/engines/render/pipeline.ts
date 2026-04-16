@@ -26,6 +26,7 @@ import { createHash }              from "crypto";
 import { randomUUID }              from "crypto";
 import sharp                       from "sharp";
 import { resolveLayoutSpec, AuthorityContext } from "../layout/authority";
+import { adaptLayout }             from "../layout/adaptive-layout";
 import { analyzeDensity }          from "../layout/density";
 import { enforceStyle }            from "../layout/style-enforcer";
 import { enforceHierarchy, TextContent } from "../hierarchy/enforcer";
@@ -229,7 +230,23 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     campaignId:   input.campaignId,
     briefLength:  getBriefLength(input.brief),
   };
-  const spec = resolveLayoutSpec(authCtx);
+  const rawSpec = resolveLayoutSpec(authCtx);
+
+  // ── Stage 1b: Adaptive layout — constraint-based zone adjustment ──────
+  // Adjusts zone geometry based on content signals from the brief.
+  // Runs after Authority (preserves family/variation) but before Density
+  // (so font budgets are computed on the adapted zones).
+  const adapted = adaptLayout({
+    zones:          rawSpec.zones,
+    brief:          input.brief,
+    formatCategory: rawSpec.formatCategory,
+    density:        rawSpec.density,
+    activeZoneIds:  rawSpec.activeZoneIds,
+  });
+  const spec = { ...rawSpec, zones: adapted.zones };
+  if (adapted.adjustments.length > 0) {
+    violations.push(...adapted.adjustments.map(a => `adaptive_layout:${a}`));
+  }
 
   // ── Stage 2: Density analysis ──────────────────────────────────────────
   const densityAnalysis = analyzeDensity(spec, {

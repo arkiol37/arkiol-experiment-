@@ -334,67 +334,112 @@ function composeElements(
   variationIdx: number
 ): LayoutElement[] {
   const align = pattern.composition === "poster" ? "center" : "left";
-  const headlineWidth = pattern.composition === "split" ? 42 : pattern.composition === "editorial" ? 58 : 70;
-  const headlineHeight = content.headlineLength > 54 ? 20 : 16;
-  const ctaBoost = content.hierarchyBias === "cta" ? 1.2 : 1;
+  const isSplit = pattern.composition === "split";
+  const isEditorial = pattern.composition === "editorial";
+  const isPoster = pattern.composition === "poster";
+  const contentWidth = isSplit ? 42 : isEditorial ? 58 : isPoster ? 80 : 70;
   const yShift = variationIdx % 2 === 0 ? 0 : 2;
+  const ctaBoost = content.hierarchyBias === "cta" ? 1.2 : 1;
 
-  const elements: LayoutElement[] = [
-    {
-      id: "headline",
-      region: "hero",
-      priority: 10,
-      rect: { x: safeZone.left, y: 12 + yShift, w: headlineWidth, h: headlineHeight },
+  // Content-adaptive headline sizing:
+  // Short headline (≤20 chars) → big hero zone; long headline (>45 chars) → taller zone
+  const headlineHeight = content.headlineLength > 54 ? 22
+    : content.headlineLength > 35 ? 18
+    : content.headlineLength <= 20 ? 14
+    : 16;
+
+  // Vertical flow cursor — tracks the bottom of the last placed element
+  // plus the minimum gap, so elements stack without overlap
+  const minGap = taste.spacingDensity === "compact" ? 2 : taste.spacingDensity === "airy" ? 5 : 3;
+  let cursorY = safeZone.top + 2 + yShift;
+
+  // Eyebrow / badge zone above headline (if present)
+  const elements: LayoutElement[] = [];
+
+  if (brief.badge) {
+    elements.push({
+      id: "badge",
+      region: "header",
+      priority: 4,
+      rect: { x: safeZone.left, y: cursorY, w: Math.min(30, 8 + (brief.badge.length ?? 0) * 1.2), h: 5 },
       align,
-      emphasis: content.hierarchyBias === "headline" ? 1.3 : 1,
-      maxLines: content.headlineLength > 42 ? 4 : 3,
-      contentLength: content.headlineLength,
-    },
-  ];
+      maxLines: 1,
+      contentLength: brief.badge.length ?? 0,
+    });
+    cursorY += 5 + minGap;
+  }
 
+  // Headline
+  elements.push({
+    id: "headline",
+    region: "hero",
+    priority: 10,
+    rect: { x: safeZone.left, y: cursorY, w: contentWidth, h: headlineHeight },
+    align,
+    emphasis: content.hierarchyBias === "headline" ? 1.3 : 1,
+    maxLines: content.headlineLength > 42 ? 4 : content.headlineLength > 20 ? 3 : 2,
+    contentLength: content.headlineLength,
+  });
+  cursorY += headlineHeight + minGap;
+
+  // Subhead
   if (brief.subhead) {
+    const subH = content.subheadLength > 120 ? 14 : content.subheadLength > 60 ? 10 : 8;
     elements.push({
       id: "subhead",
       region: "support",
       priority: 7,
-      rect: { x: safeZone.left, y: 34 + yShift, w: headlineWidth + 6, h: content.subheadLength > 90 ? 14 : 10 },
+      rect: { x: safeZone.left, y: cursorY, w: contentWidth + 6, h: subH },
       align,
-      maxLines: content.subheadLength > 100 ? 4 : 3,
+      maxLines: content.subheadLength > 100 ? 4 : content.subheadLength > 50 ? 3 : 2,
       contentLength: content.subheadLength,
     });
+    cursorY += subH + minGap;
   }
 
+  // Body text
   if (brief.body) {
+    const bodyH = content.bodyLength > 400 ? 24
+      : content.bodyLength > 260 ? 20
+      : content.bodyLength > 100 ? 16
+      : 10;
+    const bodyW = isSplit ? 36 : isEditorial ? 52 : 56;
     elements.push({
       id: "body",
       region: "body",
       priority: 5,
-      rect: { x: safeZone.left, y: 48 + yShift, w: pattern.composition === "split" ? 36 : 56, h: content.bodyLength > 260 ? 22 : 16 },
+      rect: { x: safeZone.left, y: cursorY, w: bodyW, h: bodyH },
       align,
-      maxLines: content.bodyLength > 320 ? 8 : 5,
+      maxLines: content.bodyLength > 320 ? 8 : content.bodyLength > 200 ? 6 : 4,
       contentLength: content.bodyLength,
     });
+    cursorY += bodyH + minGap;
   }
 
+  // CTA — positioned with enough breathing room above bottom safe zone
   if (brief.cta) {
+    const ctaW = Math.min(38, 18 + content.ctaLength * 0.7 * ctaBoost);
+    const ctaY = Math.max(cursorY, 100 - safeZone.bottom - 14);
     elements.push({
       id: "cta",
       region: "cta",
       priority: 9,
-      rect: { x: safeZone.left, y: content.bodyLength > 260 ? 77 : 72, w: Math.min(32, 18 + brief.cta.length * 0.7 * ctaBoost), h: 8 },
-      align: pattern.composition === "poster" ? "center" : "left",
+      rect: { x: safeZone.left, y: ctaY, w: ctaW, h: 8 },
+      align: isPoster ? "center" : "left",
       emphasis: ctaBoost,
       maxLines: 1,
       contentLength: content.ctaLength,
     });
+    cursorY = ctaY + 8 + minGap;
   }
 
-  if (pattern.composition === "split") {
+  // Media zone for split compositions
+  if (isSplit) {
     elements.push({
       id: "media",
       region: "media",
       priority: 6,
-      rect: { x: 56, y: 10, w: 34, h: 72 },
+      rect: { x: 56, y: safeZone.top, w: 100 - 56 - safeZone.right, h: 100 - safeZone.top - safeZone.bottom },
       align: "center",
     });
   }
