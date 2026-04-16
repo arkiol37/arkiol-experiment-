@@ -95,12 +95,21 @@ Rules:
   const parsed = BriefAnalysisSchema.safeParse(raw);
   if (!parsed.success) {
     const partial = raw as any;
+
+    // Rotate fallback tone and colorMood based on prompt content hash
+    // to avoid always defaulting to the same values, which biases theme selection.
+    const FALLBACK_TONES:  Array<BriefAnalysis["tone"]>      = ["professional","bold","warm","energetic","playful","minimal"];
+    const FALLBACK_MOODS:  Array<BriefAnalysis["colorMood"]> = ["vibrant","warm","dark","cool","light","muted"];
+    const promptHash = prompt.split("").reduce((h, c) => ((h << 5) - h + c.charCodeAt(0)) | 0, 0);
+    const fallbackTone = FALLBACK_TONES[Math.abs(promptHash) % FALLBACK_TONES.length];
+    const fallbackMood = FALLBACK_MOODS[Math.abs(promptHash * 31) % FALLBACK_MOODS.length];
+
     const recovered = BriefAnalysisSchema.safeParse({
       intent:     partial.intent     ?? "Campaign asset generation",
       audience:   partial.audience   ?? "General audience",
-      tone:       partial.tone       ?? "professional",
+      tone:       partial.tone       ?? fallbackTone,
       keywords:   partial.keywords   ?? [],
-      colorMood:  partial.colorMood  ?? "vibrant",
+      colorMood:  partial.colorMood  ?? fallbackMood,
       imageStyle: partial.imageStyle ?? "photography",
       headline:   (partial.headline  ?? prompt.slice(0, 79)) as string,
       ...partial,

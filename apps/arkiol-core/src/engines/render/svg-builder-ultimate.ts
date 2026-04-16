@@ -116,9 +116,11 @@ export async function buildUltimateSvgContent(
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
 
-  // Select theme FIRST (randomized), then include theme ID in cache key
-  // so different themes don't serve stale cached content.
-  let theme    = THEMES[0];
+  // Select theme using weighted-random selection with anti-repetition tracking.
+  // selectTheme() uses brief tone/colorMood for relevance scoring, time-based
+  // seed + variationIdx for variety, and recent-history penalty to avoid
+  // consecutive same-theme generations.
+  let theme = selectTheme(brief, variationIdx);
   if (brand) theme = applyBrandColors(theme, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
 
   // ── Cache lookup — keyed on theme + brief so theme variety is preserved ───

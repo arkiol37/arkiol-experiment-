@@ -509,7 +509,7 @@ const buildResult = await buildUltimateSvgContent(
   enrichedBrief,
   input.format,
   input.brand,
-  0,
+  input.variationIdx,
 );
   violations.push(...buildResult.violations);
 

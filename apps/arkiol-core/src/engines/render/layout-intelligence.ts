@@ -1,5 +1,5 @@
 import { BriefAnalysis } from "../ai/brief-analyzer";
-import { DesignTheme, THEMES, applyBrandColors } from "./design-themes";
+import { DesignTheme, THEMES, applyBrandColors, selectTheme } from "./design-themes";
 
 export type LayoutDensity = "airy" | "balanced" | "compact";
 export type CompositionStyle = "editorial" | "hero" | "split" | "stacked" | "poster" | "minimal";
@@ -256,25 +256,16 @@ function pickInspirationPattern(brief: BriefAnalysis, taste: VisualTasteProfile,
 
 function selectSmartTheme(
   brief: BriefAnalysis,
-  taste: VisualTasteProfile,
-  pattern: InspirationPattern,
+  _taste: VisualTasteProfile,
+  _pattern: InspirationPattern,
   variationIdx: number,
   brand?: { primaryColor: string; secondaryColor: string }
 ): DesignTheme {
-  const ranked = THEMES
-    .map(theme => {
-      let score = 0;
-      if (theme.tones.includes(brief.tone)) score += 4;
-      if (theme.colorMoods.includes(brief.colorMood)) score += 3;
-      if (taste.typographyMode === "display-heavy" && (theme.headlineSizeMultiplier ?? 1) > 1.3) score += 2;
-      if (taste.spacingDensity === "airy" && ["clean_minimal", "modern_editorial", "sage_wellness", "lavender_dream"].includes(theme.id)) score += 2;
-      if (pattern.composition === "hero" && ["vibrant_burst", "sunset_warm", "coral_energy", "power_black"].includes(theme.id)) score += 2;
-      if (pattern.composition === "editorial" && ["dark_luxe", "modern_editorial", "clean_minimal", "earth_coffee"].includes(theme.id)) score += 2;
-      return { theme, score };
-    })
-    .sort((a, b) => b.score - a.score);
-
-  const selected = ranked[Math.min(variationIdx, Math.min(4, ranked.length - 1))]?.theme ?? ranked[0].theme;
+  // Delegate to the centralized selectTheme() which uses weighted random
+  // selection with anti-repetition tracking and category-aware boosting.
+  // This replaces the old deterministic ranking that always produced the
+  // same themes for the same brief, causing visual repetition.
+  const selected = selectTheme(brief, variationIdx);
   return applyBrandColors(selected, brand);
 }
 
