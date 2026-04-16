@@ -57,6 +57,18 @@ export type DecorShape =
   | { kind:"corner_bracket"; x:number; y:number; size:number;  color:string; opacity:number; strokeWidth:number; corner:"tl"|"tr"|"bl"|"br" }
   | { kind:"diagonal_band";  color:string; opacity:number; angle:number; thickness:number }
   | { kind:"noise_overlay";  opacity:number }
+  // ── Step 3: Richer decorations & components ──
+  | { kind:"ribbon";         x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number; corner:"tl"|"tr" }
+  | { kind:"sticker_circle"; x:number; y:number; r:number; color:string; text:string; textColor:string; fontSize:number; rotation:number; opacity:number; borderColor?:string; borderWidth?:number }
+  | { kind:"icon_symbol";    x:number; y:number; size:number; icon:"star"|"check"|"heart"|"arrow"|"lightning"|"play"|"fire"|"sparkle"; color:string; opacity:number }
+  | { kind:"checklist";      x:number; y:number; w:number; items:string[]; color:string; checkColor:string; fontSize:number; opacity:number; lineHeight?:number }
+  | { kind:"frame_border";   x:number; y:number; w:number; h:number; color:string; opacity:number; strokeWidth:number; gap:number; rx:number }
+  | { kind:"section_divider"; x:number; y:number; w:number; color:string; opacity:number; strokeWidth:number; ornament:"diamond"|"dot"|"dash"|"circle"|"star" }
+  | { kind:"texture_fill";   x:number; y:number; w:number; h:number; pattern:"crosses"|"lines"|"zigzag"|"confetti"; color:string; opacity:number; scale:number }
+  | { kind:"photo_circle";   x:number; y:number; r:number; borderColor:string; borderWidth:number; opacity:number; shadow?:boolean; bgColor:string }
+  | { kind:"starburst";      x:number; y:number; r:number; rays:number; color:string; opacity:number; rotation:number }
+  | { kind:"price_tag";      x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number }
+  | { kind:"banner_strip";   x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number; skew?:number }
 
 export interface ZoneTypography {
   fontFamily:ThemeFont; fontWeight:number; color:string;
@@ -131,6 +143,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"cross",       x:88,  y:88,  size:14, thickness:2, color:"rgba(255,255,255,0.3)",  opacity:1, rotation:0 },
     // Eyebrow left accent bar
     { kind:"accent_bar",  x:5,   y:7,   w:0.5, h:5, color:"#ffd600", rx:2 },
+    // Starburst behind headline area
+    { kind:"starburst",   x:50,  y:30,  r:350, rays:24, color:"rgba(255,255,255,0.04)", opacity:1, rotation:8 },
+    // Fire icon accent
+    { kind:"icon_symbol", x:92,  y:50,  size:18, icon:"fire", color:"#ffd600", opacity:0.45 },
   ],
   ctaStyle:{ backgroundColor:"#ffffff", textColor:"#f4511e", borderRadius:50, paddingH:40, paddingV:18, shadow:true },
   overlayOpacity:0.2, overlayColor:"#000000",
@@ -170,6 +186,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid",    x:73,  y:72,  cols:5,rows:5, gap:13, r:1.2, color:"#c9a84c", opacity:0.14 },
     // Partial arc top-left corner
     { kind:"arc_stroke",   x:3,   y:5,   r:35, startAngle:90, endAngle:180, color:"#c9a84c", opacity:0.25, strokeWidth:1 },
+    // Luxury frame border
+    { kind:"frame_border", x:3,   y:3,   w:94, h:94, color:"#c9a84c", opacity:0.12, strokeWidth:1, gap:8, rx:0 },
+    // Section divider with diamond ornament
+    { kind:"section_divider", x:15, y:52, w:70, color:"#c9a84c", opacity:0.2, strokeWidth:0.8, ornament:"diamond" },
   ],
   ctaStyle:{ backgroundColor:"#c9a84c", textColor:"#08091a", borderRadius:2, paddingH:36, paddingV:15 },
   overlayOpacity:0.48, overlayColor:"#08091a",
@@ -209,6 +229,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid", x:4,   y:2,   cols:4,rows:7, gap:15, r:2.2, color:"#2ecc71", opacity:0.22 },
     // Corner bracket top-left
     { kind:"corner_bracket", x:5, y:5, size:22, color:"#00e676", opacity:0.5, strokeWidth:2, corner:"tl" },
+    // Checklist block (tips/eco habits)
+    { kind:"checklist", x:8, y:58, w:40, items:["Eco-friendly","Sustainable","Natural"], color:"rgba(255,255,255,0.65)", checkColor:"#00e676", fontSize:13, opacity:0.7 },
+    // Leaf icon
+    { kind:"icon_symbol", x:92, y:48, size:16, icon:"sparkle", color:"#00e676", opacity:0.35 },
   ],
   ctaStyle:{ backgroundColor:"#00e676", textColor:"#0b2117", borderRadius:8, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.52, overlayColor:"#0b2117",
@@ -247,6 +271,11 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid", x:4,   y:3,   cols:3,rows:3, gap:12, r:2.2, color:"#c2185b", opacity:0.18 },
     // Bottom-right arc
     { kind:"arc_stroke",x:92,  y:92,  r:40, startAngle:180, endAngle:270, color:"#f48fb1", opacity:0.4, strokeWidth:1.5 },
+    // Heart icon accents
+    { kind:"icon_symbol", x:92, y:50, size:14, icon:"heart", color:"#f48fb1", opacity:0.35 },
+    { kind:"icon_symbol", x:6,  y:48, size:10, icon:"heart", color:"#c2185b", opacity:0.22 },
+    // Ornamental divider
+    { kind:"section_divider", x:20, y:54, w:60, color:"#f48fb1", opacity:0.3, strokeWidth:0.8, ornament:"dot" },
   ],
   ctaStyle:{ backgroundColor:"#c2185b", textColor:"#ffffff", borderRadius:50, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.0, overlayColor:"#2d0018",
@@ -287,6 +316,13 @@ export const THEMES: DesignTheme[] = [
     { kind:"cross",        x:88,  y:84,  size:14, thickness:2,   color:"#a78bfa", opacity:0.5,  rotation:0 },
     // Bottom accent
     { kind:"line",         x1:0,  y1:97.5,x2:55,y2:97.5, color:"#7c3aed", opacity:0.7, width:3.5 },
+    // Lightning icon — tech/gaming vibe
+    { kind:"icon_symbol",  x:8,   y:48,   size:16, icon:"lightning", color:"#e879f9", opacity:0.4 },
+    // Sparkle accents
+    { kind:"icon_symbol",  x:75,  y:68,   size:10, icon:"sparkle", color:"#a78bfa", opacity:0.35 },
+    { kind:"icon_symbol",  x:18,  y:76,   size:8,  icon:"sparkle", color:"#e879f9", opacity:0.25 },
+    // Texture fill — subtle depth
+    { kind:"texture_fill", x:0,   y:0,    w:100, h:100, pattern:"crosses", color:"rgba(168,85,247,0.06)", opacity:1, scale:4 },
   ],
   ctaStyle:{ backgroundColor:"#e879f9", textColor:"#0c001f", borderRadius:50, paddingH:40, paddingV:18, shadow:true },
   overlayOpacity:0.52, overlayColor:"#0c001f",
@@ -326,6 +362,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"cross",       x:90,  y:8,   size:16, thickness:2.5, color:"#f5c518", opacity:0.85, rotation:45 },
     // Corner brackets
     { kind:"corner_bracket", x:4, y:7, size:24, color:"#f5c518", opacity:0.6, strokeWidth:2.5, corner:"tl" },
+    // Banner strip — bold editorial feel
+    { kind:"banner_strip", x:0, y:44, w:100, h:5, color:"#f5c518", text:"", textColor:"#090909", fontSize:0, opacity:0.15 },
+    // Star icon accent
+    { kind:"icon_symbol",  x:92, y:50, size:14, icon:"star", color:"#f5c518", opacity:0.55 },
   ],
   ctaStyle:{ backgroundColor:"#f5c518", textColor:"#090909", borderRadius:0, paddingH:36, paddingV:16 },
   overlayOpacity:0.58, overlayColor:"#090909",
@@ -364,6 +404,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid", x:4,   y:4,   cols:4,rows:6, gap:15, r:2.2, color:"#90e0ef", opacity:0.22 },
     // Corner bracket
     { kind:"corner_bracket", x:4, y:4, size:22, color:"#00f0c8", opacity:0.5, strokeWidth:2, corner:"tl" },
+    // Photo circle placeholder — travel imagery framing
+    { kind:"photo_circle", x:82, y:44, r:120, borderColor:"#00f0c8", borderWidth:3, opacity:0.12, shadow:false, bgColor:"rgba(255,255,255,0.08)" },
+    // Play icon — video/travel content vibe
+    { kind:"icon_symbol",  x:82, y:44, size:22, icon:"play", color:"rgba(255,255,255,0.3)", opacity:1 },
   ],
   ctaStyle:{ backgroundColor:"#00f0c8", textColor:"#012d6a", borderRadius:50, paddingH:40, paddingV:18, shadow:true },
   overlayOpacity:0.44, overlayColor:"#012d6a",
@@ -405,6 +449,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"card_panel",  x:5,   y:57,  w:90,  h:27, color:"rgba(255,255,255,0.68)", opacity:1, rx:6 },
     // Corner bracket
     { kind:"corner_bracket", x:96, y:95, size:20, color:"#111111", opacity:0.12, strokeWidth:1.5, corner:"br" },
+    // Frame border — editorial framing
+    { kind:"frame_border", x:3, y:3, w:94, h:94, color:"#111111", opacity:0.06, strokeWidth:0.8, gap:6, rx:0 },
+    // Section divider with circle ornament
+    { kind:"section_divider", x:10, y:54, w:80, color:"#e63946", opacity:0.25, strokeWidth:0.8, ornament:"circle" },
   ],
   ctaStyle:{ backgroundColor:"#191919", textColor:"#f8f7f4", borderRadius:0, paddingH:36, paddingV:16 },
   overlayOpacity:0.0, overlayColor:"#000000",
@@ -444,6 +492,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid", x:4,   y:66,  cols:4, rows:4, gap:13, r:2.5, color:"#ffca28", opacity:0.35 },
     // Diagonal band subtle
     { kind:"diagonal_band", color:"rgba(255,255,255,0.08)", opacity:1, angle:35, thickness:18 },
+    // Ribbon — promo corner badge
+    { kind:"ribbon", x:72, y:2, w:28, h:28, color:"#ffca28", text:"HOT", textColor:"#bf3000", fontSize:13, opacity:0.85, corner:"tr" },
+    // Starburst behind headline
+    { kind:"starburst", x:50, y:28, r:380, rays:20, color:"rgba(255,255,255,0.03)", opacity:1, rotation:5 },
   ],
   ctaStyle:{ backgroundColor:"#ffffff", textColor:"#bf3000", borderRadius:50, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.28, overlayColor:"#000000",
@@ -482,6 +534,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"deco_ring", x:86,  y:86,  r:36, color:"#276749", opacity:0.14, strokeWidth:1.2 },
     // Short accent line under eyebrow
     { kind:"line",      x1:6,  y1:14, x2:22, y2:14, color:"#6ab187", opacity:0.55, width:2 },
+    // Checklist for wellness tips
+    { kind:"checklist", x:8, y:60, w:42, items:["Mindful","Balanced","Renewed"], color:"#1a3d2a", checkColor:"#276749", fontSize:12, opacity:0.45 },
+    // Section divider
+    { kind:"section_divider", x:15, y:54, w:70, color:"#6ab187", opacity:0.22, strokeWidth:0.8, ornament:"dot" },
   ],
   ctaStyle:{ backgroundColor:"#276749", textColor:"#ffffff", borderRadius:50, paddingH:32, paddingV:14 },
   overlayOpacity:0.0, overlayColor:"#ffffff",
@@ -522,6 +578,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"deco_ring",   x:86,  y:14,  r:62, color:"#0ea5e9", opacity:0.22, strokeWidth:1.5, dash:6 },
     // Corner bracket
     { kind:"corner_bracket", x:96, y:4, size:22, color:"#0ea5e9", opacity:0.45, strokeWidth:2, corner:"tr" },
+    // Checklist — SaaS feature list feel
+    { kind:"checklist", x:8, y:58, w:40, items:["Analytics","Dashboard","Reports"], color:"rgba(255,255,255,0.5)", checkColor:"#0ea5e9", fontSize:12, opacity:0.55 },
+    // Texture fill — tech grid feel
+    { kind:"texture_fill", x:60, y:0, w:40, h:100, pattern:"lines", color:"rgba(14,165,233,0.04)", opacity:1, scale:3 },
   ],
   ctaStyle:{ backgroundColor:"#0ea5e9", textColor:"#091525", borderRadius:4, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.54, overlayColor:"#091525",
@@ -563,6 +623,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"card_panel",  x:4,   y:57,  w:92,  h:30, color:"rgba(255,255,255,0.58)", opacity:1, rx:4 },
     // Corner bracket bottom-right
     { kind:"corner_bracket", x:96, y:96, size:22, color:"#0f0f0f", opacity:0.15, strokeWidth:1.5, corner:"br" },
+    // Frame border — magazine page feel
+    { kind:"frame_border", x:2, y:2, w:96, h:96, color:"#0f0f0f", opacity:0.06, strokeWidth:0.8, gap:5, rx:0 },
+    // Banner strip — section highlight
+    { kind:"banner_strip", x:0, y:45, w:100, h:4, color:"#cc2936", text:"", textColor:"#f1ece3", fontSize:0, opacity:0.08 },
   ],
   ctaStyle:{ backgroundColor:"#1a1a1a", textColor:"#f1ece3", borderRadius:0, paddingH:36, paddingV:16 },
   overlayOpacity:0.0, overlayColor:"#000000",
@@ -605,6 +669,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid",  x:4,   y:4,   cols:3, rows:3, gap:12, r:2.2, color:"#e8734a", opacity:0.2 },
     // Squiggle accent
     { kind:"squiggle",   x:68,  y:86,  w:22, color:"#f4a574", opacity:0.5, strokeWidth:2.5 },
+    // Heart icon — beauty/self-care feel
+    { kind:"icon_symbol", x:50, y:4, size:12, icon:"heart", color:"#e8734a", opacity:0.3 },
+    // Sticker circle
+    { kind:"sticker_circle", x:88, y:82, r:36, color:"#e8734a", text:"TIP", textColor:"#ffffff", fontSize:13, rotation:-12, opacity:0.55 },
   ],
   ctaStyle:{ backgroundColor:"#e8734a", textColor:"#ffffff", borderRadius:50, paddingH:34, paddingV:15, shadow:true },
   overlayOpacity:0.0, overlayColor:"#000000",
@@ -647,6 +715,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"dots_grid",  x:4,   y:68,  cols:4, rows:4, gap:14, r:2.5, color:"#fdcb6e", opacity:0.32 },
     // Corner bracket
     { kind:"corner_bracket", x:5, y:5, size:22, color:"#fdcb6e", opacity:0.5, strokeWidth:2, corner:"tl" },
+    // Photo circle — travel destination imagery
+    { kind:"photo_circle", x:80, y:40, r:130, borderColor:"#fdcb6e", borderWidth:3, opacity:0.1, shadow:false, bgColor:"rgba(255,255,255,0.06)" },
+    // Sticker circle — travel promo
+    { kind:"sticker_circle", x:14, y:82, r:40, color:"#fdcb6e", text:"GO!", textColor:"#006d5b", fontSize:15, rotation:15, opacity:0.6 },
   ],
   ctaStyle:{ backgroundColor:"#fdcb6e", textColor:"#006d5b", borderRadius:50, paddingH:38, paddingV:16, shadow:true },
   overlayOpacity:0.22, overlayColor:"#004d40",
@@ -689,6 +761,13 @@ export const THEMES: DesignTheme[] = [
     { kind:"card_panel", x:5,   y:56,  w:90, h:28, color:"rgba(255,255,255,0.72)", opacity:1, rx:18 },
     // Squiggle
     { kind:"squiggle",   x:62,  y:86,  w:28, color:"#ff2d87", opacity:0.45, strokeWidth:3 },
+    // Starburst — retro pop accent
+    { kind:"starburst",  x:86, y:50, r:80, rays:16, color:"rgba(255,45,135,0.1)", opacity:1, rotation:12 },
+    // Sparkle icons scattered
+    { kind:"icon_symbol", x:76, y:12, size:10, icon:"sparkle", color:"#ffd23f", opacity:0.55 },
+    { kind:"icon_symbol", x:20, y:78, size:8,  icon:"sparkle", color:"#ff2d87", opacity:0.4 },
+    // Confetti texture
+    { kind:"texture_fill", x:0, y:0, w:100, h:100, pattern:"confetti", color:"rgba(255,45,135,0.05)", opacity:1, scale:5 },
   ],
   ctaStyle:{ backgroundColor:"#ff2d87", textColor:"#ffffff", borderRadius:50, paddingH:38, paddingV:16, shadow:true },
   overlayOpacity:0.0, overlayColor:"#000000",
@@ -730,6 +809,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"arc_stroke",  x:4,   y:6,   r:38, startAngle:90, endAngle:180, color:"#ffd166", opacity:0.28, strokeWidth:1.2 },
     // Diagonal band
     { kind:"diagonal_band", color:"rgba(240,165,0,0.06)", opacity:1, angle:32, thickness:20 },
+    // Star icon — motivation/achievement
+    { kind:"icon_symbol", x:92, y:48, size:16, icon:"star", color:"#ffd166", opacity:0.4 },
+    // Section divider with star ornament
+    { kind:"section_divider", x:12, y:52, w:76, color:"#ffd166", opacity:0.18, strokeWidth:0.8, ornament:"star" },
   ],
   ctaStyle:{ backgroundColor:"#f0a500", textColor:"#1c1206", borderRadius:4, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.48, overlayColor:"#1c1206",
@@ -773,6 +856,11 @@ export const THEMES: DesignTheme[] = [
     { kind:"squiggle",   x:66,  y:86,  w:24, color:"#7c5cbf", opacity:0.42, strokeWidth:2.2 },
     // Top accent bar
     { kind:"accent_bar", x:0,   y:0,   w:100, h:0.5, color:"#7c5cbf", rx:0 },
+    // Checklist — study/creativity tips
+    { kind:"checklist", x:8, y:60, w:40, items:["Create","Learn","Grow"], color:"#1e0a3c", checkColor:"#7c5cbf", fontSize:12, opacity:0.4 },
+    // Sparkle icons
+    { kind:"icon_symbol", x:88, y:48, size:12, icon:"sparkle", color:"#b39ddb", opacity:0.38 },
+    { kind:"icon_symbol", x:78, y:72, size:8, icon:"sparkle", color:"#7c5cbf", opacity:0.25 },
   ],
   ctaStyle:{ backgroundColor:"#7c5cbf", textColor:"#ffffff", borderRadius:50, paddingH:34, paddingV:14, shadow:true },
   overlayOpacity:0.0, overlayColor:"#000000",
@@ -815,6 +903,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"line",       x1:6,  y1:95, x2:50, y2:95, color:"#0288d1", opacity:0.35, width:2 },
     // Dots
     { kind:"dots_grid",  x:4,   y:4,   cols:4, rows:3, gap:14, r:2.2, color:"#4fc3f7", opacity:0.22 },
+    // Arrow icon — fitness/action vibe
+    { kind:"icon_symbol", x:92, y:50, size:16, icon:"arrow", color:"#0288d1", opacity:0.35 },
+    // Photo circle — athlete/fitness imagery
+    { kind:"photo_circle", x:78, y:38, r:110, borderColor:"#4fc3f7", borderWidth:2.5, opacity:0.1, shadow:false, bgColor:"rgba(2,136,209,0.05)" },
   ],
   ctaStyle:{ backgroundColor:"#0288d1", textColor:"#ffffff", borderRadius:50, paddingH:36, paddingV:16, shadow:true },
   overlayOpacity:0.0, overlayColor:"#000000",
@@ -855,6 +947,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"cross",      x:88,  y:86,  size:13, thickness:2, color:"rgba(255,255,255,0.3)",  opacity:1, rotation:0 },
     // Diagonal band
     { kind:"diagonal_band", color:"rgba(255,255,255,0.06)", opacity:1, angle:38, thickness:22 },
+    // Ribbon — promo/sale corner
+    { kind:"ribbon", x:72, y:2, w:28, h:26, color:"#feca57", text:"SALE", textColor:"#ff6b6b", fontSize:12, opacity:0.8, corner:"tr" },
+    // Price tag
+    { kind:"price_tag", x:6, y:72, w:28, h:8, color:"rgba(255,255,255,0.2)", text:"$19.99", textColor:"#ffffff", fontSize:14, opacity:0.6 },
   ],
   ctaStyle:{ backgroundColor:"#ffffff", textColor:"#ff6b6b", borderRadius:50, paddingH:40, paddingV:18, shadow:true },
   overlayOpacity:0.18, overlayColor:"#000000",
@@ -896,6 +992,10 @@ export const THEMES: DesignTheme[] = [
     { kind:"arc_stroke",   x:4,   y:6,  r:35, startAngle:90, endAngle:180, color:"#d4a574", opacity:0.22, strokeWidth:1 },
     // Noise overlay for texture
     { kind:"noise_overlay", opacity:0.04 },
+    // Frame border — artisan feel
+    { kind:"frame_border", x:4, y:4, w:92, h:92, color:"#d4a574", opacity:0.1, strokeWidth:0.8, gap:6, rx:2 },
+    // Section divider with diamond
+    { kind:"section_divider", x:15, y:52, w:70, color:"#d4a574", opacity:0.18, strokeWidth:0.8, ornament:"diamond" },
   ],
   ctaStyle:{ backgroundColor:"#d4a574", textColor:"#2c1810", borderRadius:4, paddingH:36, paddingV:15 },
   overlayOpacity:0.42, overlayColor:"#2c1810",

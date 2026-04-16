@@ -20,12 +20,22 @@ export function buildDecorationPlan(layout: LayoutCandidate, theme: DesignTheme)
 }
 
 function approximateShapeBox(shape: DecorShape) {
+  // Shapes that span the full canvas (texture, noise, starburst with large r) — skip collision
+  if (shape.kind === "noise_overlay" || shape.kind === "diagonal_band") {
+    return { x: 0, y: 0, w: 0, h: 0 };
+  }
+  if (shape.kind === "texture_fill") {
+    return { x: shape.x, y: shape.y, w: shape.w, h: shape.h };
+  }
+  if (shape.kind === "checklist") {
+    return { x: shape.x, y: shape.y, w: shape.w, h: shape.items.length * (shape.lineHeight ?? shape.fontSize * 1.8) / 10 };
+  }
   if ("x" in shape && "y" in shape) {
     return {
       x: shape.x,
       y: shape.y,
-      w: "w" in shape ? shape.w : ("r" in shape ? shape.r : 10),
-      h: "h" in shape ? shape.h : ("r" in shape ? shape.r : 10),
+      w: "w" in shape ? shape.w : ("r" in shape ? shape.r : ("size" in shape ? shape.size : 10)),
+      h: "h" in shape ? shape.h : ("r" in shape ? shape.r : ("size" in shape ? shape.size : 10)),
     };
   }
   return { x: 0, y: 0, w: 0, h: 0 };
