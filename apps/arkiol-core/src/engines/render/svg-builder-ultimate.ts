@@ -21,6 +21,7 @@ import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "./category-style-packs";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
+import { pickBestTheme, scoreCandidateQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "./candidate-quality";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -117,17 +118,35 @@ export async function buildUltimateSvgContent(
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
 
-  // Select theme using weighted-random selection with category style pack awareness.
-  let theme = selectTheme(brief, variationIdx);
-  if (brand) theme = applyBrandColors(theme, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
-
-  // Detect category style pack for typography/accent/composition overrides
+  // ── Multi-candidate theme selection ──────────────────────────────────────
+  // Generate 4 candidate themes and pick the richest, most unique one.
+  // This prevents bland/gradient-heavy outputs by evaluating quality before
+  // committing to a theme.
+  const THEME_CANDIDATES = 4;
   const categoryPack = detectCategoryPack(brief);
 
-  // Apply category style pack overrides to the theme (non-destructive copy)
-  if (categoryPack) {
-    theme = applyCategoryPackOverrides(theme, categoryPack, brand);
+  const candidateThemes: DesignTheme[] = [];
+  for (let ci = 0; ci < THEME_CANDIDATES; ci++) {
+    let t = selectTheme(brief, variationIdx + ci * 7919);
+    if (brand) t = applyBrandColors(t, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
+    if (categoryPack) t = applyCategoryPackOverrides(t, categoryPack, brand);
+    candidateThemes.push(t);
   }
+
+  // Pick the best non-bland, non-duplicate candidate
+  let theme = pickBestTheme(candidateThemes);
+
+  // If the winner is a recent duplicate, try harder with offset seeds
+  if (isRecentDuplicate(theme)) {
+    const extraOffset = Date.now() % 10000;
+    let retry = selectTheme(brief, variationIdx + extraOffset);
+    if (brand) retry = applyBrandColors(retry, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
+    if (categoryPack) retry = applyCategoryPackOverrides(retry, categoryPack, brand);
+    if (!isBlandCandidate(retry)) theme = retry;
+  }
+
+  // Record this output so future requests avoid repeating it
+  recordOutputFingerprint(theme);
 
   // ── Cache lookup — keyed on theme + brief + pack so style variety is preserved
   const packSuffix = categoryPack ? ':' + categoryPack.id : '';
@@ -228,6 +247,16 @@ export async function buildUltimateSvgContent(
     accentShape:{ type:"none", color:"#000000", x:0, y:0, w:0, h:0 },
     _selectedTheme:theme,
   };
+
+  // ── Post-build quality evaluation ──────────────────────────────────────
+  const qualityScore = scoreCandidateQuality(theme, content);
+  if (qualityScore.total < 0.35) {
+    violations.push(`quality:low_score(${qualityScore.total.toFixed(2)}) — template may appear bland`);
+  }
+  if (qualityScore.contentCompleteness < 0.45) {
+    violations.push(`quality:sparse_content(${qualityScore.contentCompleteness.toFixed(2)}) — few text zones populated`);
+  }
+
   const buildResult: BuildResult = { content, violations };
   svgCacheSet(cacheKey, buildResult);
   return buildResult;

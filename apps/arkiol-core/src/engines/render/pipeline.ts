@@ -35,7 +35,8 @@ import {
   motionCompatibleElements, ASSET_CONTRACTS,
 } from "../assets/contract";
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
-import { buildUltimateSvgContent, renderUltimateSvg } from "./svg-builder-ultimate";
+import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./svg-builder-ultimate";
+import { scoreCandidateQuality } from "./candidate-quality";
 import {
   renderGif,
   buildKineticTextFrames,
@@ -504,13 +505,37 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     _injectedAssets: injectedAssets,
   } as any;
 
-const buildResult = await buildUltimateSvgContent(
+let buildResult = await buildUltimateSvgContent(
   spec.zones,
   enrichedBrief,
   input.format,
   input.brand,
   input.variationIdx,
 );
+
+  // ── Quality gate: reject bland outputs and retry once with offset seed ──
+  const QUALITY_RETRY_THRESHOLD = 0.32;
+  const selectedTheme = buildResult.content._selectedTheme;
+  if (selectedTheme) {
+    const qScore = scoreCandidateQuality(selectedTheme, buildResult.content as SvgContent);
+    if (qScore.total < QUALITY_RETRY_THRESHOLD) {
+      const retryResult = await buildUltimateSvgContent(
+        spec.zones,
+        enrichedBrief,
+        input.format,
+        input.brand,
+        input.variationIdx + 13337,
+      );
+      const retryTheme = retryResult.content._selectedTheme;
+      if (retryTheme) {
+        const retryScore = scoreCandidateQuality(retryTheme, retryResult.content as SvgContent);
+        if (retryScore.total > qScore.total) {
+          buildResult = retryResult;
+        }
+      }
+    }
+  }
+
   violations.push(...buildResult.violations);
 
   // ── Stage 5: Hierarchy enforcement ────────────────────────────────────

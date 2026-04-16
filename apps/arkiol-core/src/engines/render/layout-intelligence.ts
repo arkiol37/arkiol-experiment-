@@ -1,6 +1,7 @@
 import { BriefAnalysis } from "../ai/brief-analyzer";
 import { DesignTheme, THEMES, applyBrandColors, selectTheme } from "./design-themes";
 import { detectCategoryPack } from "./category-style-packs";
+import { scoreThemeQuality, isBlandCandidate } from "./candidate-quality";
 
 export type LayoutDensity = "airy" | "balanced" | "compact";
 export type CompositionStyle = "editorial" | "hero" | "split" | "stacked" | "poster" | "minimal";
@@ -75,6 +76,8 @@ export interface LayoutCandidateScore {
   hierarchyClarity: number;
   novelty: number;
   brandAlignment: number;
+  visualRichness: number;
+  decorationDiversity: number;
   total: number;
 }
 
@@ -143,7 +146,7 @@ const INSPIRATION_LIBRARY: InspirationPattern[] = [
 ];
 
 export function generateIntelligentLayouts(options: LayoutEngineOptions): LayoutCandidate[] {
-  const candidateCount = Math.max(3, Math.min(options.candidateCount ?? 6, 10));
+  const candidateCount = Math.max(3, Math.min(options.candidateCount ?? 8, 12));
   const content = analyzeContentSignals(options.brief, options.prompt);
   const taste = deriveVisualTaste(options.brief, options.category, options.brand, content);
 
@@ -169,7 +172,20 @@ export function generateIntelligentLayouts(options: LayoutEngineOptions): Layout
     } satisfies LayoutCandidate;
   });
 
-  return rawCandidates.sort((a, b) => b.score.total - a.score.total);
+  // Filter out bland candidates — if a theme scores poorly on visual richness,
+  // demote it so richer candidates surface first.
+  const scored = rawCandidates.sort((a, b) => b.score.total - a.score.total);
+
+  // If the top candidate is bland and we have non-bland alternatives, swap
+  if (scored.length > 1 && isBlandCandidate(scored[0].theme)) {
+    const firstRich = scored.find(c => !isBlandCandidate(c.theme));
+    if (firstRich) {
+      const richIdx = scored.indexOf(firstRich);
+      [scored[0], scored[richIdx]] = [scored[richIdx], scored[0]];
+    }
+  }
+
+  return scored;
 }
 
 export function pickBestLayout(options: LayoutEngineOptions): LayoutCandidate {
@@ -458,14 +474,21 @@ function scoreCandidate(
   const novelty = clamp(taste.noveltyBias + (taste.compositionStyle === "poster" || taste.compositionStyle === "split" ? 0.1 : 0), 0.3, 0.96);
   const brandAlignment = clamp(brand ? 0.92 : 0.72 + (theme.tones.includes("professional") ? 0.04 : 0), 0.45, 0.98);
 
+  // Visual richness and decoration diversity from quality scoring system
+  const themeQuality = scoreThemeQuality(theme);
+  const visualRichness = themeQuality.decorationRichness * 0.4 + themeQuality.premiumElements * 0.35 + themeQuality.visualLayering * 0.25;
+  const decorationDiversity = themeQuality.decorationDiversity;
+
   const total =
-    balance * 0.18 +
-    contrast * 0.16 +
-    readability * 0.16 +
-    whitespace * 0.12 +
-    hierarchyClarity * 0.16 +
-    novelty * 0.1 +
-    brandAlignment * 0.12;
+    balance * 0.14 +
+    contrast * 0.14 +
+    readability * 0.14 +
+    whitespace * 0.10 +
+    hierarchyClarity * 0.14 +
+    novelty * 0.08 +
+    brandAlignment * 0.10 +
+    visualRichness * 0.08 +
+    decorationDiversity * 0.08;
 
   return {
     balance,
@@ -475,6 +498,8 @@ function scoreCandidate(
     hierarchyClarity,
     novelty,
     brandAlignment,
+    visualRichness,
+    decorationDiversity,
     total,
   };
 }
