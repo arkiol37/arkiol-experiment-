@@ -14,6 +14,7 @@
 //  • Theme scoring upgraded: 3 tones + 3 colorMoods per theme (better matching)
 
 import { BriefAnalysis } from "../ai/brief-analyzer";
+import { detectCategoryPack, paletteMoodToColorMoods, type CategoryStylePack } from "./category-style-packs";
 
 export type ThemeFont =
   | "Montserrat" | "Playfair Display" | "Oswald"  | "Poppins"
@@ -902,108 +903,39 @@ export const THEMES: DesignTheme[] = [
 
 ];
 
-// ── Category → Theme affinity map ─────────────────────────────────────────────
-// Maps prompt keywords to theme IDs that best match the visual identity of
-// that category. Used for a light relevance boost (not a hard lock) so that
-// e.g. food prompts favor warm palettes, tech prompts favor dark/cool ones,
-// while still allowing the full palette spectrum via weighted random selection.
-const CATEGORY_THEME_AFFINITY: Record<string, string[]> = {
-  // Food / beverage / restaurant
-  food:       ["sunset_warm","earth_coffee","peach_bliss","vibrant_burst","coral_energy"],
-  restaurant: ["sunset_warm","earth_coffee","peach_bliss","golden_hour"],
-  cafe:       ["earth_coffee","peach_bliss","sage_wellness"],
-  coffee:     ["earth_coffee","golden_hour"],
-  bakery:     ["peach_bliss","floral_romance","earth_coffee"],
-  recipe:     ["sunset_warm","peach_bliss","sage_wellness"],
-  // Tech / SaaS / digital
-  tech:       ["cosmic_purple","navy_pro","power_black","clean_minimal"],
-  saas:       ["navy_pro","cosmic_purple","clean_minimal"],
-  software:   ["navy_pro","cosmic_purple","power_black"],
-  app:        ["cosmic_purple","navy_pro","sky_fresh"],
-  crypto:     ["cosmic_purple","power_black","dark_luxe"],
-  ai:         ["cosmic_purple","navy_pro","dark_luxe"],
-  // Fashion / beauty / luxury
-  fashion:    ["dark_luxe","modern_editorial","floral_romance","clean_minimal"],
-  beauty:     ["floral_romance","peach_bliss","lavender_dream"],
-  luxury:     ["dark_luxe","golden_hour","modern_editorial"],
-  jewel:      ["dark_luxe","golden_hour","cosmic_purple"],
-  // Health / wellness / fitness
-  fitness:    ["vibrant_burst","coral_energy","power_black","sky_fresh"],
-  yoga:       ["sage_wellness","lavender_dream","peach_bliss"],
-  wellness:   ["sage_wellness","lavender_dream","sky_fresh"],
-  health:     ["sage_wellness","sky_fresh","lush_green"],
-  organic:    ["lush_green","sage_wellness"],
-  // Travel / lifestyle
-  travel:     ["ocean_blue","tropical_paradise","sky_fresh","sunset_warm"],
-  vacation:   ["tropical_paradise","ocean_blue","sunset_warm"],
-  adventure:  ["vibrant_burst","tropical_paradise","ocean_blue"],
-  beach:      ["tropical_paradise","ocean_blue","sky_fresh"],
-  // Marketing / sales / promos
-  sale:       ["vibrant_burst","coral_energy","retro_pop","power_black"],
-  promo:      ["vibrant_burst","coral_energy","sunset_warm"],
-  discount:   ["vibrant_burst","retro_pop","coral_energy"],
-  launch:     ["cosmic_purple","vibrant_burst","power_black"],
-  // Creative / education / social
-  creative:   ["retro_pop","lavender_dream","cosmic_purple"],
-  education:  ["sky_fresh","lavender_dream","clean_minimal"],
-  study:      ["lavender_dream","sky_fresh","clean_minimal"],
-  social:     ["retro_pop","coral_energy","sky_fresh"],
-  podcast:    ["cosmic_purple","retro_pop","golden_hour"],
-  music:      ["power_black","cosmic_purple","retro_pop"],
-  // Wedding / event
-  wedding:    ["floral_romance","peach_bliss","lavender_dream","clean_minimal"],
-  event:      ["golden_hour","vibrant_burst","coral_energy"],
-  party:      ["retro_pop","vibrant_burst","coral_energy"],
-  // Finance / corporate / B2B
-  finance:    ["navy_pro","dark_luxe","clean_minimal"],
-  corporate:  ["navy_pro","clean_minimal","modern_editorial"],
-  consulting: ["navy_pro","dark_luxe","modern_editorial"],
-  legal:      ["navy_pro","dark_luxe","clean_minimal"],
-  // Nature / eco / sustainability
-  eco:        ["lush_green","sage_wellness","tropical_paradise"],
-  nature:     ["lush_green","sage_wellness","tropical_paradise"],
-  garden:     ["lush_green","sage_wellness","floral_romance"],
-  sustainable:["lush_green","sage_wellness"],
-  // Real estate / interior
-  realestate: ["clean_minimal","modern_editorial","navy_pro"],
-  interior:   ["clean_minimal","modern_editorial","earth_coffee"],
-  // Motivation / coaching
-  motivation: ["golden_hour","power_black","vibrant_burst"],
-  coaching:   ["golden_hour","navy_pro","clean_minimal"],
-};
-
 // ── Theme selection ───────────────────────────────────────────────────────────
-// Uses SHUFFLE-BASED SELECTION with light relevance boost + category awareness.
-// The key insight: VISUAL VARIETY is far more important than strict matching.
-// Every theme is viable for every brief — it's the text that carries meaning.
+// Uses SHUFFLE-BASED SELECTION with category style pack awareness.
 //
 // Algorithm:
-//  1. Score each theme by tone/colorMood match + category keyword affinity
-//  2. Apply a light relevance boost (matching themes get picked slightly more)
+//  1. Detect category from brief via CategoryStylePack system
+//  2. Score each theme by:
+//     a) tone/colorMood match from brief
+//     b) category style pack preferred themes (stronger boost)
+//     c) category paletteMood → colorMood alignment
 //  3. Penalise recently-used themes to prevent repetition
 //  4. Use time + variationIdx as seed for weighted random selection
-//  5. Each variationIdx gets a wildly different seed so batches use different themes
 //
-// This guarantees that consecutive generations produce visually distinct results,
-// preventing the "always blue" or "always dark" problem.
+// This guarantees that consecutive generations produce visually distinct results
+// while respecting category-specific visual identity.
 
 // Track recently used themes to avoid repetition across close-in-time generations
 const _recentThemeIds: string[] = [];
 const RECENT_HISTORY_SIZE = 6;
 
+// Exported so svg-builder and layout-intelligence can access the detected pack
+export { detectCategoryPack } from "./category-style-packs";
+
 export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme {
-  // Build a searchable text blob from brief for category matching
-  const briefText = [
-    brief.intent ?? "",
-    brief.headline ?? "",
-    brief.subhead ?? "",
-    ...(brief.keywords ?? []),
-  ].join(" ").toLowerCase();
+  // Detect category style pack from brief content
+  const pack = detectCategoryPack(brief);
+
+  // Derive colorMood boost targets from the pack's palette mood
+  const packMoodTargets = pack ? paletteMoodToColorMoods(pack.paletteMood) : [];
 
   const scored = THEMES.map(theme => {
     let relevance = 0;
 
-    // Tone and colorMood matching (same as before)
+    // Tone and colorMood matching from brief
     if (theme.tones.includes(brief.tone))           relevance += 2;
     if (theme.colorMoods.includes(brief.colorMood)) relevance += 1;
     const toneIdx = theme.tones.indexOf(brief.tone);
@@ -1011,12 +943,18 @@ export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme
     const moodIdx = theme.colorMoods.indexOf(brief.colorMood);
     if (moodIdx > 0) relevance += 1;
 
-    // Category keyword affinity: scan brief text for category keywords
-    // and boost themes that are associated with matched categories
-    for (const [keyword, affinityThemeIds] of Object.entries(CATEGORY_THEME_AFFINITY)) {
-      if (briefText.includes(keyword) && affinityThemeIds.includes(theme.id)) {
-        relevance += 3;
-        break; // one category match is enough boost
+    if (pack) {
+      // Category style pack preferred themes get a strong boost
+      if (pack.preferredThemeIds.includes(theme.id)) {
+        relevance += 4;
+      }
+
+      // Category paletteMood → colorMood alignment
+      for (const targetMood of packMoodTargets) {
+        if (theme.colorMoods.includes(targetMood)) {
+          relevance += 2;
+          break;
+        }
       }
     }
 

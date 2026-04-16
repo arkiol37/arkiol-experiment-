@@ -1,5 +1,6 @@
 import { BriefAnalysis } from "../ai/brief-analyzer";
 import { DesignTheme, THEMES, applyBrandColors, selectTheme } from "./design-themes";
+import { detectCategoryPack } from "./category-style-packs";
 
 export type LayoutDensity = "airy" | "balanced" | "compact";
 export type CompositionStyle = "editorial" | "hero" | "split" | "stacked" | "poster" | "minimal";
@@ -215,15 +216,35 @@ function deriveVisualTaste(
   const categoryText = `${category ?? ""} ${brief.intent ?? ""}`.toLowerCase();
   const paletteMode = brand ? "hybrid" : "theme-led";
   const typographyMode = content.bodyLength > 260 ? "readability-first" : content.hierarchyBias === "headline" ? "display-heavy" : "balanced";
-  const spacingDensity: LayoutDensity =
-    content.bodyLength > 320 ? "compact" : content.headlineLength < 24 && brief.tone !== "urgent" ? "airy" : "balanced";
 
-  let compositionStyle: CompositionStyle = "stacked";
-  if (/luxury|fashion|editorial|magazine/.test(categoryText)) compositionStyle = "editorial";
-  else if (/tech|saas|product|app|launch/.test(categoryText)) compositionStyle = "split";
-  else if (/sale|promo|offer|fitness|energy/.test(categoryText) || content.urgency > 0.7) compositionStyle = "hero";
-  else if (content.hierarchyBias === "headline") compositionStyle = "poster";
-  else if (brief.tone === "minimal") compositionStyle = "minimal";
+  // Detect category style pack for composition and spacing preferences
+  const pack = detectCategoryPack(brief);
+
+  // Spacing density: category pack preference > content-based heuristic
+  let spacingDensity: LayoutDensity;
+  if (pack) {
+    spacingDensity = pack.spacingDensity;
+  } else {
+    spacingDensity = content.bodyLength > 320 ? "compact" : content.headlineLength < 24 && brief.tone !== "urgent" ? "airy" : "balanced";
+  }
+
+  // Composition style: category pack preference > keyword-based heuristic
+  let compositionStyle: CompositionStyle;
+  if (pack) {
+    compositionStyle = pack.compositionBias;
+  } else if (/luxury|fashion|editorial|magazine/.test(categoryText)) {
+    compositionStyle = "editorial";
+  } else if (/tech|saas|product|app|launch/.test(categoryText)) {
+    compositionStyle = "split";
+  } else if (/sale|promo|offer|fitness|energy/.test(categoryText) || content.urgency > 0.7) {
+    compositionStyle = "hero";
+  } else if (content.hierarchyBias === "headline") {
+    compositionStyle = "poster";
+  } else if (brief.tone === "minimal") {
+    compositionStyle = "minimal";
+  } else {
+    compositionStyle = "stacked";
+  }
 
   const contrastBias = brief.tone === "luxury" ? 0.7 : brief.tone === "urgent" ? 0.95 : 0.82;
   const noveltyBias = brief.tone === "playful" || brief.colorMood === "vibrant" ? 0.78 : 0.48;

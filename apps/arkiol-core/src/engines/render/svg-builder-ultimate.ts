@@ -18,7 +18,8 @@ import { BriefAnalysis }           from "../ai/brief-analyzer";
 import { FORMAT_DIMS }             from "../../lib/types";
 import { measureTextInZone, measureLineWidth, getSvgLineYPositions } from "./text-measure";
 import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
-import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES } from "./design-themes";
+import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
+import { detectCategoryPack, type CategoryStylePack } from "./category-style-packs";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { createHash } from "crypto";
 import { z } from "zod";
@@ -116,15 +117,21 @@ export async function buildUltimateSvgContent(
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
 
-  // Select theme using weighted-random selection with anti-repetition tracking.
-  // selectTheme() uses brief tone/colorMood for relevance scoring, time-based
-  // seed + variationIdx for variety, and recent-history penalty to avoid
-  // consecutive same-theme generations.
+  // Select theme using weighted-random selection with category style pack awareness.
   let theme = selectTheme(brief, variationIdx);
   if (brand) theme = applyBrandColors(theme, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
 
-  // ── Cache lookup — keyed on theme + brief so theme variety is preserved ───
-  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx) + ':' + theme.id;
+  // Detect category style pack for typography/accent/composition overrides
+  const categoryPack = detectCategoryPack(brief);
+
+  // Apply category style pack overrides to the theme (non-destructive copy)
+  if (categoryPack) {
+    theme = applyCategoryPackOverrides(theme, categoryPack, brand);
+  }
+
+  // ── Cache lookup — keyed on theme + brief + pack so style variety is preserved
+  const packSuffix = categoryPack ? ':' + categoryPack.id : '';
+  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx) + ':' + theme.id + packSuffix;
   const cached   = svgCacheGet(cacheKey);
   if (cached) return cached;
 
@@ -135,9 +142,14 @@ export async function buildUltimateSvgContent(
       return "  - " + JSON.stringify(z.id) + " " + (mc ? "(max " + mc + " chars)" : "") + " " + (z.required ? "[required]" : "[optional]");
     }).join("\n");
 
+  // Include category context in the GPT prompt for better copy generation
+  const categoryHint = categoryPack
+    ? `\nCategory: ${categoryPack.name}. Tailor copy style to this category's conventions.`
+    : "";
+
   const systemPrompt = [
     "You are a world-class copywriter creating text for premium design templates (Canva-level quality).",
-    "Format: " + format + ". Canvas: " + dims.width + "x" + dims.height + "px. Theme: " + theme.name + ".",
+    "Format: " + format + ". Canvas: " + dims.width + "x" + dims.height + "px. Theme: " + theme.name + "." + categoryHint,
     "Brief: " + JSON.stringify(brief.headline) + " — Intent: " + brief.intent + " — Tone: " + brief.tone + " — Audience: " + brief.audience + ".",
     "",
     "Write PREMIUM, attention-grabbing text for each zone. Quality standards:",
@@ -175,7 +187,11 @@ export async function buildUltimateSvgContent(
 
   if (aiText.themeOverride && aiText.themeOverride !== "auto") {
     const ov = THEMES.find(t => t.id === aiText.themeOverride);
-    if (ov) theme = brand ? applyBrandColors(ov,{primaryColor:brand.primaryColor,secondaryColor:brand.secondaryColor}) : ov;
+    if (ov) {
+      let overridden = brand ? applyBrandColors(ov,{primaryColor:brand.primaryColor,secondaryColor:brand.secondaryColor}) : ov;
+      if (categoryPack) overridden = applyCategoryPackOverrides(overridden, categoryPack, brand);
+      theme = overridden;
+    }
   }
 
   const textMap   = new Map(aiText.textContents.map((tc: any) => [tc.zoneId, tc.text]));
@@ -194,10 +210,19 @@ export async function buildUltimateSvgContent(
     });
 
   const {primaryBgColor, gradient} = extractBgFromTheme(theme);
+
+  // Apply category CTA radius bias
+  let ctaBorderRadius = theme.ctaStyle.borderRadius;
+  if (categoryPack) {
+    if (categoryPack.ctaRadiusBias === "pill")    ctaBorderRadius = 50;
+    else if (categoryPack.ctaRadiusBias === "sharp") ctaBorderRadius = Math.min(ctaBorderRadius, 4);
+    else if (categoryPack.ctaRadiusBias === "rounded") ctaBorderRadius = Math.max(8, Math.min(ctaBorderRadius, 16));
+  }
+
   const content: SvgContent = {
     backgroundColor:primaryBgColor, backgroundGradient:gradient, textContents,
     ctaStyle:{ backgroundColor:theme.ctaStyle.backgroundColor, textColor:theme.ctaStyle.textColor,
-      borderRadius:theme.ctaStyle.borderRadius, paddingH:theme.ctaStyle.paddingH,
+      borderRadius:ctaBorderRadius, paddingH:theme.ctaStyle.paddingH,
       paddingV:theme.ctaStyle.paddingV, shadow:theme.ctaStyle.shadow ?? false },
     overlayOpacity:theme.overlayOpacity ?? 0, overlayColor:theme.overlayColor ?? "#000000",
     accentShape:{ type:"none", color:"#000000", x:0, y:0, w:0, h:0 },
@@ -206,6 +231,70 @@ export async function buildUltimateSvgContent(
   const buildResult: BuildResult = { content, violations };
   svgCacheSet(cacheKey, buildResult);
   return buildResult;
+}
+
+// ── Category Style Pack → Theme overrides ─────────────────────────────────────
+// Applies non-destructive typography and sizing overrides from the detected
+// category style pack onto the selected theme. Does NOT change palette colors
+// (that's the theme's job) — only adjusts headline size, letter-spacing,
+// text-transform, and font preferences to match the category's visual identity.
+
+function applyCategoryPackOverrides(
+  theme: DesignTheme,
+  pack: CategoryStylePack,
+  brand?: { primaryColor: string; secondaryColor: string; fontDisplay?: string },
+): DesignTheme {
+  // Apply headline size boost from category pack
+  const baseHMult = theme.headlineSizeMultiplier ?? 1.0;
+  const boostedHMult = baseHMult * pack.headlineSizeBoost;
+
+  // Determine headline font: prefer pack's display fonts if they match the theme's available set
+  const headlineFont = resolvePackFont(pack.preferredDisplayFonts, theme.typography.display, brand?.fontDisplay);
+  const bodyFont = resolvePackFont(pack.preferredBodyFonts, theme.typography.body);
+
+  // Build overridden typography
+  const headline = {
+    ...theme.typography.headline,
+    fontFamily: headlineFont,
+    fontSizeMultiplier: boostedHMult,
+    letterSpacing: pack.headlineLetterSpacing,
+    ...(pack.preferUppercase ? { textTransform: "uppercase" as const } : {}),
+  };
+
+  const subhead = {
+    ...theme.typography.subhead,
+    fontFamily: bodyFont !== theme.typography.body ? bodyFont : theme.typography.subhead.fontFamily,
+  };
+
+  const body_text = {
+    ...theme.typography.body_text,
+    fontFamily: bodyFont,
+  };
+
+  return {
+    ...theme,
+    headlineSizeMultiplier: boostedHMult,
+    typography: {
+      ...theme.typography,
+      display: headlineFont,
+      body: bodyFont,
+      headline,
+      subhead,
+      body_text,
+    },
+  };
+}
+
+/** Pick the best font from the pack's preferences, falling back to the theme's default */
+function resolvePackFont(
+  preferred: ThemeFont[],
+  themeDefault: ThemeFont,
+  brandFont?: string,
+): ThemeFont {
+  // Brand font always wins if specified
+  if (brandFont) return themeDefault;
+  // Use the first preferred font — all ThemeFont values are registered in the font registry
+  return preferred.length > 0 ? preferred[0] : themeDefault;
 }
 
 // ── SVG Renderer ──────────────────────────────────────────────────────────────
