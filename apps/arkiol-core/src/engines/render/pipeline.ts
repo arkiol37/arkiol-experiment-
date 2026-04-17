@@ -38,6 +38,7 @@ import {
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./svg-builder-ultimate";
 import { scoreCandidateQuality } from "./candidate-quality";
+import { assessDesignQuality, refineDesign } from "./candidate-refinement";
 import {
   renderGif,
   buildKineticTextFrames,
@@ -530,12 +531,37 @@ let buildResult = await buildUltimateSvgContent(
   input.variationIdx,
 );
 
-  // ── Quality gate: reject bland outputs and retry once with offset seed ──
+  // ── Quality gate: assess design quality, auto-refine, reject bland outputs ──
   const QUALITY_RETRY_THRESHOLD = 0.32;
+  const DESIGN_QUALITY_FLOOR = 0.50;
   const selectedTheme = buildResult.content._selectedTheme;
   if (selectedTheme) {
     const qScore = scoreCandidateQuality(selectedTheme, buildResult.content as SvgContent);
-    if (qScore.total < QUALITY_RETRY_THRESHOLD) {
+
+    // Assess post-build design quality (contrast, overflow, spacing, balance, hierarchy, harmony)
+    const designReport = assessDesignQuality(
+      buildResult.content as SvgContent,
+      spec.zones,
+      input.format,
+    );
+
+    // Auto-refine fixable issues (contrast, overflow, hierarchy)
+    if (designReport.overall < DESIGN_QUALITY_FLOOR || designReport.issues.some(i => i.severity === "error")) {
+      const refinement = refineDesign(
+        buildResult.content as SvgContent,
+        designReport,
+        spec.zones,
+        input.format,
+      );
+      if (refinement.actions.length > 0) {
+        (buildResult as any).content = refinement.content;
+      }
+    }
+
+    // Combined score: theme quality × 0.5 + design quality × 0.5
+    const combinedScore = qScore.total * 0.5 + designReport.overall * 0.5;
+
+    if (combinedScore < QUALITY_RETRY_THRESHOLD) {
       const retryResult = await buildUltimateSvgContent(
         spec.zones,
         enrichedBrief,
@@ -545,8 +571,14 @@ let buildResult = await buildUltimateSvgContent(
       );
       const retryTheme = retryResult.content._selectedTheme;
       if (retryTheme) {
-        const retryScore = scoreCandidateQuality(retryTheme, retryResult.content as SvgContent);
-        if (retryScore.total > qScore.total) {
+        const retryQScore = scoreCandidateQuality(retryTheme, retryResult.content as SvgContent);
+        const retryDesignReport = assessDesignQuality(
+          retryResult.content as SvgContent,
+          spec.zones,
+          input.format,
+        );
+        const retryCombined = retryQScore.total * 0.5 + retryDesignReport.overall * 0.5;
+        if (retryCombined > combinedScore) {
           buildResult = retryResult;
         }
       }

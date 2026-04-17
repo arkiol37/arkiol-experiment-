@@ -223,6 +223,13 @@ export function areTooSimilar(a: DesignTheme, b: DesignTheme): boolean {
   // Same primary palette color
   if (normalizeColor(a.palette.primary) === normalizeColor(b.palette.primary)) return true;
 
+  // Decoration profile similarity: nearly identical decoration shape mix
+  const aKinds = new Set(a.decorations.map(d => d.kind));
+  const bKinds = new Set(b.decorations.map(d => d.kind));
+  const kindOverlap = [...aKinds].filter(k => bKinds.has(k)).length;
+  const kindTotal = new Set([...aKinds, ...bKinds]).size;
+  if (kindTotal > 0 && kindOverlap / kindTotal > 0.8 && Math.abs(a.decorations.length - b.decorations.length) <= 2) return true;
+
   return false;
 }
 
@@ -284,7 +291,7 @@ export function pickBestTheme(themes: DesignTheme[]): DesignTheme {
 // ── Recent output tracking for cross-request uniqueness ───────────────────────
 
 const _recentOutputFingerprints: string[] = [];
-const RECENT_OUTPUT_HISTORY = 12;
+const RECENT_OUTPUT_HISTORY = 20;
 
 /** Record a generated output fingerprint for cross-request dedup */
 export function recordOutputFingerprint(theme: DesignTheme): void {
