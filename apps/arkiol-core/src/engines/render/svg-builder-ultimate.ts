@@ -134,6 +134,7 @@ export async function buildUltimateSvgContent(
   zones: Zone[], brief: BriefAnalysis, format: string,
   brand?: { primaryColor: string; secondaryColor: string; fontDisplay: string },
   variationIdx = 0,
+  themePreferences?: string[],
 ): Promise<BuildResult> {
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
@@ -163,6 +164,16 @@ export async function buildUltimateSvgContent(
       const aBiased = applyThemeBias(a.id, aBase, learningBias);
       const bBiased = applyThemeBias(b.id, bBase, learningBias);
       return bBiased - aBiased;
+    });
+  }
+
+  // Apply agent theme preferences — boost candidates that match the design plan
+  if (themePreferences && themePreferences.length > 0) {
+    const prefSet = new Set(themePreferences);
+    candidateThemes.sort((a, b) => {
+      const aPreferred = prefSet.has(a.id) ? 1 : 0;
+      const bPreferred = prefSet.has(b.id) ? 1 : 0;
+      return bPreferred - aPreferred;
     });
   }
 

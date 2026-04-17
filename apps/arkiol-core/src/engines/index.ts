@@ -16,6 +16,28 @@
 //   platform/    — platform-specific intelligence
 //   queue/       — render job orchestration
 //   validation/  — stage validation
+//   agents/     — AI agent orchestration (creative director, designer, critic)
+
+// ── Agent Orchestration ────────────────────────────────────────────────────
+export {
+  runCreativeDirector,
+  runDesigner,
+  runCriticPreFlight,
+  runCriticPostGeneration,
+  orchestrateDesignAgents,
+} from "./agents/design-agents";
+
+export type {
+  CreativeDirection,
+  DesignPlan,
+  CriticVerdict,
+  CriticAction,
+  AgentOrchestrationResult,
+  VisualStrategy,
+  HookApproach,
+  ColorTemperature,
+  VisualComplexity,
+} from "./agents/design-agents";
 
 // ── Exploration Engine ──────────────────────────────────────────────────────
 export {

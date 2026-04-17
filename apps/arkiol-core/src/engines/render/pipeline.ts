@@ -56,6 +56,12 @@ import {
 import { recordGeneration } from "../memory/generation-ledger";
 import { extractEvaluationSignals } from "../memory/learning-signals";
 import {
+  orchestrateDesignAgents,
+  runCriticPostGeneration,
+  type AgentOrchestrationResult,
+  type CriticVerdict,
+} from "../agents/design-agents";
+import {
   renderGif,
   buildKineticTextFrames,
   buildFadeFrames,
@@ -203,6 +209,15 @@ export interface PipelineResult {
     themeId: string;
   };
 
+  // Agent orchestration — design planning decisions made before generation
+  agentOrchestration?: {
+    direction: AgentOrchestrationResult["direction"];
+    plan: AgentOrchestrationResult["plan"];
+    preFlightVerdict: AgentOrchestrationResult["preFlightVerdict"];
+    postGenerationVerdict?: CriticVerdict;
+    adjustmentsApplied: string[];
+  };
+
   // ── Editor element tree — zones + final SvgContent for ArkiolEditor ─────
   // Populated on every successful render so EditorShell can open generated
   // designs as fully-editable layer trees without re-parsing SVG text.
@@ -291,6 +306,35 @@ async function renderAssetInner(
   recoveryLog: RecoveryAction[],
 ): Promise<PipelineResult> {
   const startMs = ctx.startedAt;
+
+  // ── Agent orchestration — design planning before generation ────────────
+  // The three-agent "thinking layer" runs deterministically:
+  //   Creative Director → Designer → Critic (pre-flight)
+  // Produces a design plan that influences theme selection and informs the
+  // post-generation critic. Wrapped in try-catch so agent bugs never crash
+  // the pipeline.
+  let agentResult: AgentOrchestrationResult | null = null;
+  try {
+    agentResult = orchestrateDesignAgents(
+      input.brief,
+      input.format,
+      input.brand ? { primaryColor: input.brand.primaryColor, secondaryColor: input.brand.secondaryColor } : undefined,
+    );
+    if (agentResult.adjustmentsApplied.length > 0) {
+      violations.push(...agentResult.adjustmentsApplied.map(a => `agent:pre_flight_fix: ${a}`));
+    }
+    if (agentResult.preFlightVerdict.issues.length > 0) {
+      violations.push(...agentResult.preFlightVerdict.issues.map(i => `agent:pre_flight_issue: ${i}`));
+    }
+  } catch (agentErr: any) {
+    recoveryLog.push({
+      stage: "init",
+      issue: agentErr?.message ?? "agent orchestration failed",
+      action: "Skipped agent planning — proceeding with default pipeline",
+      severity: "warning",
+      timestamp: Date.now(),
+    });
+  }
 
   // ── Stage 1: Layout Authority ──────────────────────────────────────────
   const authCtx: AuthorityContext = {
@@ -623,6 +667,7 @@ async function renderAssetInner(
     input.format,
     input.brand,
     input.variationIdx,
+    agentResult?.plan.themePreferences,
   );
   ctx.render = { content: buildResult.content as SvgContent, violations: buildResult.violations };
 
@@ -675,6 +720,7 @@ async function renderAssetInner(
           input.format,
           input.brand,
           input.variationIdx + 13337,
+          agentResult?.plan.themePreferences,
         );
         const retryTheme = retryResult.content._selectedTheme;
         if (retryTheme) {
@@ -845,6 +891,31 @@ async function renderAssetInner(
     // Non-fatal — use zero scores
   }
 
+  // ── Post-generation critic — evaluates whether output matches intent ─────
+  let postGenerationVerdict: CriticVerdict | undefined;
+  if (agentResult) {
+    try {
+      postGenerationVerdict = runCriticPostGeneration(
+        agentResult.direction,
+        agentResult.plan,
+        {
+          themeId,
+          qualityScore: finalQualityScore,
+          designQualityScore: finalDesignQualityScore,
+          brandScore: styleResult.brandScore,
+          hierarchyValid: hierarchyResult.valid,
+          violations,
+          recoveryCount: recoveryLog.length,
+        },
+      );
+      if (postGenerationVerdict.issues.length > 0) {
+        violations.push(...postGenerationVerdict.issues.map(i => `agent:critic: ${i}`));
+      }
+    } catch {
+      // Non-fatal — skip post-generation critique
+    }
+  }
+
   recordGeneration({
     assetId,
     timestamp: Date.now(),
@@ -898,6 +969,16 @@ async function renderAssetInner(
       designQualityScore: finalDesignQualityScore,
       themeId,
     },
+    // Agent orchestration metadata — design decisions from the thinking layer
+    ...(agentResult ? {
+      agentOrchestration: {
+        direction: agentResult.direction,
+        plan: agentResult.plan,
+        preFlightVerdict: agentResult.preFlightVerdict,
+        postGenerationVerdict,
+        adjustmentsApplied: agentResult.adjustmentsApplied,
+      },
+    } : {}),
   };
 }
 

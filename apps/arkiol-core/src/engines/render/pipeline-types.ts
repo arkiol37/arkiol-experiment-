@@ -17,6 +17,7 @@ import type { HierarchyResult } from "../hierarchy/enforcer";
 import type { CandidateQualityScore } from "../evaluation/candidate-quality";
 import type { DesignQualityReport } from "../evaluation/candidate-refinement";
 import type { PipelineInput, InjectedAssetMap } from "./pipeline";
+import type { AgentOrchestrationResult } from "../agents/design-agents";
 
 // ── Pipeline stage names ────────────────────────────────────────────────────
 
@@ -142,6 +143,7 @@ export interface PipelineContext {
   startedAt: number;
   currentStage: PipelineStage;
 
+  agentOrchestration?: AgentOrchestrationResult;
   layout?: LayoutStageResult;
   density?: DensityStageResult;
   composition?: CompositionStageResult;
