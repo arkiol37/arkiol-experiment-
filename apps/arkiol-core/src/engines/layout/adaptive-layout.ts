@@ -57,6 +57,10 @@ const ZONE_VERTICAL_ORDER: ZoneId[] = [
   "cta",
 ];
 
+// ── Layout intent classification ─────────────────────────────────────────────
+
+export type LayoutIntent = "bold_focal" | "structured_detail" | "cta_driven" | "balanced";
+
 // ── Content signals extraction ────────────────────────────────────────────────
 
 interface ContentMetrics {
@@ -73,6 +77,10 @@ interface ContentMetrics {
   hasTitle: boolean;
   totalTextZones: number;
   contentDensity: "light" | "medium" | "heavy";
+  urgency: number;
+  keywords: string[];
+  hierarchyBias: "headline" | "balanced" | "detail" | "cta";
+  layoutIntent: LayoutIntent;
 }
 
 function extractContentMetrics(brief: BriefAnalysis): ContentMetrics {
@@ -95,11 +103,29 @@ function extractContentMetrics(brief: BriefAnalysis): ContentMetrics {
   const totalChars = headlineChars + subheadChars + bodyChars + ctaChars;
   const contentDensity = totalChars > 300 ? "heavy" : totalChars > 100 ? "medium" : "light";
 
+  const urgency = brief.tone === "urgent" ? 1 : brief.tone === "energetic" ? 0.72 : hasCta ? 0.46 : 0.2;
+  const keywords = (brief.keywords ?? []).filter((k: string) => k.length > 3).slice(0, 4);
+
+  let hierarchyBias: ContentMetrics["hierarchyBias"] = "balanced";
+  if (hasHeadline && headlineChars <= 28 && keywords.length >= 2) hierarchyBias = "headline";
+  else if (bodyChars > 240 || subheadChars > 110) hierarchyBias = "detail";
+  else if (hasCta && (ctaChars <= 16 || urgency > 0.7)) hierarchyBias = "cta";
+
+  let layoutIntent: LayoutIntent = "balanced";
+  if (hasHeadline && headlineChars <= 20 && bodyChars < 80 && filledZones <= 3) {
+    layoutIntent = "bold_focal";
+  } else if (bodyChars > 300 || (filledZones >= 5 && contentDensity === "heavy")) {
+    layoutIntent = "structured_detail";
+  } else if (hasCta && urgency > 0.6 && headlineChars <= 35) {
+    layoutIntent = "cta_driven";
+  }
+
   return {
     headlineChars, subheadChars, bodyChars, ctaChars,
     hasHeadline, hasSubhead, hasBody, hasCta, hasBadge, hasName, hasTitle,
     totalTextZones: filledZones,
     contentDensity,
+    urgency, keywords, hierarchyBias, layoutIntent,
   };
 }
 
@@ -146,6 +172,9 @@ export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResul
 
   // ── Phase 1: Collapse absent content zones ──────────────────────────────
   zones = collapseAbsentZones(zones, brief, activeZoneIds, adjustments) as Zone[];
+
+  // ── Phase 1.5: Content-driven layout intent ────────────────────────────
+  zones = applyLayoutIntent(zones, metrics, adjustments) as Zone[];
 
   // ── Phase 2: Content-adaptive resizing ──────────────────────────────────
   zones = adaptZoneSizes(zones, metrics, density, adjustments) as Zone[];
@@ -201,6 +230,64 @@ function collapseAbsentZones(
   });
 }
 
+// ── Phase 1.5: Content-driven layout intent ──────────────────────────────────
+
+function applyLayoutIntent(
+  zones: Zone[],
+  metrics: ContentMetrics,
+  adjustments: string[],
+): Zone[] {
+  if (metrics.layoutIntent === "balanced") return zones;
+
+  return zones.map(zone => {
+    if (zone.height === 0) return zone;
+
+    switch (metrics.layoutIntent) {
+      case "bold_focal": {
+        if (zone.id === "headline" || zone.id === "name") {
+          const heightBoost = Math.min(16, zone.height * 0.6);
+          const newMaxFont = zone.maxFontSize ? Math.round(zone.maxFontSize * 1.3) : zone.maxFontSize;
+          adjustments.push(`intent:bold_focal ${zone.id} +${heightBoost.toFixed(0)}%h`);
+          return { ...zone, height: zone.height + heightBoost, maxFontSize: newMaxFont, alignH: "center" as const };
+        }
+        if (zone.id === "subhead" || zone.id === "tagline") {
+          const shrink = Math.min(4, zone.height * 0.25);
+          adjustments.push(`intent:bold_focal ${zone.id} -${shrink.toFixed(1)}%h`);
+          return { ...zone, height: Math.max(4, zone.height - shrink) };
+        }
+        return zone;
+      }
+
+      case "structured_detail": {
+        if (zone.id === "headline" || zone.id === "name") {
+          const shrink = Math.min(6, zone.height * 0.2);
+          adjustments.push(`intent:structured_detail ${zone.id} -${shrink.toFixed(1)}%h`);
+          return { ...zone, height: Math.max(8, zone.height - shrink) };
+        }
+        if (zone.id === "body") {
+          const boost = Math.min(10, zone.height * 0.3);
+          adjustments.push(`intent:structured_detail body +${boost.toFixed(0)}%h`);
+          return { ...zone, height: zone.height + boost, width: Math.max(zone.width, 60) };
+        }
+        return zone;
+      }
+
+      case "cta_driven": {
+        if (zone.id === "cta") {
+          const heightBoost = Math.min(4, zone.height * 0.4);
+          const widthBoost = Math.min(12, Math.max(0, 50 - zone.width));
+          adjustments.push(`intent:cta_driven cta +${heightBoost.toFixed(0)}%h +${widthBoost.toFixed(0)}%w`);
+          return { ...zone, height: zone.height + heightBoost, width: zone.width + widthBoost, y: Math.max(zone.y - 4, 0) };
+        }
+        return zone;
+      }
+
+      default:
+        return zone;
+    }
+  });
+}
+
 // ── Phase 2: Content-adaptive resizing ────────────────────────────────────────
 
 function adaptZoneSizes(
@@ -216,23 +303,30 @@ function adaptZoneSizes(
     switch (zone.id) {
       case "headline":
       case "name": {
-        // Long headlines need more vertical space
         const chars = zone.id === "headline" ? metrics.headlineChars : (metrics.hasName ? 30 : 0);
+        let adjusted = { ...zone };
+
         if (chars > 45) {
           const boost = Math.min(8, Math.ceil((chars - 45) / 10) * 2);
           adjustments.push(`resize:${zone.id} +${boost}% height (${chars} chars)`);
-          return { ...zone, height: zone.height + boost };
-        }
-        if (chars > 0 && chars <= 20 && !density.preferCompact) {
-          // Short punchy headline — can be bigger
-          const maxBoost = Math.min(4, zone.height * 0.2);
-          if (zone.maxFontSize) {
+          adjusted = { ...adjusted, height: adjusted.height + boost };
+        } else if (chars > 0 && chars <= 20 && !density.preferCompact) {
+          if (adjusted.maxFontSize) {
             adjustments.push(`resize:${zone.id} boost maxFontSize for short headline`);
-            return { ...zone, maxFontSize: Math.round(zone.maxFontSize * 1.15) };
+            adjusted = { ...adjusted, maxFontSize: Math.round(adjusted.maxFontSize * 1.15) };
+          } else {
+            const maxBoost = Math.min(4, adjusted.height * 0.2);
+            adjusted = { ...adjusted, height: adjusted.height + maxBoost };
           }
-          return { ...zone, height: zone.height + maxBoost };
         }
-        return zone;
+
+        if (metrics.keywords.length >= 2 && chars > 0 && chars <= 30 && adjusted.width < 80) {
+          const widthBoost = Math.min(10, metrics.keywords.length * 2);
+          adjustments.push(`keyword_emphasis:${zone.id} +${widthBoost}%w (${metrics.keywords.length} keywords)`);
+          adjusted = { ...adjusted, width: Math.min(90, adjusted.width + widthBoost) };
+        }
+
+        return adjusted;
       }
 
       case "subhead":

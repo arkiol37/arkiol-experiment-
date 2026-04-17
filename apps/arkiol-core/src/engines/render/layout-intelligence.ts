@@ -240,8 +240,12 @@ function deriveVisualTaste(
   let spacingDensity: LayoutDensity;
   if (pack) {
     spacingDensity = pack.spacingDensity;
+  } else if (content.hierarchyBias === "headline" && content.headlineLength <= 20) {
+    spacingDensity = "airy";
+  } else if (content.hierarchyBias === "detail" || content.bodyLength > 320) {
+    spacingDensity = "compact";
   } else {
-    spacingDensity = content.bodyLength > 320 ? "compact" : content.headlineLength < 24 && brief.tone !== "urgent" ? "airy" : "balanced";
+    spacingDensity = content.headlineLength < 24 && brief.tone !== "urgent" ? "airy" : "balanced";
   }
 
   // Composition style: category pack preference > keyword-based heuristic
@@ -256,6 +260,10 @@ function deriveVisualTaste(
     compositionStyle = "hero";
   } else if (content.hierarchyBias === "headline") {
     compositionStyle = "poster";
+  } else if (content.hierarchyBias === "cta") {
+    compositionStyle = "hero";
+  } else if (content.hierarchyBias === "detail") {
+    compositionStyle = "editorial";
   } else if (brief.tone === "minimal") {
     compositionStyle = "minimal";
   } else {
@@ -341,12 +349,18 @@ function composeElements(
   const yShift = variationIdx % 2 === 0 ? 0 : 2;
   const ctaBoost = content.hierarchyBias === "cta" ? 1.2 : 1;
 
-  // Content-adaptive headline sizing:
-  // Short headline (≤20 chars) → big hero zone; long headline (>45 chars) → taller zone
-  const headlineHeight = content.headlineLength > 54 ? 22
-    : content.headlineLength > 35 ? 18
-    : content.headlineLength <= 20 ? 14
-    : 16;
+  let headlineHeight: number;
+  if (content.hierarchyBias === "headline" && content.headlineLength <= 20) {
+    headlineHeight = 28;
+  } else if (content.headlineLength > 54) {
+    headlineHeight = 22;
+  } else if (content.headlineLength > 35) {
+    headlineHeight = 18;
+  } else if (content.headlineLength <= 20) {
+    headlineHeight = content.hierarchyBias === "headline" ? 22 : 14;
+  } else {
+    headlineHeight = 16;
+  }
 
   // Vertical flow cursor — tracks the bottom of the last placed element
   // plus the minimum gap, so elements stack without overlap
@@ -369,14 +383,17 @@ function composeElements(
     cursorY += 5 + minGap;
   }
 
-  // Headline
+  const headlineAlign = content.hierarchyBias === "headline" ? "center" as const : align;
+  const headlineW = content.hierarchyBias === "headline" && !isSplit ? Math.min(88, contentWidth + 12) : contentWidth;
   elements.push({
     id: "headline",
     region: "hero",
     priority: 10,
-    rect: { x: safeZone.left, y: cursorY, w: contentWidth, h: headlineHeight },
-    align,
-    emphasis: content.hierarchyBias === "headline" ? 1.3 : 1,
+    rect: { x: safeZone.left, y: cursorY, w: headlineW, h: headlineHeight },
+    align: headlineAlign,
+    emphasis: content.hierarchyBias === "headline" ? 1.3
+      : content.emphasisWords.length >= 3 ? 1.15
+      : 1,
     maxLines: content.headlineLength > 42 ? 4 : content.headlineLength > 20 ? 3 : 2,
     contentLength: content.headlineLength,
   });
@@ -397,13 +414,12 @@ function composeElements(
     cursorY += subH + minGap;
   }
 
-  // Body text
   if (brief.body) {
-    const bodyH = content.bodyLength > 400 ? 24
-      : content.bodyLength > 260 ? 20
-      : content.bodyLength > 100 ? 16
-      : 10;
-    const bodyW = isSplit ? 36 : isEditorial ? 52 : 56;
+    const isDetailBias = content.hierarchyBias === "detail";
+    const bodyH = isDetailBias
+      ? (content.bodyLength > 400 ? 28 : content.bodyLength > 260 ? 24 : content.bodyLength > 100 ? 20 : 14)
+      : (content.bodyLength > 400 ? 24 : content.bodyLength > 260 ? 20 : content.bodyLength > 100 ? 16 : 10);
+    const bodyW = isSplit ? 36 : isEditorial ? 52 : isDetailBias ? 62 : 56;
     elements.push({
       id: "body",
       region: "body",
@@ -416,21 +432,26 @@ function composeElements(
     cursorY += bodyH + minGap;
   }
 
-  // CTA — positioned with enough breathing room above bottom safe zone
   if (brief.cta) {
-    const ctaW = Math.min(38, 18 + content.ctaLength * 0.7 * ctaBoost);
-    const ctaY = Math.max(cursorY, 100 - safeZone.bottom - 14);
+    const isCtaDriven = content.hierarchyBias === "cta";
+    const ctaW = isCtaDriven
+      ? Math.min(44, 22 + content.ctaLength * 0.8 * ctaBoost)
+      : Math.min(38, 18 + content.ctaLength * 0.7 * ctaBoost);
+    const ctaH = isCtaDriven ? 10 : 8;
+    const ctaY = isCtaDriven
+      ? Math.max(cursorY, 100 - safeZone.bottom - 18)
+      : Math.max(cursorY, 100 - safeZone.bottom - 14);
     elements.push({
       id: "cta",
       region: "cta",
-      priority: 9,
-      rect: { x: safeZone.left, y: ctaY, w: ctaW, h: 8 },
-      align: isPoster ? "center" : "left",
-      emphasis: ctaBoost,
+      priority: isCtaDriven ? 10 : 9,
+      rect: { x: safeZone.left, y: ctaY, w: ctaW, h: ctaH },
+      align: isPoster || isCtaDriven ? "center" : "left",
+      emphasis: isCtaDriven ? Math.max(ctaBoost, 1.3) : ctaBoost,
       maxLines: 1,
       contentLength: content.ctaLength,
     });
-    cursorY = ctaY + 8 + minGap;
+    cursorY = ctaY + ctaH + minGap;
   }
 
   // Media zone for split compositions

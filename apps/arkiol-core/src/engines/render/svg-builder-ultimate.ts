@@ -91,20 +91,38 @@ const TextOnlySchema = z.object({
 // For hero zones (headline, name) we target filling ~65% of zone height.
 // For secondary zones (subhead, body) we target ~55%.
 // The multiplier from the theme nudges up display zones only.
-function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: number): number {
+interface FontSizeHint {
+  charCount: number;
+  urgency: number;
+  hierarchyBias: "headline" | "balanced" | "detail" | "cta";
+}
+
+function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: number, hint?: FontSizeHint): number {
   const zH = (zone.height / 100) * canvasH;
-  let fill = 0.55; // default: fill 55% of zone height
-  if (["headline","name"].includes(zoneId))          fill = 0.70;
-  if (["subhead","tagline","price"].includes(zoneId)) fill = 0.62;
-  if (["cta","badge","eyebrow","section_header"].includes(zoneId)) fill = 0.52;
-  if (["body","body_text","contact","legal"].includes(zoneId))     fill = 0.45;
+  let fill = 0.55;
+
+  if (["headline","name"].includes(zoneId)) {
+    fill = 0.70;
+    if (hint) {
+      if (hint.charCount <= 20)      fill = 0.85;
+      else if (hint.charCount <= 35) fill = 0.75;
+      else if (hint.charCount > 50)  fill = 0.58;
+      if (hint.hierarchyBias === "headline") fill = Math.min(0.95, fill + 0.08);
+    }
+  } else if (["subhead","tagline","price"].includes(zoneId)) {
+    fill = 0.62;
+    if (hint?.hierarchyBias === "detail") fill = 0.55;
+  } else if (["cta","badge","eyebrow","section_header"].includes(zoneId)) {
+    fill = 0.52;
+    if (hint && zoneId === "cta" && hint.urgency > 0.7) fill = 0.60;
+  } else if (["body","body_text","contact","legal"].includes(zoneId)) {
+    fill = 0.45;
+    if (hint && hint.charCount > 300) fill = 0.40;
+  }
 
   let fs = Math.round(zH * fill);
-
-  // Apply theme headline multiplier only to display zones
   if (["headline","name","price"].includes(zoneId)) fs = Math.round(fs * hMult);
 
-  // Clamp within zone constraints
   const lo = zone.minFontSize ?? 10;
   const hi = zone.maxFontSize ?? 200;
   return Math.min(hi, Math.max(lo, fs));
@@ -217,6 +235,14 @@ export async function buildUltimateSvgContent(
   const typo      = theme.typography;
   const hMult     = theme.headlineSizeMultiplier ?? 1.0;
 
+  const _headlineLen = (brief.headline ?? "").length;
+  const _briefUrgency = brief.tone === "urgent" ? 1 : brief.tone === "energetic" ? 0.72 : brief.cta ? 0.46 : 0.2;
+  const _briefKeywords = (brief.keywords ?? []).filter((k: string) => k.length > 3);
+  let _briefHierarchy: FontSizeHint["hierarchyBias"] = "balanced";
+  if (_headlineLen > 0 && _headlineLen <= 28 && _briefKeywords.length >= 2) _briefHierarchy = "headline";
+  else if ((brief.body ?? "").length > 240 || (brief.subhead ?? "").length > 110) _briefHierarchy = "detail";
+  else if (brief.cta && ((brief.cta ?? "").length <= 16 || _briefUrgency > 0.7)) _briefHierarchy = "cta";
+
   const textContents = zones
     .filter(z => !["background","image","accent"].includes(z.id))
     .flatMap(zone => {
@@ -224,7 +250,8 @@ export async function buildUltimateSvgContent(
       if (!text?.trim()) return [];
       const zt = resolveZoneTypo(zone.id as ZoneId, typo, theme);
       if (!zt) return [];
-      const fontSize = targetFontSize(zone, zone.id as ZoneId, dims.height, hMult);
+      const hint: FontSizeHint = { charCount: text.trim().length, urgency: _briefUrgency, hierarchyBias: _briefHierarchy };
+      const fontSize = targetFontSize(zone, zone.id as ZoneId, dims.height, hMult, hint);
       return [{ zoneId:zone.id, text:text.trim(), fontSize, weight:zt.fontWeight, color:zt.color, fontFamily:zt.fontFamily as string }];
     });
 
