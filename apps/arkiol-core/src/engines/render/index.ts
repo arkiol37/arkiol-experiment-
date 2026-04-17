@@ -17,3 +17,21 @@ export {
   type SvgContent,
   type BuildResult,
 } from "./svg-builder-ultimate";
+
+export {
+  createPipelineContext,
+  type PipelineContext,
+  type PipelineStage,
+  type EnrichedBrief,
+  type GuardCheckResult,
+  type LayoutStageResult,
+  type DensityStageResult,
+  type CompositionStageResult,
+  type AssetStageResult,
+  type ResolvedAsset,
+  type RenderStageResult,
+  type QualityGateResult,
+  type HierarchyStageResult,
+  type StyleStageResult,
+  type OutputStageResult,
+} from "./pipeline-types";

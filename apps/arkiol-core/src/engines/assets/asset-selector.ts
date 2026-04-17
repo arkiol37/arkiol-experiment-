@@ -25,6 +25,7 @@ export interface ElementPlacement {
   motion:      boolean;  // should animate in GIF?
   weight:      number;   // render z-index (from contract)
   coverageHint:number;   // 0–1 area coverage hint for AI
+  url?:        string;   // resolved CDN URL (populated during asset resolution stage)
 }
 
 export interface CompositionPlan {

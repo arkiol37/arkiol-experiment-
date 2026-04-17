@@ -40,6 +40,12 @@ import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./s
 import { scoreCandidateQuality } from "../evaluation/candidate-quality";
 import { assessDesignQuality, refineDesign } from "../evaluation/candidate-refinement";
 import {
+  createPipelineContext,
+  type PipelineContext,
+  type EnrichedBrief,
+  type GuardCheckResult,
+} from "./pipeline-types";
+import {
   renderGif,
   buildKineticTextFrames,
   buildFadeFrames,
@@ -220,8 +226,9 @@ function deriveAssetId(
 
 // ── Main pipeline ─────────────────────────────────────────────────────────────
 export async function renderAsset(input: PipelineInput): Promise<PipelineResult> {
-  const startMs = Date.now();
-  const violations: string[] = [];
+  const ctx = createPipelineContext(input);
+  const startMs = ctx.startedAt;
+  const violations = ctx.violations;
 
   // ── Stage 1: Layout Authority ──────────────────────────────────────────
   const authCtx: AuthorityContext = {
@@ -245,6 +252,8 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     activeZoneIds:  rawSpec.activeZoneIds,
   });
   const spec = { ...rawSpec, zones: adapted.zones };
+  ctx.currentStage = "layout";
+  ctx.layout = { rawSpec, adapted, spec };
   if (adapted.adjustments.length > 0) {
     violations.push(...adapted.adjustments.map(a => `adaptive_layout:${a}`));
   }
@@ -255,6 +264,9 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     subhead:  input.brief.subhead,
     body:     input.brief.body,
   });
+
+  ctx.currentStage = "density";
+  ctx.density = { analysis: densityAnalysis };
 
   // ── Stage 3: Composition plan ──────────────────────────────────────────
   const isGif = input.outputFormat === "gif";
@@ -313,6 +325,8 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
   }
 
   violations.push(...contractViolations);
+  ctx.currentStage = "composition";
+  ctx.composition = { plan: composition, contractViolations };
 
   // ── Stage 3c/3d: On-Demand Asset Generation ───────────────────────────
   // Detect composition elements without asset URLs, generate them via AI,
@@ -349,14 +363,14 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     // job was blocked. Throw so the worker catches it as KillSwitchError,
     // marks the job FAILED, refunds any pre-deducted credits, and logs the
     // block reason in the job record.
-    const killResult = checkKillSwitch();
+    const killResult = checkKillSwitch() as GuardCheckResult;
     if (!killResult.allowed) {
       logGenerationEvent(input.format, input.stylePreset, 0, false);
       logger.warn({
         jobId:  input.jobId,
         format: input.format,
         reason: killResult.reason,
-        code:   (killResult as any).code,
+        code:   killResult.code,
       }, '[pipeline] KILL_SWITCH_ACTIVE — hard-blocking asset engine stage');
       // Re-throw as KillSwitchError so the generation worker handles it
       // with the correct job-failure flow (credit refund, structured error response).
@@ -368,7 +382,7 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     // calculation failed) we must NEVER silently skip AI and deliver an
     // asset-free render without informing the caller. Throw SpendGuardError
     // so the worker marks the job FAILED and preserves billing integrity.
-    const spendResult = checkGlobalMonthlySpend(ae.globalMonthlySpendUsd);
+    const spendResult = checkGlobalMonthlySpend(ae.globalMonthlySpendUsd) as GuardCheckResult;
     if (!spendResult.allowed) {
       logGenerationEvent(input.format, input.stylePreset, 0, false);
       logger.warn({
@@ -376,12 +390,12 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
         format:       input.format,
         currentSpend: ae.globalMonthlySpendUsd,
         reason:       spendResult.reason,
-        code:         (spendResult as any).code,
+        code:         spendResult.code,
       }, '[pipeline] SPEND_GUARD_ACTIVE — hard-blocking asset engine stage');
       throw new SpendGuardError(
         input.jobId ?? '',
         input.format,
-        (spendResult as any).code ?? 'SPEND_GUARD_ACTIVE',
+        spendResult.code ?? 'SPEND_GUARD_ACTIVE',
         spendResult.reason
       );
     }
@@ -391,7 +405,7 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
         const templateElements = composition.elements.map(el => ({
           id:       el.type,     // element type used as ID (background/human/object/etc.)
           type:     el.type,
-          url:      (el as any).url as string | undefined,  // populated if already resolved
+          url:      el.url,
           required: el.type === "background",  // background is always critical
           width:    spec.zones.find(z => z.id === el.zone)?.width  ?? 1024,
           height:   spec.zones.find(z => z.id === el.zone)?.height ?? 1024,
@@ -487,8 +501,8 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
               injectedAssets[missingEl.elementType] = cdnUrl;
               // Propagate URL back onto the composition element so the
               // compositionFragment is accurate for the SVG prompt.
-              const composEl = composition.elements.find(e => e.type === missingEl.elementId as any);
-              if (composEl) (composEl as any).url = cdnUrl;
+              const composEl = composition.elements.find(e => e.type === missingEl.elementId);
+              if (composEl) composEl.url = cdnUrl;
             }
 
             // ── Update metadata ─────────────────────────────────────────
@@ -511,25 +525,36 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
         }
   }
 
+  ctx.currentStage = "assets";
+  ctx.assets = {
+    injectedAssets,
+    resolvedAssets: onDemandMeta.elements,
+    totalCreditCost: onDemandMeta.totalCreditCost,
+    totalProviderCostUsd: onDemandMeta.totalProviderCostUsd,
+    cacheHits: onDemandMeta.cacheHits,
+    libraryHits: onDemandMeta.libraryHits,
+    aiGenerations: onDemandMeta.aiGenerations,
+  };
+
   // ── Stage 4: AI content generation (Ultimate — text-only, theme handles visuals)
   // Inject density suggestions, composition plan, and resolved asset CDN URLs
   // into the build context so the SVG builder embeds real images.
-  const enrichedBrief: BriefAnalysis = {
+  const enrichedBrief: EnrichedBrief = {
     ...input.brief,
-    // Inject density hints as auxiliary data for the prompt builder
     _densitySuggestions: densityAnalysis.suggestions,
     _compositionFragment: compositionToPromptFragment(composition),
-    // Inject resolved asset CDN URLs so SVG builder uses real images
     _injectedAssets: injectedAssets,
-  } as any;
+  };
 
-let buildResult = await buildUltimateSvgContent(
-  spec.zones,
-  enrichedBrief,
-  input.format,
-  input.brand,
-  input.variationIdx,
-);
+  ctx.currentStage = "render";
+  let buildResult = await buildUltimateSvgContent(
+    spec.zones,
+    enrichedBrief,
+    input.format,
+    input.brand,
+    input.variationIdx,
+  );
+  ctx.render = { content: buildResult.content as SvgContent, violations: buildResult.violations };
 
   // ── Quality gate: assess design quality, auto-refine, reject bland outputs ──
   const QUALITY_RETRY_THRESHOLD = 0.32;
@@ -554,7 +579,7 @@ let buildResult = await buildUltimateSvgContent(
         input.format,
       );
       if (refinement.actions.length > 0) {
-        (buildResult as any).content = refinement.content;
+        buildResult = { content: refinement.content, violations: buildResult.violations };
       }
     }
 
@@ -585,6 +610,14 @@ let buildResult = await buildUltimateSvgContent(
     }
   }
 
+  ctx.currentStage = "quality_gate";
+  ctx.qualityGate = {
+    themeScore: selectedTheme ? scoreCandidateQuality(selectedTheme, buildResult.content as SvgContent) : undefined,
+    designReport: undefined,
+    combinedScore: 0,
+    refined: false,
+    retried: false,
+  };
   violations.push(...buildResult.violations);
 
   // ── Stage 5: Hierarchy enforcement ────────────────────────────────────
@@ -594,23 +627,27 @@ let buildResult = await buildUltimateSvgContent(
   );
   violations.push(...hierarchyResult.violations.map(v => `hierarchy:${v.zoneId}: ${v.issue} → ${v.applied}`));
 
-  const finalContent = {
+  ctx.currentStage = "hierarchy";
+  const finalContent: SvgContent = {
     ...buildResult.content,
-    textContents: hierarchyResult.contents as any,
+    textContents: hierarchyResult.contents as SvgContent["textContents"],
   };
+  ctx.hierarchy = { result: hierarchyResult, content: finalContent };
 
   // ── Stage 6: Style enforcement (contrast + brand tone) ─────────────────
   const styleResult = enforceStyle(
-    hierarchyResult.contents as any,
+    hierarchyResult.contents,
     finalContent.backgroundColor,
     input.brand
   );
   violations.push(...styleResult.violations.map(v => `style:${v.zoneId}: ${v.issue} → ${v.correction}`));
 
-  const styleEnforcedContent = {
+  ctx.currentStage = "style_enforcement";
+  const styleEnforcedContent: SvgContent = {
     ...finalContent,
-    textContents: styleResult.contents as any,
+    textContents: styleResult.contents as SvgContent["textContents"],
   };
+  ctx.styleEnforcement = { result: styleResult, content: styleEnforcedContent };
 
   // ── Stage 7: SVG render (Ultimate — theme decorations + Google Fonts) ─────
   const svgSource = renderUltimateSvg(spec.zones, styleEnforcedContent, input.format);
@@ -657,6 +694,9 @@ let buildResult = await buildUltimateSvgContent(
   }
 
   // ── Assemble result ────────────────────────────────────────────────────
+  ctx.currentStage = "output";
+  ctx.output = { buffer, mimeType, svgSource, width: dims.width, height: dims.height };
+
   const assetId = deriveAssetId(
     input.campaignId, input.format, input.variationIdx, input.outputFormat
   );
