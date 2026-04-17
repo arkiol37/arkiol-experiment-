@@ -39,6 +39,8 @@ import {
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./svg-builder-ultimate";
 import { scoreCandidateQuality } from "../evaluation/candidate-quality";
 import { assessDesignQuality, refineDesign } from "../evaluation/candidate-refinement";
+import { polishOutput } from "../evaluation/output-polish";
+import { assessProductionReadiness, type ProductionReadinessReport } from "../evaluation/production-readiness";
 import {
   createPipelineContext,
   type PipelineContext,
@@ -207,6 +209,14 @@ export interface PipelineResult {
     qualityScore: number;
     designQualityScore: number;
     themeId: string;
+  };
+
+  // Production readiness — overall quality verdict
+  productionReadiness?: {
+    verdict: "ready" | "needs_review" | "reject";
+    overallScore: number;
+    blockers: string[];
+    warnings: string[];
   };
 
   // Agent orchestration — design planning decisions made before generation
@@ -787,8 +797,22 @@ async function renderAssetInner(
   };
   ctx.styleEnforcement = { result: styleResult, content: styleEnforcedContent };
 
+  // ── Stage 6b: Output polish — final cleanup before rendering ──────────
+  // Rounds font sizes, snaps weights, normalizes hex, enforces type hierarchy.
+  // Wrapped in try-catch so polish bugs never block the render.
+  let polishedContent = styleEnforcedContent;
+  try {
+    const polishResult = polishOutput(styleEnforcedContent, spec.zones, input.format);
+    if (polishResult.actions.length > 0) {
+      polishedContent = polishResult.content;
+      violations.push(...polishResult.actions.map(a => `polish:${a.zone}:${a.property}: ${a.before} → ${a.after}`));
+    }
+  } catch {
+    // Non-fatal — render with unpolished content
+  }
+
   // ── Stage 7: SVG render (Ultimate — theme decorations + Google Fonts) ─────
-  const svgSource = renderUltimateSvg(spec.zones, styleEnforcedContent, input.format);
+  const svgSource = renderUltimateSvg(spec.zones, polishedContent, input.format);
   const dims      = FORMAT_DIMS[input.format] ?? { width: 1080, height: 1080 };
 
   // ── Stage 8: Format-specific output ───────────────────────────────────
@@ -829,7 +853,7 @@ async function renderAssetInner(
     // GIF — wrap broadly so any GIF failure falls back to SVG.
     // Native module unavailability (serverless) gets a specific flag for the API layer.
     try {
-      buffer   = await renderGifFromSpec(spec, styleEnforcedContent, input, dims);
+      buffer   = await renderGifFromSpec(spec, polishedContent, input, dims);
       mimeType = "image/gif";
     } catch (gifErr: any) {
       const isNativeErr =
@@ -916,6 +940,26 @@ async function renderAssetInner(
     }
   }
 
+  // ── Production readiness assessment ─────────────────────────────────────
+  let readinessReport: ProductionReadinessReport | undefined;
+  try {
+    const themeQScore = buildResult.content._selectedTheme
+      ? scoreCandidateQuality(buildResult.content._selectedTheme, buildResult.content as SvgContent)
+      : undefined;
+    const designQReport = buildResult.content._selectedTheme
+      ? assessDesignQuality(buildResult.content as SvgContent, spec.zones, input.format)
+      : undefined;
+    readinessReport = assessProductionReadiness(
+      polishedContent,
+      spec.zones,
+      input.format,
+      themeQScore,
+      designQReport,
+    );
+  } catch {
+    // Non-fatal — skip readiness assessment
+  }
+
   recordGeneration({
     assetId,
     timestamp: Date.now(),
@@ -977,6 +1021,15 @@ async function renderAssetInner(
         preFlightVerdict: agentResult.preFlightVerdict,
         postGenerationVerdict,
         adjustmentsApplied: agentResult.adjustmentsApplied,
+      },
+    } : {}),
+    // Production readiness verdict
+    ...(readinessReport ? {
+      productionReadiness: {
+        verdict: readinessReport.verdict,
+        overallScore: readinessReport.overallScore,
+        blockers: readinessReport.blockers,
+        warnings: readinessReport.warnings,
       },
     } : {}),
   };

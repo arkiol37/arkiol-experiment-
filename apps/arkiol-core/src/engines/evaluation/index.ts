@@ -26,3 +26,17 @@ export {
   recordOutputFingerprint,
   isRecentDuplicate,
 } from "../memory/output-history";
+
+export {
+  polishOutput,
+  type PolishResult,
+  type PolishAction,
+} from "./output-polish";
+
+export {
+  assessProductionReadiness,
+  selectStrongestCandidate,
+  type ProductionReadinessReport,
+  type ReadinessVerdict,
+  type CandidateComparison,
+} from "./production-readiness";

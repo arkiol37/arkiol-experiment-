@@ -7,7 +7,7 @@
 //   style/       — visual style intelligence, category packs
 //   assets/      — composition planning, asset contracts
 //   render/      — SVG/PNG/GIF pipeline and content generation
-//   evaluation/  — quality scoring, refinement, candidate ranking
+//   evaluation/  — quality scoring, refinement, candidate ranking, output polish, readiness
 //   memory/      — output history and cross-request dedup
 //   hierarchy/   — typographic rule enforcement
 //   exploration/ — genetic algorithm, learning-memory
