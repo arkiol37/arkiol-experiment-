@@ -46,6 +46,14 @@ import {
   type GuardCheckResult,
 } from "./pipeline-types";
 import {
+  runSafeStage,
+  healZoneGeometry,
+  healContent,
+  buildSafetyNetSvg,
+  buildDegradedResult,
+  type RecoveryAction,
+} from "./self-healing";
+import {
   renderGif,
   buildKineticTextFrames,
   buildFadeFrames,
@@ -178,6 +186,14 @@ export interface PipelineResult {
   // Performance
   durationMs:   number;
 
+  // Self-healing — populated when the pipeline recovered from failures
+  recoveryActions?: Array<{
+    stage: string;
+    issue: string;
+    action: string;
+    severity: "warning" | "error" | "critical";
+  }>;
+
   // ── Editor element tree — zones + final SvgContent for ArkiolEditor ─────
   // Populated on every successful render so EditorShell can open generated
   // designs as fully-editable layer trees without re-parsing SVG text.
@@ -229,6 +245,43 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
   const ctx = createPipelineContext(input);
   const startMs = ctx.startedAt;
   const violations = ctx.violations;
+  const recoveryLog: RecoveryAction[] = [];
+
+  // Top-level safety net — guarantees a result even on catastrophic failure.
+  // Hard failures (KillSwitchError, SpendGuardError) are re-thrown so the
+  // worker can handle billing correctly. Everything else returns a degraded result.
+  try {
+  return await renderAssetInner(input, ctx, violations, recoveryLog);
+  } catch (err: any) {
+    if (err?.name === "KillSwitchError" || err?.name === "SpendGuardError") throw err;
+
+    const durationMs = Date.now() - startMs;
+    logger.error(
+      { jobId: input.jobId, format: input.format, error: err?.message, stack: err?.stack },
+      "[self-healing] Pipeline failed catastrophically — returning safety-net result",
+    );
+    recoveryLog.push({
+      stage: "output",
+      issue: err?.message ?? "unknown catastrophic failure",
+      action: "Returned safety-net SVG to prevent crash",
+      severity: "critical",
+      timestamp: Date.now(),
+    });
+
+    const degraded = buildDegradedResult(input, recoveryLog);
+    degraded.durationMs = durationMs;
+    logGenerationEvent(input.format, input.stylePreset, durationMs, false);
+    return degraded;
+  }
+}
+
+async function renderAssetInner(
+  input: PipelineInput,
+  ctx: PipelineContext,
+  violations: string[],
+  recoveryLog: RecoveryAction[],
+): Promise<PipelineResult> {
+  const startMs = ctx.startedAt;
 
   // ── Stage 1: Layout Authority ──────────────────────────────────────────
   const authCtx: AuthorityContext = {
@@ -251,7 +304,15 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     density:        rawSpec.density,
     activeZoneIds:  rawSpec.activeZoneIds,
   });
-  const spec = { ...rawSpec, zones: adapted.zones };
+  // Heal zone geometry — clamp negative dimensions, out-of-bounds positions
+  const canvasDims = FORMAT_DIMS[input.format] ?? { width: 1080, height: 1080 };
+  const zoneHealing = healZoneGeometry(adapted.zones, canvasDims.width, canvasDims.height);
+  if (zoneHealing.actions.length > 0) {
+    recoveryLog.push(...zoneHealing.actions);
+    violations.push(...zoneHealing.actions.map(a => `self_healing:zone: ${a.issue}`));
+  }
+
+  const spec = { ...rawSpec, zones: zoneHealing.zones };
   ctx.currentStage = "layout";
   ctx.layout = { rawSpec, adapted, spec };
   if (adapted.adjustments.length > 0) {
@@ -556,67 +617,89 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
   );
   ctx.render = { content: buildResult.content as SvgContent, violations: buildResult.violations };
 
+  // ── Content integrity healing — fix invalid colors, NaN font sizes ──────
+  const contentHealing = healContent(buildResult.content as SvgContent, "#f8f7f4");
+  if (contentHealing.actions.length > 0) {
+    recoveryLog.push(...contentHealing.actions);
+    violations.push(...contentHealing.actions.map(a => `self_healing:content: ${a.issue}`));
+    buildResult = { content: contentHealing.content, violations: buildResult.violations };
+  }
+
   // ── Quality gate: assess design quality, auto-refine, reject bland outputs ──
+  // Wrapped in try-catch so scoring bugs never crash the pipeline.
   const QUALITY_RETRY_THRESHOLD = 0.32;
   const DESIGN_QUALITY_FLOOR = 0.50;
   const selectedTheme = buildResult.content._selectedTheme;
-  if (selectedTheme) {
-    const qScore = scoreCandidateQuality(selectedTheme, buildResult.content as SvgContent);
+  let qualityGateRefined = false;
+  let qualityGateRetried = false;
 
-    // Assess post-build design quality (contrast, overflow, spacing, balance, hierarchy, harmony)
-    const designReport = assessDesignQuality(
-      buildResult.content as SvgContent,
-      spec.zones,
-      input.format,
-    );
+  try {
+    if (selectedTheme) {
+      const qScore = scoreCandidateQuality(selectedTheme, buildResult.content as SvgContent);
 
-    // Auto-refine fixable issues (contrast, overflow, hierarchy)
-    if (designReport.overall < DESIGN_QUALITY_FLOOR || designReport.issues.some(i => i.severity === "error")) {
-      const refinement = refineDesign(
+      const designReport = assessDesignQuality(
         buildResult.content as SvgContent,
-        designReport,
         spec.zones,
         input.format,
       );
-      if (refinement.actions.length > 0) {
-        buildResult = { content: refinement.content, violations: buildResult.violations };
-      }
-    }
 
-    // Combined score: theme quality × 0.5 + design quality × 0.5
-    const combinedScore = qScore.total * 0.5 + designReport.overall * 0.5;
-
-    if (combinedScore < QUALITY_RETRY_THRESHOLD) {
-      const retryResult = await buildUltimateSvgContent(
-        spec.zones,
-        enrichedBrief,
-        input.format,
-        input.brand,
-        input.variationIdx + 13337,
-      );
-      const retryTheme = retryResult.content._selectedTheme;
-      if (retryTheme) {
-        const retryQScore = scoreCandidateQuality(retryTheme, retryResult.content as SvgContent);
-        const retryDesignReport = assessDesignQuality(
-          retryResult.content as SvgContent,
+      if (designReport.overall < DESIGN_QUALITY_FLOOR || designReport.issues.some(i => i.severity === "error")) {
+        const refinement = refineDesign(
+          buildResult.content as SvgContent,
+          designReport,
           spec.zones,
           input.format,
         );
-        const retryCombined = retryQScore.total * 0.5 + retryDesignReport.overall * 0.5;
-        if (retryCombined > combinedScore) {
-          buildResult = retryResult;
+        if (refinement.actions.length > 0) {
+          buildResult = { content: refinement.content, violations: buildResult.violations };
+          qualityGateRefined = true;
+        }
+      }
+
+      const combinedScore = qScore.total * 0.5 + designReport.overall * 0.5;
+
+      if (combinedScore < QUALITY_RETRY_THRESHOLD) {
+        qualityGateRetried = true;
+        const retryResult = await buildUltimateSvgContent(
+          spec.zones,
+          enrichedBrief,
+          input.format,
+          input.brand,
+          input.variationIdx + 13337,
+        );
+        const retryTheme = retryResult.content._selectedTheme;
+        if (retryTheme) {
+          const retryQScore = scoreCandidateQuality(retryTheme, retryResult.content as SvgContent);
+          const retryDesignReport = assessDesignQuality(
+            retryResult.content as SvgContent,
+            spec.zones,
+            input.format,
+          );
+          const retryCombined = retryQScore.total * 0.5 + retryDesignReport.overall * 0.5;
+          if (retryCombined > combinedScore) {
+            buildResult = retryResult;
+          }
         }
       }
     }
+  } catch (qErr: any) {
+    recoveryLog.push({
+      stage: "quality_gate",
+      issue: qErr?.message ?? "quality gate scoring failed",
+      action: "Skipped quality gate — proceeding with unscored output",
+      severity: "error",
+      timestamp: Date.now(),
+    });
+    violations.push(`self_healing:quality_gate: scoring failed — ${qErr?.message}`);
   }
 
   ctx.currentStage = "quality_gate";
   ctx.qualityGate = {
-    themeScore: selectedTheme ? scoreCandidateQuality(selectedTheme, buildResult.content as SvgContent) : undefined,
+    themeScore: undefined,
     designReport: undefined,
     combinedScore: 0,
-    refined: false,
-    retried: false,
+    refined: qualityGateRefined,
+    retried: qualityGateRetried,
   };
   violations.push(...buildResult.violations);
 
@@ -662,19 +745,34 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     mimeType = "image/svg+xml";
 
   } else if (input.outputFormat === "png") {
-    const scale = input.pngScale ?? 1;
-    buffer = await sharp(Buffer.from(svgSource))
-      .resize(dims.width * scale, dims.height * scale)
-      .png({ compressionLevel: 6, effort: 2 })
-      .toBuffer();
-    mimeType = "image/png";
+    // PNG via sharp — wrap in try-catch so encoding failures fall back to SVG
+    try {
+      const scale = input.pngScale ?? 1;
+      buffer = await sharp(Buffer.from(svgSource))
+        .resize(dims.width * scale, dims.height * scale)
+        .png({ compressionLevel: 6, effort: 2 })
+        .toBuffer();
+      mimeType = "image/png";
+    } catch (pngErr: any) {
+      recoveryLog.push({
+        stage: "output",
+        issue: `PNG encoding failed: ${pngErr?.message}`,
+        action: "Falling back to SVG output",
+        severity: "error",
+        timestamp: Date.now(),
+      });
+      violations.push(`self_healing:png: encoding failed — ${pngErr?.message}`);
+      logger.warn(
+        { jobId: input.jobId, error: pngErr?.message },
+        "[self-healing] PNG sharp encoding failed — falling back to SVG",
+      );
+      buffer   = Buffer.from(svgSource, "utf-8");
+      mimeType = "image/svg+xml";
+    }
 
   } else {
-    // GIF — derive frames from the SAME zone data as SVG
-    // This guarantees identical layout between GIF and static variants.
-    // In serverless environments (e.g. Vercel) where the native 'canvas' module
-    // is unavailable, GIF rendering is not supported. We fall back to SVG and
-    // surface a clear error so the caller can handle it appropriately.
+    // GIF — wrap broadly so any GIF failure falls back to SVG.
+    // Native module unavailability (serverless) gets a specific flag for the API layer.
     try {
       buffer   = await renderGifFromSpec(spec, styleEnforcedContent, input, dims);
       mimeType = "image/gif";
@@ -683,13 +781,24 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
         gifErr?.message?.includes("native module") ||
         gifErr?.message?.includes("canvas") ||
         gifErr?.code === "MODULE_NOT_FOUND";
-      if (isNativeErr) {
-        // Serverless fallback: return SVG with a flag so the API layer can
-        // return a 422 with a helpful message rather than a 500.
-        (gifErr as any).gifUnavailable = true;
-        (gifErr as any).svgFallback    = svgSource;
-      }
-      throw gifErr;
+
+      recoveryLog.push({
+        stage: "output",
+        issue: `GIF rendering failed: ${gifErr?.message}`,
+        action: isNativeErr
+          ? "Canvas module unavailable (serverless) — falling back to SVG"
+          : "GIF encoding error — falling back to SVG",
+        severity: isNativeErr ? "warning" : "error",
+        timestamp: Date.now(),
+      });
+      violations.push(`self_healing:gif: rendering failed — ${gifErr?.message}`);
+      logger.warn(
+        { jobId: input.jobId, error: gifErr?.message, isNativeErr },
+        "[self-healing] GIF rendering failed — falling back to SVG",
+      );
+
+      buffer   = Buffer.from(svgSource, "utf-8");
+      mimeType = "image/svg+xml";
     }
   }
 
@@ -726,6 +835,15 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     // Stored in asset.metadata so /api/editor/load can convert without SVG parsing
     editorZones:      spec.zones as unknown[],
     editorSvgContent: styleEnforcedContent as unknown,
+    // Self-healing — only populated when recovery actions were taken
+    ...(recoveryLog.length > 0 ? {
+      recoveryActions: recoveryLog.map(a => ({
+        stage: a.stage,
+        issue: a.issue,
+        action: a.action,
+        severity: a.severity,
+      })),
+    } : {}),
   };
 }
 

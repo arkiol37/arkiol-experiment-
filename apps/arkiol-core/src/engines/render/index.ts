@@ -19,6 +19,15 @@ export {
 } from "./svg-builder-ultimate";
 
 export {
+  runSafeStage,
+  healZoneGeometry,
+  healContent,
+  buildSafetyNetSvg,
+  buildDegradedResult,
+  type RecoveryAction,
+} from "./self-healing";
+
+export {
   createPipelineContext,
   type PipelineContext,
   type PipelineStage,
