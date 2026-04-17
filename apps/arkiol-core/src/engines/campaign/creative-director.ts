@@ -21,6 +21,21 @@
 import { createHash } from "crypto";
 import type { DesignGenome } from "../exploration/types";
 import type { ArkiolLayoutCategory } from "../layout/families";
+import {
+  selectNarrativeArc,
+  assignNarrativeBeats,
+  buildNarrativePromptContext,
+  adaptHeadlineForBeat,
+  type NarrativeArc,
+  type NarrativeBeat,
+  type FormatNarrativeAssignment,
+} from "./narrative-arc";
+import {
+  checkCampaignCoherence,
+  extractStyleDNA,
+  buildCoherenceContext,
+  type CoherenceReport,
+} from "./campaign-coherence";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // § 1  TYPES
@@ -87,6 +102,10 @@ export interface CampaignFormatPlan {
   presetId: string;
   /** Priority order for generation */
   generationPriority: number;
+  /** Narrative beat assigned to this format */
+  narrativeBeat?: NarrativeBeat;
+  /** Narrative prompt context for this format's generation */
+  narrativeContext?: string;
 }
 
 export interface CampaignPlan {
@@ -103,6 +122,10 @@ export interface CampaignPlan {
   /** Generation order for the worker */
   generationOrder: string[];
   createdAt: string;
+  /** Narrative arc structure for this campaign */
+  narrativeArc?: NarrativeArc;
+  /** Campaign coherence validation report */
+  coherenceReport?: CoherenceReport;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -413,6 +436,23 @@ export function buildCampaignPlan(input: DirectorInput): CampaignPlan {
     const identity  = buildVisualIdentity(input.prompt, tone, seed, input.brandPrimaryColor);
     const formats   = buildFormatPlans(objective, identity, tone, input.requestedFormats);
 
+    // ── Narrative arc — assign storytelling beats to each format ──────────
+    const narrativeArc = selectNarrativeArc(objective, tone, formats.length);
+    const narrativeAssignments = assignNarrativeBeats(formats, narrativeArc);
+    const styleDNA = extractStyleDNA(identity);
+
+    for (const assignment of narrativeAssignments) {
+      const fmt = formats.find(f => f.format === assignment.format);
+      if (fmt) {
+        fmt.narrativeBeat = assignment.beat;
+        fmt.headline = adaptHeadlineForBeat(fmt.headline, assignment.beat, tone);
+        fmt.narrativeContext = [
+          buildNarrativePromptContext(assignment, narrativeArc),
+          buildCoherenceContext(styleDNA, assignment, formats.length),
+        ].join(". ");
+      }
+    }
+
     const sharedPromptContext = [
       `Campaign tone: ${tone}`,
       `Visual identity: primary colour ${identity.primaryColor}, accent ${identity.accentColor}`,
@@ -420,8 +460,15 @@ export function buildCampaignPlan(input: DirectorInput): CampaignPlan {
       `Headline theme: "${identity.headline}"`,
       `Hook strategy: ${identity.hookStrategy}`,
       `Composition: ${identity.compositionPattern}`,
+      `Narrative arc: ${narrativeArc.arcType} (${narrativeArc.beats.map(b => b.beat).join(" → ")})`,
       `Brand: ${input.brandId ? `brand=${input.brandId}` : "no brand override"}`,
     ].join(". ");
+
+    const coherenceReport = checkCampaignCoherence(
+      { campaignId, seed, prompt: input.prompt, objective, identity, formats, sharedPromptContext, estimatedCredits: 0, generationOrder: [], createdAt: "" },
+      narrativeArc,
+      narrativeAssignments,
+    );
 
     const estimatedCredits = formats.length * 2 + formats.filter(f => f.includeMotion).length * 3;
 
@@ -438,6 +485,8 @@ export function buildCampaignPlan(input: DirectorInput): CampaignPlan {
         .sort((a, b) => a.generationPriority - b.generationPriority)
         .map(f => f.format),
       createdAt: new Date().toISOString(),
+      narrativeArc,
+      coherenceReport,
     };
   } catch {
     // Deterministic fallback
@@ -484,8 +533,12 @@ export function campaignFormatToGenerationPayload(
   userId: string,
   orgId: string
 ): Record<string, unknown> {
+  const narrativeCtx = formatPlan.narrativeContext
+    ? `. ${formatPlan.narrativeContext}`
+    : "";
+
   return {
-    prompt:      `${plan.sharedPromptContext}. Format headline: "${formatPlan.headline}". ${formatPlan.subMessage}`,
+    prompt:      `${plan.sharedPromptContext}. Format headline: "${formatPlan.headline}". ${formatPlan.subMessage}${narrativeCtx}`,
     formats:     [formatPlan.format],
     stylePreset: formatPlan.presetId,
     includeGif:  formatPlan.includeMotion,
@@ -498,10 +551,12 @@ export function campaignFormatToGenerationPayload(
     userId,
     orgId,
     _campaignMeta: {
-      objective: plan.objective,
-      role:      formatPlan.role,
-      platform:  formatPlan.platform,
-      seed:      plan.seed,
+      objective:      plan.objective,
+      role:           formatPlan.role,
+      platform:       formatPlan.platform,
+      seed:           plan.seed,
+      narrativeBeat:  formatPlan.narrativeBeat,
+      narrativeArc:   plan.narrativeArc?.arcType,
     },
   };
 }

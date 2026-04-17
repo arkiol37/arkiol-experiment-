@@ -11,7 +11,7 @@
 //   memory/      — output history and cross-request dedup
 //   hierarchy/   — typographic rule enforcement
 //   exploration/ — genetic algorithm, learning-memory
-//   campaign/    — campaign planning, creative direction
+//   campaign/    — campaign planning, creative direction, narrative arcs, coherence
 //   brand/       — brand memory and learning
 //   platform/    — platform-specific intelligence
 //   queue/       — render job orchestration
@@ -143,6 +143,38 @@ export type {
   CampaignTone,
   DirectorInput,
 } from "./campaign/creative-director";
+
+// ── Narrative Arc + Campaign Coherence ──────────────────────────────────────
+export {
+  selectNarrativeArc,
+  assignNarrativeBeats,
+  buildNarrativePromptContext,
+  getBeatMessagingGuide,
+  adaptHeadlineForBeat,
+} from "./campaign/narrative-arc";
+
+export type {
+  NarrativeBeat,
+  NarrativeBeatSpec,
+  NarrativeArc,
+  ArcType,
+  FormatNarrativeAssignment,
+  BeatMessagingGuide,
+} from "./campaign/narrative-arc";
+
+export {
+  checkCampaignCoherence,
+  extractStyleDNA,
+  analyzeMessagingProgression,
+  buildCoherenceContext,
+} from "./campaign/campaign-coherence";
+
+export type {
+  CoherenceReport,
+  CoherenceIssue,
+  CampaignStyleDNA,
+  MessagingProgression,
+} from "./campaign/campaign-coherence";
 
 // ── Render Queue Intelligence ───────────────────────────────────────────────
 export {
