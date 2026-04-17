@@ -14,7 +14,7 @@
 //  • Theme scoring upgraded: 3 tones + 3 colorMoods per theme (better matching)
 
 import { BriefAnalysis } from "../ai/brief-analyzer";
-import { detectCategoryPack, paletteMoodToColorMoods, type CategoryStylePack } from "./category-style-packs";
+import { detectCategoryPack, paletteMoodToColorMoods, type CategoryStylePack } from "../style/category-style-packs";
 
 export type ThemeFont =
   | "Montserrat" | "Playfair Display" | "Oswald"  | "Poppins"
@@ -1023,7 +1023,7 @@ const _recentThemeIds: string[] = [];
 const RECENT_HISTORY_SIZE = 6;
 
 // Exported so svg-builder and layout-intelligence can access the detected pack
-export { detectCategoryPack } from "./category-style-packs";
+export { detectCategoryPack } from "../style/category-style-packs";
 
 export function selectTheme(brief: BriefAnalysis, variationIdx = 0): DesignTheme {
   // Detect category style pack from brief content

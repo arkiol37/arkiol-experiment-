@@ -37,8 +37,8 @@ import {
 } from "../assets/contract";
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./svg-builder-ultimate";
-import { scoreCandidateQuality } from "./candidate-quality";
-import { assessDesignQuality, refineDesign } from "./candidate-refinement";
+import { scoreCandidateQuality } from "../evaluation/candidate-quality";
+import { assessDesignQuality, refineDesign } from "../evaluation/candidate-refinement";
 import {
   renderGif,
   buildKineticTextFrames,

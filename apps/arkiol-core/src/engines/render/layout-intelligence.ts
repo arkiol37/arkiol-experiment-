@@ -1,7 +1,7 @@
 import { BriefAnalysis } from "../ai/brief-analyzer";
 import { DesignTheme, THEMES, applyBrandColors, selectTheme } from "./design-themes";
-import { detectCategoryPack } from "./category-style-packs";
-import { scoreThemeQuality, isBlandCandidate } from "./candidate-quality";
+import { detectCategoryPack } from "../style/category-style-packs";
+import { scoreThemeQuality, isBlandCandidate } from "../evaluation/candidate-quality";
 
 export type LayoutDensity = "airy" | "balanced" | "compact";
 export type CompositionStyle = "editorial" | "hero" | "split" | "stacked" | "poster" | "minimal";

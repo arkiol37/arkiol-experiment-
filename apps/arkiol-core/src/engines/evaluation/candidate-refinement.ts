@@ -1,4 +1,4 @@
-// src/engines/render/candidate-refinement.ts
+// src/engines/evaluation/candidate-refinement.ts
 //
 // Post-build design quality assessment and automatic refinement.
 // Evaluates completed designs for contrast compliance, overflow risk,
@@ -7,7 +7,7 @@
 // requiring additional AI calls.
 
 import type { Zone, ZoneId } from "../layout/families";
-import type { SvgContent } from "./svg-builder-ultimate";
+import type { SvgContent } from "../render/svg-builder-ultimate";
 import { FORMAT_DIMS } from "../../lib/types";
 
 // ── Quality report ───────────────────────────────────────────────────────────

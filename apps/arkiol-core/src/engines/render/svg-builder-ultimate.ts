@@ -19,10 +19,10 @@ import { FORMAT_DIMS }             from "../../lib/types";
 import { measureTextInZone, measureLineWidth, getSvgLineYPositions } from "./text-measure";
 import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
-import { detectCategoryPack, type CategoryStylePack } from "./category-style-packs";
+import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
-import { pickBestTheme, scoreCandidateQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "./candidate-quality";
-import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "./style-intelligence";
+import { pickBestTheme, scoreCandidateQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
+import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { createHash } from "crypto";
 import { z } from "zod";
 

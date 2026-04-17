@@ -1,8 +1,21 @@
 // src/engines/index.ts
 // Arkiol Engine Registry — canonical barrel export for all engines
 //
-// Import from here rather than directly from individual engine files
-// to ensure consistent API surface and avoid circular dependency issues.
+// Module structure:
+//   intent/      — prompt analysis and brief extraction
+//   layout/      — zone geometry, density, adaptive layout
+//   style/       — visual style intelligence, category packs
+//   assets/      — composition planning, asset contracts
+//   render/      — SVG/PNG/GIF pipeline and content generation
+//   evaluation/  — quality scoring, refinement, candidate ranking
+//   memory/      — output history and cross-request dedup
+//   hierarchy/   — typographic rule enforcement
+//   exploration/ — genetic algorithm, learning-memory
+//   campaign/    — campaign planning, creative direction
+//   brand/       — brand memory and learning
+//   platform/    — platform-specific intelligence
+//   queue/       — render job orchestration
+//   validation/  — stage validation
 
 // ── Exploration Engine ──────────────────────────────────────────────────────
 export {

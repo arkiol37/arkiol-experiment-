@@ -1,4 +1,4 @@
-// src/engines/render/category-style-packs.ts
+// src/engines/style/category-style-packs.ts
 //
 // Category-specific style packs for social media templates.
 // Each pack defines palette behavior, typography mood, background treatment,
@@ -10,7 +10,7 @@
 // ordered by specificity so narrower categories match before broader ones.
 
 import type { BriefAnalysis } from "../ai/brief-analyzer";
-import type { BgTreatment, ThemeFont } from "./design-themes";
+import type { BgTreatment, ThemeFont } from "../render/design-themes";
 
 // ── CategoryStylePack interface ──────────────────────────────────────────────
 

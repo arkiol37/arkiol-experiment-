@@ -1,15 +1,14 @@
-// src/engines/render/candidate-quality.ts
+// src/engines/evaluation/candidate-quality.ts
 //
 // Quality scoring system for template candidates.
 // Evaluates visual richness, decoration diversity, palette variety,
 // content completeness, and uniqueness to reject bland outputs and
 // rank candidates by marketplace-quality appearance.
-//
-// Used by svg-builder-ultimate (multi-candidate theme picking) and
-// layout-intelligence (enhanced scoring dimensions).
 
-import type { DesignTheme, DecorShape, BgTreatment } from "./design-themes";
-import type { SvgContent } from "./svg-builder-ultimate";
+import type { DesignTheme, DecorShape, BgTreatment } from "../render/design-themes";
+import type { SvgContent } from "../render/svg-builder-ultimate";
+
+export { themeFingerprint, recordOutputFingerprint, isRecentDuplicate } from "../memory/output-history";
 
 // ── Quality score dimensions ──────────────────────────────────────────────────
 
@@ -197,16 +196,6 @@ export function isBlandCandidate(theme: DesignTheme): boolean {
 
 // ── Similarity detection ──────────────────────────────────────────────────────
 
-/** Returns a fingerprint string for a theme candidate to detect near-duplicates */
-export function themeFingerprint(theme: DesignTheme): string {
-  const bgKind = theme.background.kind;
-  const bgColors = "colors" in theme.background
-    ? (theme.background as any).colors.slice(0, 2).join(",")
-    : ("color" in theme.background ? (theme.background as any).color : "");
-  const decoKinds = [...new Set(theme.decorations.map(d => d.kind))].sort().join(",");
-  return `${theme.id}|${bgKind}|${bgColors}|${decoKinds}`;
-}
-
 /** Checks if two themes are too visually similar */
 export function areTooSimilar(a: DesignTheme, b: DesignTheme): boolean {
   // Same theme ID is always too similar
@@ -286,26 +275,6 @@ export function pickBestTheme(themes: DesignTheme[]): DesignTheme {
   const ranked = rankThemeCandidates(themes);
   // Return best non-rejected, or the least-bad rejected one
   return ranked[0].theme;
-}
-
-// ── Recent output tracking for cross-request uniqueness ───────────────────────
-
-const _recentOutputFingerprints: string[] = [];
-const RECENT_OUTPUT_HISTORY = 20;
-
-/** Record a generated output fingerprint for cross-request dedup */
-export function recordOutputFingerprint(theme: DesignTheme): void {
-  const fp = themeFingerprint(theme);
-  _recentOutputFingerprints.unshift(fp);
-  if (_recentOutputFingerprints.length > RECENT_OUTPUT_HISTORY) {
-    _recentOutputFingerprints.pop();
-  }
-}
-
-/** Check if a theme is too similar to recent outputs */
-export function isRecentDuplicate(theme: DesignTheme): boolean {
-  const fp = themeFingerprint(theme);
-  return _recentOutputFingerprints.includes(fp);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

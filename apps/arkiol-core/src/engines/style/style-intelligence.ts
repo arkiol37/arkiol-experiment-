@@ -1,4 +1,4 @@
-// src/engines/render/style-intelligence.ts
+// src/engines/style/style-intelligence.ts
 //
 // Visual style intelligence layer.
 // Analyzes brief intent, category, and brand context to dynamically select
@@ -7,7 +7,7 @@
 // adapts its aesthetic to content rather than using static style choices.
 
 import type { BriefAnalysis } from "../ai/brief-analyzer";
-import type { DesignTheme, ThemeFont } from "./design-themes";
+import type { DesignTheme, ThemeFont } from "../render/design-themes";
 import type { CategoryStylePack } from "./category-style-packs";
 
 // ── Style intent dimensions ──────────────────────────────────────────────────
