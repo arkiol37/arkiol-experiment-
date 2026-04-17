@@ -18,6 +18,7 @@
 //   validation/  — stage validation
 //   agents/     — AI agent orchestration (creative director, designer, critic)
 //   cocreation/ — real-time co-creation (instruction parsing, design mutation)
+//   inspiration/ — web-scale pattern intelligence (pattern library, matching, overrides)
 
 // ── Co-Creation ────────────────────────────────────────────────────────────
 export {
@@ -244,3 +245,30 @@ export {
 export type {
   ValidationResult,
 } from "./validation/stage-validator";
+
+// ── Inspiration Intelligence ───────────────────────────────────────────────
+export {
+  getAllPatterns,
+  getPatternById,
+  getPatternsBySource,
+  getPatternsByCategory,
+  getPatternsByTone,
+  getFreshPatterns,
+  matchPatternToBrief,
+  matchTopPatterns,
+  buildInspirationOverrides,
+} from "./inspiration";
+
+export type {
+  DesignPattern,
+  PatternApplicationHint,
+  PatternSource,
+  PatternCategory,
+  ColorRelationship,
+  TypographyPattern,
+  SpacingPattern,
+  DecorationPattern,
+  LayoutStructurePattern,
+  PatternMatchResult,
+  InspirationOverrides,
+} from "./inspiration";

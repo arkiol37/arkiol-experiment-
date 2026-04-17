@@ -24,6 +24,7 @@ import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
+import { matchPatternToBrief, buildInspirationOverrides } from "../inspiration/pattern-matcher";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -193,6 +194,33 @@ export async function buildUltimateSvgContent(
   const styleIntent = analyzeStyleIntent(brief, categoryPack?.id);
   const styleDirective = deriveStyleDirective(styleIntent, categoryPack, brand ? { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor } : undefined);
   theme = applyStyleDirective(theme, styleDirective, !!brand);
+
+  // ── Inspiration pattern intelligence — apply real-world pattern overrides
+  const inspirationMatch = matchPatternToBrief(brief, format);
+  if (inspirationMatch.topScore >= 0.3) {
+    const overrides = buildInspirationOverrides(inspirationMatch.hint);
+    if (overrides.headlineSizeMultiplier) {
+      theme = { ...theme, headlineSizeMultiplier: (theme.headlineSizeMultiplier ?? 1.0) * overrides.headlineSizeMultiplier };
+    }
+    if (overrides.headlineWeight && theme.typography.headline) {
+      theme = { ...theme, typography: { ...theme.typography, headline: { ...theme.typography.headline, fontWeight: overrides.headlineWeight } } };
+    }
+    if (overrides.headlineLetterSpacing !== undefined && theme.typography.headline) {
+      theme = { ...theme, typography: { ...theme.typography, headline: { ...theme.typography.headline, letterSpacing: overrides.headlineLetterSpacing } } };
+    }
+    if (overrides.headlineTextTransform && theme.typography.headline) {
+      theme = { ...theme, typography: { ...theme.typography, headline: { ...theme.typography.headline, textTransform: overrides.headlineTextTransform } } };
+    }
+    if (overrides.ctaBorderRadius !== undefined) {
+      theme = { ...theme, ctaStyle: { ...theme.ctaStyle, borderRadius: overrides.ctaBorderRadius } };
+    }
+    if (overrides.ctaShadow !== undefined) {
+      theme = { ...theme, ctaStyle: { ...theme.ctaStyle, shadow: overrides.ctaShadow } };
+    }
+    if (overrides.overlayOpacity && overrides.overlayOpacity > (theme.overlayOpacity ?? 0)) {
+      theme = { ...theme, overlayOpacity: overrides.overlayOpacity };
+    }
+  }
 
   // Record after style application so fingerprint reflects actual output
   recordOutputFingerprint(theme);
