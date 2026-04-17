@@ -22,6 +22,7 @@ import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypogr
 import { detectCategoryPack, type CategoryStylePack } from "./category-style-packs";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { pickBestTheme, scoreCandidateQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "./candidate-quality";
+import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "./style-intelligence";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -163,7 +164,12 @@ export async function buildUltimateSvgContent(
     if (!isBlandCandidate(retry)) theme = retry;
   }
 
-  // Record this output so future requests avoid repeating it
+  // ── Style intelligence — adapt palette, typography, mood to brief intent
+  const styleIntent = analyzeStyleIntent(brief, categoryPack?.id);
+  const styleDirective = deriveStyleDirective(styleIntent, categoryPack, brand ? { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor } : undefined);
+  theme = applyStyleDirective(theme, styleDirective, !!brand);
+
+  // Record after style application so fingerprint reflects actual output
   recordOutputFingerprint(theme);
 
   // ── Cache lookup — keyed on theme + brief + pack so style variety is preserved
