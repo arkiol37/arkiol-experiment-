@@ -17,6 +17,23 @@
 //   queue/       — render job orchestration
 //   validation/  — stage validation
 //   agents/     — AI agent orchestration (creative director, designer, critic)
+//   cocreation/ — real-time co-creation (instruction parsing, design mutation)
+
+// ── Co-Creation ────────────────────────────────────────────────────────────
+export {
+  parseInstruction,
+  applyInstructions,
+  resolveNamedColor,
+} from "./cocreation";
+
+export type {
+  EditCategory,
+  EditIntent,
+  EditOperation,
+  ParsedInstruction,
+  MutationResult,
+  MutationAction,
+} from "./cocreation";
 
 // ── Agent Orchestration ────────────────────────────────────────────────────
 export {
