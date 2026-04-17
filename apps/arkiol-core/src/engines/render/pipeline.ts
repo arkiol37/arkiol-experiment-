@@ -53,6 +53,8 @@ import {
   buildDegradedResult,
   type RecoveryAction,
 } from "./self-healing";
+import { recordGeneration } from "../memory/generation-ledger";
+import { extractEvaluationSignals } from "../memory/learning-signals";
 import {
   renderGif,
   buildKineticTextFrames,
@@ -193,6 +195,13 @@ export interface PipelineResult {
     action: string;
     severity: "warning" | "error" | "critical";
   }>;
+
+  // Evaluation signals — quality metrics for feedback correlation
+  evaluationSignals?: {
+    qualityScore: number;
+    designQualityScore: number;
+    themeId: string;
+  };
 
   // ── Editor element tree — zones + final SvgContent for ArkiolEditor ─────
   // Populated on every successful render so EditorShell can open generated
@@ -813,6 +822,45 @@ async function renderAssetInner(
   const durationMs = Date.now() - startMs;
   logGenerationEvent(input.format, input.stylePreset, durationMs, true);
 
+  // ── Evaluation signal extraction and ledger recording ──────────────────
+  const themeId = buildResult.content._selectedTheme?.id ?? "unknown";
+  const evalSignals = extractEvaluationSignals({
+    brandScore: styleResult.brandScore,
+    hierarchyValid: hierarchyResult.valid,
+    violations,
+    recoveryActions: recoveryLog,
+  });
+
+  // Compute quality scores from the quality gate context if available
+  let finalQualityScore = 0;
+  let finalDesignQualityScore = 0;
+  try {
+    if (buildResult.content._selectedTheme) {
+      const qs = scoreCandidateQuality(buildResult.content._selectedTheme, buildResult.content as SvgContent);
+      finalQualityScore = qs.total;
+      const dr = assessDesignQuality(buildResult.content as SvgContent, spec.zones, input.format);
+      finalDesignQualityScore = dr.overall;
+    }
+  } catch {
+    // Non-fatal — use zero scores
+  }
+
+  recordGeneration({
+    assetId,
+    timestamp: Date.now(),
+    format: input.format,
+    campaignId: input.campaignId,
+    themeId,
+    layoutFamily: spec.family.id,
+    layoutVariation: spec.variation.id,
+    qualityScore: finalQualityScore,
+    designQualityScore: finalDesignQualityScore,
+    brandScore: styleResult.brandScore,
+    hierarchyValid: hierarchyResult.valid,
+    violationCount: violations.length,
+    recoveryCount: recoveryLog.length,
+  });
+
   return {
     buffer,
     mimeType,
@@ -844,6 +892,12 @@ async function renderAssetInner(
         severity: a.severity,
       })),
     } : {}),
+    // Evaluation signals for feedback correlation
+    evaluationSignals: {
+      qualityScore: finalQualityScore,
+      designQualityScore: finalDesignQualityScore,
+      themeId,
+    },
   };
 }
 

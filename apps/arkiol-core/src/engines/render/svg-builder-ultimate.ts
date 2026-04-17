@@ -21,8 +21,9 @@ import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
-import { pickBestTheme, scoreCandidateQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
+import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
+import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -150,6 +151,19 @@ export async function buildUltimateSvgContent(
     if (brand) t = applyBrandColors(t, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
     if (categoryPack) t = applyCategoryPackOverrides(t, categoryPack, brand);
     candidateThemes.push(t);
+  }
+
+  // Apply learning bias — reorder candidates so historically high-performing
+  // themes are evaluated first (affects dedup anchor selection in pickBestTheme)
+  const learningBias = computeLearningBias({ format });
+  if (learningBias.confidence > 0) {
+    candidateThemes.sort((a, b) => {
+      const aBase = scoreThemeQuality(a).total;
+      const bBase = scoreThemeQuality(b).total;
+      const aBiased = applyThemeBias(a.id, aBase, learningBias);
+      const bBiased = applyThemeBias(b.id, bBase, learningBias);
+      return bBiased - aBiased;
+    });
   }
 
   // Pick the best non-bland, non-duplicate candidate
