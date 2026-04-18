@@ -116,6 +116,20 @@ export function wrapText(
   }
   if (currentLine) lines.push(currentLine);
 
+  // Orphan prevention: if the last line has a single short word, pull one
+  // word down from the previous line to balance the visual weight.
+  if (lines.length >= 2) {
+    const lastLine = lines[lines.length - 1];
+    const prevLine = lines[lines.length - 2];
+    const lastWords = lastLine.split(/\s+/);
+    const prevWords = prevLine.split(/\s+/);
+    if (lastWords.length === 1 && lastWords[0].length <= 6 && prevWords.length >= 3) {
+      const pulled = prevWords.pop()!;
+      lines[lines.length - 2] = prevWords.join(" ");
+      lines[lines.length - 1] = `${pulled} ${lastLine}`;
+    }
+  }
+
   const lineHeight    = fontSize * 1.25;
   const totalHeight   = lines.length * lineHeight;
   const maxLineWidth  = Math.max(

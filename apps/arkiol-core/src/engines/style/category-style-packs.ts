@@ -55,6 +55,14 @@ export interface CategoryStylePack {
   compositionBias: "hero" | "editorial" | "poster" | "stacked" | "split" | "minimal";
   /** Preferred whitespace density */
   spacingDensity: "airy" | "balanced" | "compact";
+
+  // ── Typography personality ──────────────────────────────────────────────
+  /** Subhead contrast: how visually different the subhead should be from the headline */
+  subheadContrast: "subtle" | "moderate" | "strong";
+  /** Subhead letter spacing override (-0.02 = tight, 0.1 = tracked out) */
+  subheadLetterSpacing: number;
+  /** Subhead weight override (0 = use theme default) */
+  subheadWeight: 0 | 300 | 400 | 500 | 600;
 }
 
 // ── Style Pack definitions ───────────────────────────────────────────────────
@@ -76,6 +84,9 @@ const PRODUCTIVITY_PACK: CategoryStylePack = {
   ctaRadiusBias: "rounded",
   compositionBias: "stacked",
   spacingDensity: "airy",
+  subheadContrast: "moderate",
+  subheadLetterSpacing: 0.02,
+  subheadWeight: 400,
 };
 
 const WELLNESS_PACK: CategoryStylePack = {
@@ -94,6 +105,9 @@ const WELLNESS_PACK: CategoryStylePack = {
   ctaRadiusBias: "pill",
   compositionBias: "minimal",
   spacingDensity: "airy",
+  subheadContrast: "subtle",
+  subheadLetterSpacing: 0.03,
+  subheadWeight: 300,
 };
 
 const EDUCATION_PACK: CategoryStylePack = {
@@ -112,6 +126,9 @@ const EDUCATION_PACK: CategoryStylePack = {
   ctaRadiusBias: "rounded",
   compositionBias: "stacked",
   spacingDensity: "balanced",
+  subheadContrast: "moderate",
+  subheadLetterSpacing: 0.01,
+  subheadWeight: 400,
 };
 
 const BUSINESS_PACK: CategoryStylePack = {
@@ -130,6 +147,9 @@ const BUSINESS_PACK: CategoryStylePack = {
   ctaRadiusBias: "sharp",
   compositionBias: "editorial",
   spacingDensity: "airy",
+  subheadContrast: "strong",
+  subheadLetterSpacing: 0.04,
+  subheadWeight: 500,
 };
 
 const BEAUTY_PACK: CategoryStylePack = {
@@ -148,6 +168,9 @@ const BEAUTY_PACK: CategoryStylePack = {
   ctaRadiusBias: "pill",
   compositionBias: "editorial",
   spacingDensity: "airy",
+  subheadContrast: "subtle",
+  subheadLetterSpacing: 0.02,
+  subheadWeight: 300,
 };
 
 const FITNESS_PACK: CategoryStylePack = {
@@ -166,6 +189,9 @@ const FITNESS_PACK: CategoryStylePack = {
   ctaRadiusBias: "sharp",
   compositionBias: "hero",
   spacingDensity: "compact",
+  subheadContrast: "strong",
+  subheadLetterSpacing: 0.04,
+  subheadWeight: 600,
 };
 
 const TRAVEL_PACK: CategoryStylePack = {
@@ -184,6 +210,9 @@ const TRAVEL_PACK: CategoryStylePack = {
   ctaRadiusBias: "pill",
   compositionBias: "hero",
   spacingDensity: "balanced",
+  subheadContrast: "moderate",
+  subheadLetterSpacing: 0.01,
+  subheadWeight: 400,
 };
 
 const MOTIVATION_PACK: CategoryStylePack = {
@@ -202,6 +231,9 @@ const MOTIVATION_PACK: CategoryStylePack = {
   ctaRadiusBias: "sharp",
   compositionBias: "poster",
   spacingDensity: "balanced",
+  subheadContrast: "strong",
+  subheadLetterSpacing: 0.05,
+  subheadWeight: 300,
 };
 
 const MARKETING_PACK: CategoryStylePack = {
@@ -220,6 +252,9 @@ const MARKETING_PACK: CategoryStylePack = {
   ctaRadiusBias: "pill",
   compositionBias: "hero",
   spacingDensity: "compact",
+  subheadContrast: "strong",
+  subheadLetterSpacing: 0.03,
+  subheadWeight: 600,
 };
 
 const FOOD_PACK: CategoryStylePack = {
@@ -238,6 +273,9 @@ const FOOD_PACK: CategoryStylePack = {
   ctaRadiusBias: "rounded",
   compositionBias: "hero",
   spacingDensity: "balanced",
+  subheadContrast: "moderate",
+  subheadLetterSpacing: 0.01,
+  subheadWeight: 400,
 };
 
 const FASHION_PACK: CategoryStylePack = {
@@ -256,6 +294,9 @@ const FASHION_PACK: CategoryStylePack = {
   ctaRadiusBias: "sharp",
   compositionBias: "editorial",
   spacingDensity: "airy",
+  subheadContrast: "strong",
+  subheadLetterSpacing: 0.06,
+  subheadWeight: 300,
 };
 
 const TECH_PACK: CategoryStylePack = {
@@ -274,6 +315,9 @@ const TECH_PACK: CategoryStylePack = {
   ctaRadiusBias: "rounded",
   compositionBias: "split",
   spacingDensity: "balanced",
+  subheadContrast: "moderate",
+  subheadLetterSpacing: 0.02,
+  subheadWeight: 400,
 };
 
 const REALESTATE_PACK: CategoryStylePack = {
@@ -292,6 +336,9 @@ const REALESTATE_PACK: CategoryStylePack = {
   ctaRadiusBias: "sharp",
   compositionBias: "editorial",
   spacingDensity: "airy",
+  subheadContrast: "subtle",
+  subheadLetterSpacing: 0.01,
+  subheadWeight: 500,
 };
 
 // ── Registry ─────────────────────────────────────────────────────────────────

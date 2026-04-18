@@ -362,9 +362,11 @@ function composeElements(
     headlineHeight = 16;
   }
 
-  // Vertical flow cursor — tracks the bottom of the last placed element
-  // plus the minimum gap, so elements stack without overlap
-  const minGap = taste.spacingDensity === "compact" ? 2 : taste.spacingDensity === "airy" ? 5 : 3;
+  // Rhythm-based vertical gaps — larger gaps between major sections,
+  // tighter between related elements. Creates editorial breathing room.
+  const baseGap = taste.spacingDensity === "compact" ? 2 : taste.spacingDensity === "airy" ? 5 : 3;
+  const sectionGap = baseGap + 2;     // between headline→subhead, body→CTA
+  const clusterGap = baseGap;         // between badge→headline, subhead→body
   let cursorY = safeZone.top + 2 + yShift;
 
   // Eyebrow / badge zone above headline (if present)
@@ -380,7 +382,7 @@ function composeElements(
       maxLines: 1,
       contentLength: brief.badge.length ?? 0,
     });
-    cursorY += 5 + minGap;
+    cursorY += 5 + clusterGap;
   }
 
   const headlineAlign = content.hierarchyBias === "headline" ? "center" as const : align;
@@ -397,21 +399,22 @@ function composeElements(
     maxLines: content.headlineLength > 42 ? 4 : content.headlineLength > 20 ? 3 : 2,
     contentLength: content.headlineLength,
   });
-  cursorY += headlineHeight + minGap;
+  cursorY += headlineHeight + sectionGap;
 
-  // Subhead
+  // Subhead — narrower than headline for visual hierarchy contrast
   if (brief.subhead) {
     const subH = content.subheadLength > 120 ? 14 : content.subheadLength > 60 ? 10 : 8;
+    const subW = isPoster ? contentWidth - 8 : isSplit ? contentWidth : Math.min(contentWidth - 4, contentWidth * 0.88);
     elements.push({
       id: "subhead",
       region: "support",
       priority: 7,
-      rect: { x: safeZone.left, y: cursorY, w: contentWidth + 6, h: subH },
+      rect: { x: safeZone.left, y: cursorY, w: subW, h: subH },
       align,
       maxLines: content.subheadLength > 100 ? 4 : content.subheadLength > 50 ? 3 : 2,
       contentLength: content.subheadLength,
     });
-    cursorY += subH + minGap;
+    cursorY += subH + clusterGap;
   }
 
   if (brief.body) {
@@ -429,7 +432,7 @@ function composeElements(
       maxLines: content.bodyLength > 320 ? 8 : content.bodyLength > 200 ? 6 : 4,
       contentLength: content.bodyLength,
     });
-    cursorY += bodyH + minGap;
+    cursorY += bodyH + sectionGap;
   }
 
   if (brief.cta) {
@@ -451,7 +454,7 @@ function composeElements(
       maxLines: 1,
       contentLength: content.ctaLength,
     });
-    cursorY = ctaY + ctaH + minGap;
+    cursorY = ctaY + ctaH + sectionGap;
   }
 
   // Media zone for split compositions

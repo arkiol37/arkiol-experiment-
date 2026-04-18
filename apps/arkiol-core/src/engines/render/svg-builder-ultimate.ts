@@ -108,22 +108,27 @@ function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: numb
   let fill = 0.55;
 
   if (["headline","name"].includes(zoneId)) {
-    fill = 0.70;
+    fill = 0.72;
     if (hint) {
-      if (hint.charCount <= 20)      fill = 0.85;
+      if (hint.charCount <= 12)      fill = 0.92;
+      else if (hint.charCount <= 20) fill = 0.85;
       else if (hint.charCount <= 35) fill = 0.75;
       else if (hint.charCount > 50)  fill = 0.58;
       if (hint.hierarchyBias === "headline") fill = Math.min(0.95, fill + 0.08);
     }
-  } else if (["subhead","tagline","price"].includes(zoneId)) {
-    fill = 0.62;
-    if (hint?.hierarchyBias === "detail") fill = 0.55;
+  } else if (["subhead","tagline"].includes(zoneId)) {
+    // Subheads sit deliberately below headline scale — clear subordination
+    fill = 0.56;
+    if (hint?.hierarchyBias === "detail") fill = 0.52;
+    if (hint && hint.charCount > 80)      fill = 0.48;
+  } else if (["price"].includes(zoneId)) {
+    fill = 0.70;
   } else if (["cta","badge","eyebrow","section_header"].includes(zoneId)) {
     fill = 0.52;
     if (hint && zoneId === "cta" && hint.urgency > 0.7) fill = 0.60;
   } else if (["body","body_text","contact","legal"].includes(zoneId)) {
-    fill = 0.45;
-    if (hint && hint.charCount > 300) fill = 0.40;
+    fill = 0.42;
+    if (hint && hint.charCount > 300) fill = 0.38;
   }
 
   let fs = Math.round(zH * fill);
@@ -132,6 +137,31 @@ function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: numb
   const lo = zone.minFontSize ?? 10;
   const hi = zone.maxFontSize ?? 200;
   return Math.min(hi, Math.max(lo, fs));
+}
+
+function computeLineHeight(fontSize: number, zoneId: string, themeMultiplier?: number): number {
+  if (themeMultiplier) return fontSize * themeMultiplier;
+
+  // Headlines: tight leading for display impact
+  if (zoneId === "headline" || zoneId === "name") {
+    if (fontSize >= 80) return fontSize * 1.02;
+    if (fontSize >= 60) return fontSize * 1.08;
+    if (fontSize >= 42) return fontSize * 1.12;
+    return fontSize * 1.18;
+  }
+  // Subheads: slightly looser than headlines for visual separation
+  if (zoneId === "subhead" || zoneId === "tagline") {
+    return fontSize * 1.3;
+  }
+  // Body: comfortable reading rhythm
+  if (zoneId === "body" || zoneId === "body_text") {
+    return fontSize * 1.55;
+  }
+  // Small labels
+  if (zoneId === "eyebrow" || zoneId === "badge") {
+    return fontSize * 1.2;
+  }
+  return fontSize * 1.25;
 }
 
 export async function buildUltimateSvgContent(
@@ -410,6 +440,10 @@ function applyCategoryPackOverrides(
   const subhead = {
     ...theme.typography.subhead,
     fontFamily: bodyFont !== theme.typography.body ? bodyFont : theme.typography.subhead.fontFamily,
+    letterSpacing: pack.subheadLetterSpacing,
+    ...(pack.subheadWeight ? { fontWeight: pack.subheadWeight } : {}),
+    ...(pack.subheadContrast === "subtle" ? { fontSizeMultiplier: 0.55 } :
+        pack.subheadContrast === "strong" ? { fontSizeMultiplier: 0.75 } : {}),
   };
 
   const body_text = {
@@ -556,8 +590,8 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
     const pl  = (l: string) => zt?.textTransform === "uppercase" ? l.toUpperCase() : l;
     // Text shadow only on headline when sitting over image
     const fa  = (tc.zoneId === "headline" && hasImg && (content.overlayOpacity ?? 0) > 0.1) ? ` filter="url(#txt_sh)"` : "";
-    // Tighter line-height for large display text (Canva convention)
-    const lh  = m.fontSize >= 72 ? m.fontSize * 1.08 : m.fontSize >= 48 ? m.fontSize * 1.14 : m.fontSize * 1.22;
+    // Zone-aware line height — editorial rhythm varies by zone purpose
+    const lh  = computeLineHeight(m.fontSize, tc.zoneId, zt?.lineHeightMultiplier);
     const tspans = m.lines.map((l,i) =>
       `<tspan x="${f(m.textAnchorX)}" dy="${i===0 ? "0" : f(lh)}">${escSvg(pl(l))}</tspan>`
     );
