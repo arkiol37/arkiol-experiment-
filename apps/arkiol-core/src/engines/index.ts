@@ -20,6 +20,7 @@
 //   cocreation/ — real-time co-creation (instruction parsing, design mutation)
 //   inspiration/ — web-scale pattern intelligence (pattern library, matching, overrides)
 //   personalization/ — Design DNA profiles and generation personalization
+//   multi-output/ — coordinated multi-format generation and variations
 
 // ── Co-Creation ────────────────────────────────────────────────────────────
 export {
@@ -307,3 +308,25 @@ export type {
   DNACtaBias,
   PersonalizationContext,
 } from "./personalization";
+
+// ── Multi-Output Generation ────────────────────────────────────────────────
+export {
+  generateMultiOutput,
+  generateVariations,
+  buildMultiOutputPipelineInputs,
+  extractStyleAnchor,
+  extractStyleAnchorFromIdentity,
+  anchorToBrand,
+  deriveVariationIndex,
+  checkOutputConsistency,
+} from "./multi-output";
+
+export type {
+  MultiOutputRequest,
+  MultiOutputResult,
+  FormatRenderResult,
+  VariationRequest,
+  VariationResult,
+  StyleAnchor,
+  ConsistencyCheck,
+} from "./multi-output";
