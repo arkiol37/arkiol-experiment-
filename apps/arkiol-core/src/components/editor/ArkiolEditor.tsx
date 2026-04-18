@@ -7,6 +7,7 @@ import React, {
   useState, useRef, useCallback, useEffect, useLayoutEffect, useReducer, useMemo,
 } from "react";
 import { fitZoom, zoomStepUp, zoomStepDown, clampZoom, ZOOM_MIN, ZOOM_MAX } from "./CanvasViewport";
+import { ExportSizeDialog, computeFitRect, type ExportFit, type ExportFormat } from "./ExportSizeDialog";
 
 export type ElementType = "text" | "image" | "rect" | "ellipse" | "line";
 export type BlendMode = "normal"|"multiply"|"screen"|"overlay"|"darken"|"lighten"|"color-dodge"|"color-burn"|"difference"|"exclusion";
@@ -434,6 +435,7 @@ export function ArkiolEditor({
   const[rightTab,setRightTab]=useState<"props"|"effects">("props");
   const[showGrad,setShowGrad]=useState(false);
   const[showExport,setShowExport]=useState(false);
+  const[exportDialog,setExportDialog]=useState<{format:ExportFormat}|null>(null);
   const[renaming,setRenaming]=useState<string|null>(null);
   const[renameVal,setRenameVal]=useState("");
   const[spaceDown,setSpaceDown]=useState(false);
@@ -770,33 +772,88 @@ export function ArkiolEditor({
     dispatch({type:"SET_BG",color:t.bg});setShowTpls(false);
   };
 
-  // Real export using native Canvas API
-  const exportCanvas=useCallback(async(format:"png"|"jpg"|"pdf")=>{
+  // Real export using native Canvas API.
+  // When targetW/H differ from the artboard, the bitmap is re-composited onto
+  // an output canvas with the chosen fit strategy so the design adapts
+  // intelligently to the new dimensions.
+  const exportCanvas=useCallback(async(
+    format:ExportFormat,
+    opts?:{targetW?:number;targetH?:number;fit?:ExportFit},
+  )=>{
     setShowExport(false);
+    setExportDialog(null);
     if(format==="pdf"){window.print();return;}
     const cvs=canvasRef.current;if(!cvs)return;
+
+    const srcW=state.canvasW, srcH=state.canvasH;
+    const tgtW=opts?.targetW??srcW;
+    const tgtH=opts?.targetH??srcH;
+    const fit:ExportFit=opts?.fit??"contain";
+    const resized=tgtW!==srcW||tgtH!==srcH;
+
     try{
-      // Use html2canvas if available, else fall back to SVG data URL
       const {default:html2canvas}=await import(/* webpackIgnore: true */ "html2canvas").catch(()=>({default:null}));
-      if(html2canvas){
-        const canvas=await html2canvas(cvs,{scale:1,useCORS:true,allowTaint:true,backgroundColor:null,width:state.canvasW*zoom,height:state.canvasH*zoom});
-        const mime=format==="jpg"?"image/jpeg":"image/png";
-        const url=canvas.toDataURL(mime,0.95);
-        const a=document.createElement("a");a.href=url;a.download=`design.${format}`;a.click();
-      }else{
-        // Fallback: screenshot via CSS paint
+      if(!html2canvas){
         alert(`To export as ${format.toUpperCase()}, install html2canvas:\nnpm install html2canvas\n\nAlternatively use browser screenshot or print to PDF.`);
+        return;
       }
+
+      // Capture the live artboard at native (zoom-independent) resolution so
+      // text and vectors stay crisp before any resize step.
+      const src=await html2canvas(cvs,{
+        scale:1/Math.max(zoom,0.0001),
+        useCORS:true,allowTaint:true,backgroundColor:null,
+        width:srcW*zoom,height:srcH*zoom,
+      });
+
+      const mime=format==="jpg"?"image/jpeg":"image/png";
+
+      // Fast path: no resize requested.
+      if(!resized){
+        const url=src.toDataURL(mime,0.95);
+        const a=document.createElement("a");a.href=url;a.download=`design.${format}`;a.click();
+        return;
+      }
+
+      // Compose onto a target-sized canvas with smart fit.
+      const out=document.createElement("canvas");
+      out.width=Math.max(1,Math.round(tgtW));
+      out.height=Math.max(1,Math.round(tgtH));
+      const ctx=out.getContext("2d");
+      if(!ctx){alert("Export failed: 2D canvas not supported.");return;}
+      ctx.imageSmoothingEnabled=true;
+      ctx.imageSmoothingQuality="high";
+
+      // Background: solid bg for JPG (no alpha) or letterboxed contain.
+      const isGrad=state.bgColor.includes("gradient");
+      if(format==="jpg"||fit==="contain"){
+        ctx.fillStyle=isGrad?"#ffffff":state.bgColor;
+        ctx.fillRect(0,0,out.width,out.height);
+      }
+
+      const{dx,dy,dw,dh}=computeFitRect(src.width,src.height,out.width,out.height,fit);
+      ctx.drawImage(src,dx,dy,dw,dh);
+
+      const url=out.toDataURL(mime,0.95);
+      const a=document.createElement("a");a.href=url;a.download=`design_${tgtW}x${tgtH}.${format}`;a.click();
     }catch(err){alert("Export failed. Try Print → Save as PDF as an alternative.");}
-  },[canvasRef,state.canvasW,state.canvasH,zoom]);
+  },[canvasRef,state.canvasW,state.canvasH,state.bgColor,zoom]);
 
   // Listen for arkiol:export events dispatched by FullPageEditor
   useEffect(()=>{
     const handler=(e:Event)=>{
       const detail=(e as CustomEvent).detail;
       if(!detail)return;
-      const fmt=detail.format as "png"|"jpg"|"pdf";
-      if(fmt==="png"||fmt==="jpg"||fmt==="pdf")exportCanvas(fmt);
+      const fmt=detail.format as ExportFormat;
+      if(fmt==="png"||fmt==="jpg"||fmt==="pdf"){
+        if(detail.targetW&&detail.targetH){
+          exportCanvas(fmt,{targetW:detail.targetW,targetH:detail.targetH,fit:detail.fit??"contain"});
+        }else if(fmt==="pdf"){
+          exportCanvas(fmt);
+        }else{
+          setExportDialog({format:fmt});
+        }
+      }
     };
     window.addEventListener("arkiol:export",handler);
     return()=>window.removeEventListener("arkiol:export",handler);
@@ -929,8 +986,8 @@ export function ArkiolEditor({
           {onSave&&<button onClick={()=>onSave(state.elements)} style={{padding:"5px 14px",fontSize:12,fontWeight:700,borderRadius:6,cursor:"pointer",background:"var(--accent)",color:"#fff",border:"none"}}>Save</button>}
           <div style={{position:"relative"}}>
             <button onClick={()=>setShowExport(e=>!e)} style={{padding:"5px 12px",fontSize:12,fontWeight:600,borderRadius:6,cursor:"pointer",background:"var(--bg-elevated)",color:"var(--text-secondary)",border:"1px solid var(--border-strong)"}}>Export ▾</button>
-            {showExport&&<div style={{position:"absolute",top:34,right:0,zIndex:1000,background:"var(--bg-elevated)",border:"1px solid var(--border-strong)",borderRadius:8,boxShadow:"var(--shadow-lg)",padding:"4px",minWidth:140}}>
-              {([["PNG (screen)","png"],["JPG","jpg"],["Print PDF","pdf"]] as const).map(([l,f])=><button key={l} onClick={()=>exportCanvas(f)} style={{display:"block",width:"100%",padding:"7px 12px",textAlign:"left",background:"none",border:"none",color:"var(--text-primary)",fontSize:13,cursor:"pointer",borderRadius:4}}>{l}</button>)}
+            {showExport&&<div style={{position:"absolute",top:34,right:0,zIndex:1000,background:"var(--bg-elevated)",border:"1px solid var(--border-strong)",borderRadius:8,boxShadow:"var(--shadow-lg)",padding:"4px",minWidth:160}}>
+              {([["PNG (screen)","png"],["JPG","jpg"],["Print PDF","pdf"]] as const).map(([l,f])=><button key={l} onClick={()=>{setShowExport(false);if(f==="pdf")exportCanvas(f);else setExportDialog({format:f as ExportFormat});}} style={{display:"block",width:"100%",padding:"7px 12px",textAlign:"left",background:"none",border:"none",color:"var(--text-primary)",fontSize:13,cursor:"pointer",borderRadius:4}}>{l}</button>)}
             </div>}
           </div>
         </div>
@@ -1252,6 +1309,18 @@ export function ArkiolEditor({
             <div style={{marginTop:14,fontSize:11,color:"var(--text-muted)",textAlign:"center"}}>Press ? or / anytime to toggle</div>
           </div>
         </div>
+      )}
+
+      {/* Export size dialog — lets the user keep original / pick a preset /
+          enter a custom size, and smart-fits the design when the ratio changes. */}
+      {exportDialog&&(
+        <ExportSizeDialog
+          format={exportDialog.format}
+          originalW={state.canvasW}
+          originalH={state.canvasH}
+          onCancel={()=>setExportDialog(null)}
+          onConfirm={(w,h,fit)=>{exportCanvas(exportDialog.format,{targetW:w,targetH:h,fit});}}
+        />
       )}
     </div>
   );
