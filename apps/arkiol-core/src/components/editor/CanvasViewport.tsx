@@ -11,8 +11,10 @@
 import React, { useRef, useCallback, useEffect } from "react";
 
 // ── Fit zoom calculation ───────────────────────────────────────────────────
-// Computes the zoom level that fits the canvas inside a typical viewport
-// with padding, accounting for the top bar (48px) and margins.
+// Computes the zoom level that fits the canvas inside the available viewport
+// with breathing room on all sides. When called with explicit viewport
+// dimensions (from a measured container), uses those; otherwise estimates
+// from window.innerWidth/Height minus chrome offsets.
 
 export function fitZoom(
   canvasWidth: number,
@@ -22,9 +24,12 @@ export function fitZoom(
 ): number {
   const vw = viewportWidth ?? (typeof window !== "undefined" ? window.innerWidth - 80 : 1200);
   const vh = viewportHeight ?? (typeof window !== "undefined" ? window.innerHeight - 140 : 700);
+  if (vw <= 0 || vh <= 0) return 0.35;
   const scaleX = vw / canvasWidth;
   const scaleY = vh / canvasHeight;
-  return Math.min(scaleX, scaleY, 1.0);
+  // Cap at 1.0 so we never upscale beyond native resolution, floor at 0.08
+  const raw = Math.min(scaleX, scaleY, 1.0);
+  return Math.max(0.08, +raw.toFixed(3));
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────

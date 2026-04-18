@@ -4,8 +4,9 @@
  */
 
 import React, {
-  useState, useRef, useCallback, useEffect, useReducer, useMemo,
+  useState, useRef, useCallback, useEffect, useLayoutEffect, useReducer, useMemo,
 } from "react";
+import { fitZoom } from "./CanvasViewport";
 
 export type ElementType = "text" | "image" | "rect" | "ellipse" | "line";
 export type BlendMode = "normal"|"multiply"|"screen"|"overlay"|"darken"|"lighten"|"color-dodge"|"color-burn"|"difference"|"exclusion";
@@ -404,7 +405,23 @@ export function ArkiolEditor({
 
   useEffect(()=>{elemRef.current=state.elements;},[state.elements]);
 
-  const[zoom,setZoom]=useState(0.45);
+  const[zoom,setZoom]=useState(()=>fitZoom(canvasWidth,canvasHeight));
+  const initialFitDone=useRef(false);
+
+  // Fit artboard to actual container size on first mount
+  useLayoutEffect(()=>{
+    if(initialFitDone.current)return;
+    const el=containerRef.current;
+    if(!el)return;
+    initialFitDone.current=true;
+    // Measure actual container (subtract toolbar height ~44px and padding 80px)
+    const rect=el.getBoundingClientRect();
+    const availW=rect.width-80;
+    const availH=rect.height-80;
+    if(availW>0&&availH>0){
+      setZoom(fitZoom(canvasWidth,canvasHeight,availW,availH));
+    }
+  });
   const[editingId,setEditingId]=useState<string|null>(null);
   const[dragging,setDragging]=useState<{id:string;startX:number;startY:number;elX:number;elY:number;origins:{id:string;ox:number;oy:number}[]}|null>(null);
   const[resizing,setResizing]=useState<{id:string;handle:HandlePos;startX:number;startY:number;origX:number;origY:number;origW:number;origH:number}|null>(null);
@@ -869,7 +886,7 @@ export function ArkiolEditor({
             <TinyBtn onClick={()=>setZoom(z=>Math.max(0.08,+(z-0.1).toFixed(2)))}>−</TinyBtn>
             <span onClick={()=>setZoom(1)} style={{fontSize:11,minWidth:38,textAlign:"center",color:"var(--text-secondary)",fontFamily:"var(--font-mono)",cursor:"pointer",padding:"0 2px"}}>{Math.round(zoom*100)}%</span>
             <TinyBtn onClick={()=>setZoom(z=>Math.min(3,+(z+0.1).toFixed(2)))}>+</TinyBtn>
-            <TinyBtn onClick={()=>setZoom(0.45)} title="Fit to screen">⊡</TinyBtn>
+            <TinyBtn onClick={()=>{const el=containerRef.current;if(el){const r=el.getBoundingClientRect();setZoom(fitZoom(state.canvasW,state.canvasH,r.width-80,r.height-80));}else{setZoom(fitZoom(state.canvasW,state.canvasH));}}} title="Fit to screen">⊡</TinyBtn>
             {/* Feature 19: Zoom to selection */}
             <TinyBtn onClick={zoomToSel} title="Zoom to selection (F/Z)">⊕</TinyBtn>
           </div>
@@ -938,7 +955,7 @@ export function ArkiolEditor({
         )}
 
         {/* Canvas area */}
-        <div style={{flex:1,overflow:"auto",display:"flex",alignItems:"flex-start",justifyContent:"center",padding:48,position:"relative",width:"100%",boxSizing:"border-box"}}>
+        <div style={{flex:1,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:48,position:"relative",width:"100%",boxSizing:"border-box"}}>
           <div style={{position:"relative",flexShrink:0}}>
             {state.rulerVisible&&(
               <div style={{position:"absolute",top:-RULER_SIZE,left:0,width:state.canvasW*zoom,height:RULER_SIZE,background:"var(--bg-elevated)",borderBottom:"1px solid var(--border)",overflow:"hidden",fontSize:8,color:"var(--text-muted)",fontFamily:"var(--font-mono)",userSelect:"none"}}>
