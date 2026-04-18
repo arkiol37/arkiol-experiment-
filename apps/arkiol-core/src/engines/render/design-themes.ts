@@ -161,7 +161,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.22,
   palette:{ background:"#08091a", surface:"rgba(201,168,76,0.06)", primary:"#c9a84c",
     secondary:"#e8d5a3", text:"#ffffff", textMuted:"rgba(255,255,255,0.48)", highlight:"#c9a84c" },
-  background:{ kind:"linear_gradient", colors:["#08091a","#10142a","#08091a"], angle:158 },
+  background:{ kind:"mesh", colors:["#08091a","#10142a","#1a1f3a"] },
   typography:{
     display:"Playfair Display", body:"Lato",
     headline: { fontFamily:"Playfair Display", fontWeight:700, color:"#ffffff",  letterSpacing:-0.01, fontSizeMultiplier:1.22 },
@@ -204,7 +204,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.28,
   palette:{ background:"#0b2117", surface:"rgba(255,255,255,0.06)", primary:"#2ecc71",
     secondary:"#52d68a", text:"#ffffff", textMuted:"rgba(255,255,255,0.62)", highlight:"#00e676" },
-  background:{ kind:"linear_gradient", colors:["#0b2117","#163828","#0b2117"], angle:152 },
+  background:{ kind:"mesh", colors:["#0b2117","#163828","#1a3d2e"] },
   typography:{
     display:"Poppins", body:"Lato",
     headline: { fontFamily:"Poppins", fontWeight:800, color:"#ffffff",  letterSpacing:-0.02, fontSizeMultiplier:1.28 },
@@ -247,7 +247,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.18,
   palette:{ background:"#fdf4f7", surface:"rgba(255,255,255,0.82)", primary:"#c2185b",
     secondary:"#f48fb1", text:"#2d0018", textMuted:"#8d4060", highlight:"#c2185b" },
-  background:{ kind:"linear_gradient", colors:["#fdf4f7","#fce4ec","#fdf4f7"], angle:130 },
+  background:{ kind:"solid", color:"#fdf4f7" },
   typography:{
     display:"Cormorant Garamond", body:"Lato",
     headline: { fontFamily:"Cormorant Garamond", fontWeight:700, color:"#2d0018",  letterSpacing:-0.005, fontSizeMultiplier:1.18 },
@@ -380,7 +380,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.3,
   palette:{ background:"#012d6a", surface:"rgba(255,255,255,0.1)", primary:"#00b4d8",
     secondary:"#90e0ef", text:"#ffffff", textMuted:"rgba(255,255,255,0.72)", highlight:"#00f0c8" },
-  background:{ kind:"linear_gradient", colors:["#012d6a","#0077b6","#0096c7"], angle:148 },
+  background:{ kind:"mesh", colors:["#012d6a","#0077b6","#0096c7"] },
   typography:{
     display:"Poppins", body:"Lato",
     headline: { fontFamily:"Poppins", fontWeight:800, color:"#ffffff",  letterSpacing:-0.02, fontSizeMultiplier:1.3 },
@@ -467,7 +467,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.34,
   palette:{ background:"#bf3000", surface:"rgba(255,255,255,0.1)", primary:"#ff6b35",
     secondary:"#ffa726", text:"#ffffff", textMuted:"rgba(255,255,255,0.78)", highlight:"#ffca28" },
-  background:{ kind:"linear_gradient", colors:["#bf3000","#e53935","#f57c00"], angle:148 },
+  background:{ kind:"mesh", colors:["#bf3000","#e53935","#f57c00"] },
   typography:{
     display:"Raleway", body:"Lato",
     headline: { fontFamily:"Raleway",    fontWeight:900, color:"#ffffff",  letterSpacing:-0.025, fontSizeMultiplier:1.34 },
@@ -510,7 +510,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.2,
   palette:{ background:"#ecf3ed", surface:"rgba(255,255,255,0.78)", primary:"#276749",
     secondary:"#6ab187", text:"#1a3d2a", textMuted:"#4a7260", highlight:"#276749" },
-  background:{ kind:"linear_gradient", colors:["#ecf3ed","#d6eada","#ecf3ed"], angle:142 },
+  background:{ kind:"solid", color:"#ecf3ed" },
   typography:{
     display:"DM Sans", body:"Lato",
     headline: { fontFamily:"DM Sans", fontWeight:700, color:"#1a3d2a", letterSpacing:-0.02, fontSizeMultiplier:1.2 },
@@ -552,7 +552,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.36,
   palette:{ background:"#091525", surface:"rgba(255,255,255,0.05)", primary:"#0ea5e9",
     secondary:"#38bdf8", text:"#ffffff", textMuted:"rgba(255,255,255,0.46)", highlight:"#0ea5e9" },
-  background:{ kind:"linear_gradient", colors:["#091525","#0d2444","#091525"], angle:153 },
+  background:{ kind:"mesh", colors:["#091525","#0d2444","#152d52"] },
   typography:{
     display:"Montserrat", body:"Lato",
     headline: { fontFamily:"Montserrat", fontWeight:900, color:"#ffffff",  letterSpacing:-0.025, fontSizeMultiplier:1.36 },
@@ -641,7 +641,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.24,
   palette:{ background:"#fff5ee", surface:"rgba(255,255,255,0.85)", primary:"#e8734a",
     secondary:"#f4a574", text:"#3d1e0e", textMuted:"#8b5e4b", highlight:"#e8734a" },
-  background:{ kind:"linear_gradient", colors:["#fff5ee","#ffe8d6","#ffdbc4"], angle:155 },
+  background:{ kind:"solid", color:"#fff5ee" },
   typography:{
     display:"Nunito", body:"Lato",
     headline: { fontFamily:"Nunito", fontWeight:800, color:"#3d1e0e", letterSpacing:-0.015, fontSizeMultiplier:1.24 },
@@ -733,7 +733,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.38,
   palette:{ background:"#ffe0f0", surface:"rgba(255,255,255,0.6)", primary:"#ff2d87",
     secondary:"#ffd23f", text:"#2d0033", textMuted:"#7a3d6e", highlight:"#ff2d87" },
-  background:{ kind:"linear_gradient", colors:["#ffe0f0","#fff0e0","#ffe0f0"], angle:135 },
+  background:{ kind:"solid", color:"#ffe0f0" },
   typography:{
     display:"Montserrat", body:"Nunito",
     headline: { fontFamily:"Montserrat", fontWeight:900, color:"#2d0033", letterSpacing:-0.02, fontSizeMultiplier:1.38 },
@@ -782,7 +782,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.3,
   palette:{ background:"#1c1206", surface:"rgba(255,200,60,0.06)", primary:"#f0a500",
     secondary:"#ffd166", text:"#ffffff", textMuted:"rgba(255,255,255,0.62)", highlight:"#ffd166" },
-  background:{ kind:"linear_gradient", colors:["#1c1206","#2d1e0e","#1c1206"], angle:150 },
+  background:{ kind:"mesh", colors:["#1c1206","#2d1e0e","#3a250f"] },
   typography:{
     display:"Raleway", body:"Lato",
     headline: { fontFamily:"Raleway", fontWeight:900, color:"#ffffff", letterSpacing:-0.02, fontSizeMultiplier:1.3 },
@@ -827,7 +827,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.22,
   palette:{ background:"#f3edff", surface:"rgba(255,255,255,0.8)", primary:"#7c5cbf",
     secondary:"#b39ddb", text:"#1e0a3c", textMuted:"#6a4d8a", highlight:"#7c5cbf" },
-  background:{ kind:"linear_gradient", colors:["#f3edff","#ede4ff","#f3edff"], angle:140 },
+  background:{ kind:"solid", color:"#f3edff" },
   typography:{
     display:"DM Sans", body:"Lato",
     headline: { fontFamily:"DM Sans", fontWeight:700, color:"#1e0a3c", letterSpacing:-0.015, fontSizeMultiplier:1.22 },
@@ -875,7 +875,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.32,
   palette:{ background:"#e8f4fd", surface:"rgba(255,255,255,0.8)", primary:"#0288d1",
     secondary:"#4fc3f7", text:"#042a44", textMuted:"#3a6e8a", highlight:"#0288d1" },
-  background:{ kind:"linear_gradient", colors:["#e8f4fd","#d4ecfb","#e8f4fd"], angle:145 },
+  background:{ kind:"solid", color:"#e8f4fd" },
   typography:{
     display:"Poppins", body:"Lato",
     headline: { fontFamily:"Poppins", fontWeight:800, color:"#042a44", letterSpacing:-0.02, fontSizeMultiplier:1.32 },
@@ -965,7 +965,7 @@ export const THEMES: DesignTheme[] = [
   headlineSizeMultiplier:1.22,
   palette:{ background:"#2c1810", surface:"rgba(255,235,200,0.06)", primary:"#d4a574",
     secondary:"#e8c9a0", text:"#fff5e6", textMuted:"rgba(255,245,230,0.55)", highlight:"#d4a574" },
-  background:{ kind:"linear_gradient", colors:["#2c1810","#3e2419","#2c1810"], angle:155 },
+  background:{ kind:"mesh", colors:["#2c1810","#3e2419","#5a3020"] },
   typography:{
     display:"Playfair Display", body:"Lato",
     headline: { fontFamily:"Playfair Display", fontWeight:700, color:"#fff5e6", letterSpacing:-0.01, fontSizeMultiplier:1.22 },
