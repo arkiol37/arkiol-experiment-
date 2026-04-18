@@ -21,6 +21,7 @@
 //   inspiration/ — web-scale pattern intelligence (pattern library, matching, overrides)
 //   personalization/ — Design DNA profiles and generation personalization
 //   multi-output/ — coordinated multi-format generation and variations
+//   intelligence/ — creative intelligence loop, adaptive strategy, self-improvement
 
 // ── Co-Creation ────────────────────────────────────────────────────────────
 export {
@@ -330,3 +331,34 @@ export type {
   StyleAnchor,
   ConsistencyCheck,
 } from "./multi-output";
+
+// ── Creative Intelligence Loop ─────────────────────────────────────────────
+export {
+  processFeedback,
+  processFeedbackBatch,
+  computeSystemInsights,
+  computeAdaptiveStrategy,
+  recordQualitySignal,
+  getQualityWindow,
+  computeImprovementReport,
+  buildThemeFilter,
+  isThemeAllowed,
+  isThemePreferred,
+  buildQualityGateConfig,
+  buildExplorationConfig,
+  buildIntelligenceContext,
+} from "./intelligence";
+
+export type {
+  FeedbackAction,
+  CreativeFeedback,
+  FeedbackResult,
+  SystemInsights,
+  AdaptiveStrategy,
+  QualityWindow,
+  ImprovementReport,
+  ThemeFilter,
+  QualityGateConfig,
+  ExplorationConfig,
+  IntelligenceContext,
+} from "./intelligence";

@@ -57,6 +57,7 @@ import {
 } from "./self-healing";
 import { recordGeneration } from "../memory/generation-ledger";
 import { extractEvaluationSignals } from "../memory/learning-signals";
+import { recordQualitySignal } from "../intelligence/creative-loop";
 import {
   orchestrateDesignAgents,
   runCriticPostGeneration,
@@ -981,6 +982,9 @@ async function renderAssetInner(
     violationCount: violations.length,
     recoveryCount: recoveryLog.length,
   });
+
+  // Feed the creative intelligence loop with quality signal
+  try { recordQualitySignal(input.format, finalQualityScore); } catch { /* non-fatal */ }
 
   return {
     buffer,
