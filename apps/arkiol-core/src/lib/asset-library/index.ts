@@ -23,3 +23,15 @@ export {
   assetToImageSrc,
   libraryStats,
 } from "./registry";
+
+export type {
+  CategoryRecipe,
+  RecipeEntry,
+  SelectOptions,
+} from "./category-recipes";
+
+export {
+  CATEGORY_RECIPES,
+  selectAssetsForCategory,
+  inferCategoryFromText,
+} from "./category-recipes";

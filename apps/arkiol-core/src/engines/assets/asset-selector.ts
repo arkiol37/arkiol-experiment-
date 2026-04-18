@@ -16,6 +16,14 @@ import {
   validatePlacement, remapToAllowedZone, totalDensityScore,
   motionCompatibleElements,
 } from "./contract";
+import {
+  selectAssetsForCategory,
+  inferCategoryFromText,
+  assetToImageSrc,
+  type Asset,
+  type AssetCategory,
+  type AssetKind,
+} from "../../lib/asset-library";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
 export interface ElementPlacement {
@@ -139,6 +147,27 @@ export function buildCompositionPlan(
     }
   }
 
+  // ── 6. Category-matched library assets ──────────────────────────────────
+  // Pull curated assets for the inferred content category so the template is
+  // never visually empty. Each library asset carries its own URL, so these
+  // placements skip the AI-generation path downstream.
+  const category = resolveCategory(brief);
+  if (category) {
+    const seed = `${brief.headline ?? ""}::${brief.tone}::${category}`;
+    const libraryAssets = selectAssetsForCategory(category, { seed, limit: 4 });
+    const usedZones = new Set<ZoneId>(elements.map(e => e.zone));
+    const usedTypes = new Set<AssetElementType>(elements.map(e => e.type));
+
+    for (const asset of libraryAssets) {
+      const placement = libraryAssetToPlacement(asset, activeZoneIds, usedZones, usedTypes, forGif);
+      if (placement) {
+        elements.push(placement);
+        usedTypes.add(placement.type);
+        reasoning.push(`category:${category}: added ${asset.kind} "${asset.label}" → ${placement.zone}`);
+      }
+    }
+  }
+
   // ── Validate all placements ─────────────────────────────────────────────
   for (const el of elements) {
     const violations = validatePlacement(el.type, el.zone, spec.family.formats[0], el.coverageHint);
@@ -250,6 +279,102 @@ function buildTexturePrompt(brief: BriefAnalysis): string {
     natural_organic: "natural linen or wood grain texture",
   };
   return map[brief.tone] ?? "subtle surface texture overlay";
+}
+
+// ── Category → library asset integration ─────────────────────────────────────
+
+// Derive the content category from the brief by combining the most
+// category-revealing text fields. Returns null when no keywords hit.
+function resolveCategory(brief: BriefAnalysis): AssetCategory | null {
+  const text = [brief.intent, brief.headline, ...(brief.keywords ?? [])]
+    .filter(Boolean).join(" ");
+  return inferCategoryFromText(text);
+}
+
+// Map an asset library kind onto an AssetElementType that has a valid
+// zone in the current layout. Returns null when there's no clean fit so
+// we don't push placements the contract will later reject.
+function libraryAssetToPlacement(
+  asset:       Asset,
+  activeZones: readonly ZoneId[],
+  usedZones:   Set<ZoneId>,
+  usedTypes:   Set<AssetElementType>,
+  forGif:      boolean,
+): ElementPlacement | null {
+  const type = mapKindToElementType(asset.kind, activeZones, usedTypes);
+  if (!type) return null;
+
+  const contract = ASSET_CONTRACTS[type];
+  const zone = pickZoneForType(type, activeZones, usedZones);
+  if (!zone) return null;
+
+  if (forGif && !contract.motionCompatible) return null;
+
+  return {
+    type,
+    zone,
+    prompt:       `${asset.label} (${asset.category} library asset)`,
+    motion:       forGif && contract.motionCompatible,
+    weight:       contract.hierarchyWeight,
+    coverageHint: defaultCoverageForType(type),
+    url:          assetToImageSrc(asset),
+  };
+}
+
+function mapKindToElementType(
+  kind:        AssetKind,
+  activeZones: readonly ZoneId[],
+  usedTypes:   Set<AssetElementType>,
+): AssetElementType | null {
+  switch (kind) {
+    case "texture":
+      // Only one texture per composition — skip if one was already picked.
+      return usedTypes.has("texture") ? null : "texture";
+    case "icon":
+      // Icons sit next to text — need at least one of its allowed zones.
+      return ["badge", "cta", "logo"].some(z => activeZones.includes(z as ZoneId))
+        ? "icon"
+        : null;
+    case "illustration":
+      // Illustrations replace the hero image when an image zone exists and
+      // no hero has been placed yet (avoids duplicating the main image).
+      if (!activeZones.includes("image")) return null;
+      if (usedTypes.has("human") || usedTypes.has("object")) return null;
+      return "object";
+    case "shape":
+      // Shapes (bursts, ribbons, arrows) read best as badge accents.
+      return activeZones.includes("badge") && !usedTypes.has("badge")
+        ? "badge"
+        : null;
+    case "photo":
+      // Photos are full-frame — only inject when we have an image zone and
+      // no hero yet. Otherwise they'd fight the AI-generated hero image.
+      if (!activeZones.includes("image")) return null;
+      if (usedTypes.has("human") || usedTypes.has("object")) return null;
+      return "object";
+    default:
+      return null;
+  }
+}
+
+function pickZoneForType(
+  type:        AssetElementType,
+  activeZones: readonly ZoneId[],
+  usedZones:   Set<ZoneId>,
+): ZoneId | null {
+  const allowed = ASSET_CONTRACTS[type].allowedZones.filter(z => activeZones.includes(z));
+  // Prefer unused zones to avoid stacking assets on top of existing ones.
+  return allowed.find(z => !usedZones.has(z)) ?? allowed[0] ?? null;
+}
+
+function defaultCoverageForType(type: AssetElementType): number {
+  switch (type) {
+    case "texture": return 0.6;
+    case "icon":    return 0.03;
+    case "badge":   return 0.08;
+    case "object":  return 0.7;
+    default:        return 0.3;
+  }
 }
 
 // ── Composition prompt fragment ───────────────────────────────────────────────
