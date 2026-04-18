@@ -30,7 +30,10 @@ import { adaptLayout }             from "../layout/adaptive-layout";
 import { analyzeDensity }          from "../layout/density";
 import { enforceStyle }            from "../layout/style-enforcer";
 import { enforceHierarchy, TextContent } from "../hierarchy/enforcer";
-import { buildCompositionPlan, compositionToPromptFragment, ElementPlacement } from "../assets/asset-selector";
+import {
+  buildCompositionPlan, compositionToPromptFragment, ElementPlacement,
+  validateAssetPresence, enrichForPresence, type AssetPresenceViolation,
+} from "../assets/asset-selector";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -104,6 +107,24 @@ export class SpendGuardError extends Error {
     this.format  = format;
     this.code    = code;
     this.name    = "SpendGuardError";
+  }
+}
+
+// ── AssetPresenceError ───────────────────────────────────────────────────────
+// Thrown when the composition plan cannot satisfy the minimum visual-
+// richness rules even after self-healing. Signals to callers that the
+// template would ship with only text on a background, which we never want.
+export class AssetPresenceError extends Error {
+  readonly jobId: string;
+  readonly format: string;
+  readonly violations: AssetPresenceViolation[];
+  constructor(jobId: string, format: string, violations: AssetPresenceViolation[]) {
+    const details = violations.map(v => `${v.rule}: ${v.message}`).join(" | ");
+    super(`Template rejected for insufficient visual richness: ${details}`);
+    this.jobId      = jobId;
+    this.format     = format;
+    this.violations = violations;
+    this.name       = "AssetPresenceError";
   }
 }
 
@@ -287,12 +308,15 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
   const recoveryLog: RecoveryAction[] = [];
 
   // Top-level safety net — guarantees a result even on catastrophic failure.
-  // Hard failures (KillSwitchError, SpendGuardError) are re-thrown so the
-  // worker can handle billing correctly. Everything else returns a degraded result.
+  // Hard failures (KillSwitchError, SpendGuardError, AssetPresenceError) are
+  // re-thrown so the worker can handle billing / rejection correctly.
+  // Everything else returns a degraded result.
   try {
   return await renderAssetInner(input, ctx, violations, recoveryLog);
   } catch (err: any) {
-    if (err?.name === "KillSwitchError" || err?.name === "SpendGuardError") throw err;
+    if (err?.name === "KillSwitchError" ||
+        err?.name === "SpendGuardError" ||
+        err?.name === "AssetPresenceError") throw err;
 
     const durationMs = Date.now() - startMs;
     logger.error(
@@ -454,6 +478,35 @@ async function renderAssetInner(
   }
 
   violations.push(...contractViolations);
+
+  // ── Stage 3b.1: Asset-presence enforcement ───────────────────────────
+  // Reject templates that would ship with only text on a background. Tries
+  // a single self-heal via category-matched library assets first — hard-
+  // rejects only if the layout truly cannot hold any visual asset.
+  let presenceViolations = validateAssetPresence(composition);
+  const presenceErrors = presenceViolations.filter(v => v.severity === "error");
+  if (presenceErrors.length > 0) {
+    const heal = enrichForPresence(composition, spec, input.brief, isGif);
+    composition.elements = heal.plan.elements;
+    if (heal.added.length > 0) {
+      violations.push(
+        `asset_presence:self_heal: injected ${heal.added.length} library asset(s) — ${heal.added.join(", ")}`
+      );
+    }
+    presenceViolations = validateAssetPresence(composition);
+    const stillFailing = presenceViolations.filter(v => v.severity === "error");
+    if (stillFailing.length > 0) {
+      throw new AssetPresenceError(
+        input.jobId ?? "",
+        input.format,
+        stillFailing,
+      );
+    }
+  }
+  violations.push(
+    ...presenceViolations.map(v => `asset_presence:${v.rule}[${v.severity}]: ${v.message}`)
+  );
+
   ctx.currentStage = "composition";
   ctx.composition = { plan: composition, contractViolations };
 

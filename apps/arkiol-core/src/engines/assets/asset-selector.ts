@@ -20,6 +20,7 @@ import {
   selectAssetsForCategory,
   inferCategoryFromText,
   assetToImageSrc,
+  ASSET_CATEGORIES,
   type Asset,
   type AssetCategory,
   type AssetKind,
@@ -537,6 +538,121 @@ function enforceTextVisualBalance(
     );
   }
   return result;
+}
+
+// ── Asset presence enforcement ───────────────────────────────────────────────
+// A "complete" template is not just text on a rectangle — it carries at
+// minimum a background treatment plus one meaningful visual asset, and
+// ideally a combination of supporting + decorative elements. These rules
+// are validated in the pipeline so empty-feeling layouts can be rejected.
+
+export interface AssetPresenceViolation {
+  rule:     "missing_background"
+          | "no_visual_richness"
+          | "insufficient_variety"
+          | "missing_decorative_accent";
+  severity: "error" | "warning";
+  message:  string;
+}
+
+// Inspect a plan and return violations if visual richness is insufficient.
+// - missing_background (error): no background/overlay/texture/atmospheric element
+// - no_visual_richness (error): only background + maybe overlays → text on a box
+// - missing_decorative_accent (warning): has a hero but no accent/divider/icon-group
+// - insufficient_variety (warning): fewer than 2 distinct roles represented
+export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViolation[] {
+  const violations: AssetPresenceViolation[] = [];
+
+  const roleCounts: Record<AssetRole, number> = {
+    background: 0, support: 0, accent: 0, divider: 0, "icon-group": 0,
+  };
+  for (const el of plan.elements) {
+    roleCounts[el.role]++;
+  }
+
+  if (roleCounts.background === 0) {
+    violations.push({
+      rule: "missing_background",
+      severity: "error",
+      message: "Template has no background treatment — at least a background fill, texture, or atmospheric layer is required.",
+    });
+  }
+
+  const meaningfulVisuals =
+    roleCounts.support + roleCounts.accent + roleCounts.divider + roleCounts["icon-group"];
+
+  if (meaningfulVisuals === 0) {
+    violations.push({
+      rule: "no_visual_richness",
+      severity: "error",
+      message: "Template lacks visual richness — only text on a background. Add at least one icon, illustration, shape, or decorative accent.",
+    });
+  } else if (roleCounts.support > 0 && roleCounts.accent === 0 && roleCounts.divider === 0 && roleCounts["icon-group"] === 0) {
+    violations.push({
+      rule: "missing_decorative_accent",
+      severity: "warning",
+      message: "Template has a hero visual but no decorative accent (badge, icon group, or divider) to support it.",
+    });
+  }
+
+  const distinctRoles = Object.values(roleCounts).filter(c => c > 0).length;
+  if (distinctRoles < 2) {
+    violations.push({
+      rule: "insufficient_variety",
+      severity: "warning",
+      message: "Template uses only one visual role — add a second role (background + accent, or background + support) for balance.",
+    });
+  }
+
+  return violations;
+}
+
+// Attempt to satisfy presence rules by injecting category-matched library
+// assets. Used as a self-heal step before the pipeline hard-rejects a
+// template. Tries the inferred category first, then falls back across the
+// other categories so a compatible asset can almost always be found.
+export function enrichForPresence(
+  plan:   CompositionPlan,
+  spec:   LayoutSpec,
+  brief:  BriefAnalysis,
+  forGif: boolean,
+): { plan: CompositionPlan; added: string[] } {
+  const added: string[] = [];
+  const activeZones = spec.activeZoneIds;
+  const primary = resolveCategory(brief);
+  const ordered: AssetCategory[] = primary
+    ? [primary, ...ASSET_CATEGORIES.filter(c => c !== primary)]
+    : [...ASSET_CATEGORIES];
+
+  // Stop as soon as presence is satisfied — we only need to fill the gap,
+  // not flood the composition.
+  for (const category of ordered) {
+    if (validateAssetPresence(plan).every(v => v.severity !== "error")) break;
+
+    const picks = selectAssetsForCategory(category, {
+      seed:  `${brief.headline ?? ""}::${category}::heal`,
+      limit: 4,
+    });
+    const usedZones = new Set<ZoneId>(plan.elements.map(e => e.zone));
+    const usedTypes = new Set<AssetElementType>(plan.elements.map(e => e.type));
+    const usedRoles = new Set<AssetRole>(plan.elements.map(e => e.role));
+
+    for (const asset of picks) {
+      if (validateAssetPresence(plan).every(v => v.severity !== "error")) break;
+      const placement = libraryAssetToPlacement(
+        asset, activeZones, usedZones, usedTypes, usedRoles, forGif,
+      );
+      if (placement) {
+        plan.elements.push(placement);
+        usedTypes.add(placement.type);
+        usedRoles.add(placement.role);
+        added.push(`${category}:${asset.kind}:${asset.label}`);
+      }
+    }
+  }
+
+  plan.elements = sortByLayer(plan.elements);
+  return { plan, added };
 }
 
 // ── Composition prompt fragment ───────────────────────────────────────────────
