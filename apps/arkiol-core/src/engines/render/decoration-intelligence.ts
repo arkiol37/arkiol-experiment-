@@ -5,9 +5,8 @@ export interface DecorationPlan {
   shapes: DecorShape[];
 }
 
-// Minimum decorations for a template to avoid looking like a placeholder card
-const MIN_DECORATIONS = 6;
-const MIN_UNIQUE_KINDS = 3;
+const MIN_DECORATIONS = 8;
+const MIN_UNIQUE_KINDS = 5;
 
 // Shapes that create visual structure and depth — used for enrichment
 const STRUCTURAL_SHAPES: DecorShape[] = [

@@ -23,7 +23,7 @@ import { detectCategoryPack, type CategoryStylePack } from "../style/category-st
 import { getCategoryKit, mergeKitDecorations } from "../style/category-template-kits";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { enrichDecorations } from "./decoration-intelligence";
-import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
+import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
 import { matchPatternToBrief, buildInspirationOverrides } from "../inspiration/pattern-matcher";
@@ -176,10 +176,9 @@ export async function buildUltimateSvgContent(
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
 
   // ── Multi-candidate theme selection ──────────────────────────────────────
-  // Generate 4 candidate themes and pick the richest, most unique one.
-  // This prevents bland/gradient-heavy outputs by evaluating quality before
-  // committing to a theme.
-  const THEME_CANDIDATES = 4;
+  // Generate 6 candidate themes and pick the richest, most unique one.
+  // Wider pool catches more marketplace-quality candidates.
+  const THEME_CANDIDATES = 6;
   const categoryPack = detectCategoryPack(brief);
 
   const candidateThemes: DesignTheme[] = [];
@@ -226,13 +225,15 @@ export async function buildUltimateSvgContent(
   // Pick the best non-bland, non-duplicate candidate
   let theme = pickBestTheme(candidateThemes);
 
-  // If the winner is a recent duplicate, try harder with offset seeds
+  // If the winner is a recent duplicate, try harder with offset seeds (up to 3 retries)
   if (isRecentDuplicate(theme)) {
-    const extraOffset = Date.now() % 10000;
-    let retry = selectTheme(brief, variationIdx + extraOffset);
-    if (brand) retry = applyBrandColors(retry, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
-    if (categoryPack) retry = applyCategoryPackOverrides(retry, categoryPack, brand);
-    if (!isBlandCandidate(retry)) theme = retry;
+    for (let retryIdx = 0; retryIdx < 3; retryIdx++) {
+      const extraOffset = (Date.now() + retryIdx * 3571) % 10000;
+      let retry = selectTheme(brief, variationIdx + extraOffset);
+      if (brand) retry = applyBrandColors(retry, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor });
+      if (categoryPack) retry = applyCategoryPackOverrides(retry, categoryPack, brand);
+      if (!isBlandCandidate(retry) && !isRecentDuplicate(retry)) { theme = retry; break; }
+    }
   }
 
   // ── Style intelligence — adapt palette, typography, mood to brief intent
@@ -396,13 +397,14 @@ export async function buildUltimateSvgContent(
     _selectedTheme:theme,
   };
 
-  // ── Post-build quality evaluation ──────────────────────────────────────
-  const qualityScore = scoreCandidateQuality(theme, content);
-  if (qualityScore.total < 0.35) {
-    violations.push(`quality:low_score(${qualityScore.total.toFixed(2)}) — template may appear bland`);
+  // ── Post-build marketplace quality gate ──────────────────────────────
+  const marketplaceReject = checkMarketplaceQuality(theme, content);
+  if (marketplaceReject) {
+    violations.push(marketplaceReject);
   }
-  if (qualityScore.contentCompleteness < 0.45) {
-    violations.push(`quality:sparse_content(${qualityScore.contentCompleteness.toFixed(2)}) — few text zones populated`);
+  const qualityScore = scoreCandidateQuality(theme, content);
+  if (qualityScore.total < 0.40) {
+    violations.push(`quality:low_score(${qualityScore.total.toFixed(2)}) — below marketplace bar`);
   }
 
   const buildResult: BuildResult = { content, violations };

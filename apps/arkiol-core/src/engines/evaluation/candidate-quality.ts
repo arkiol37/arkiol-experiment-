@@ -1,6 +1,6 @@
 // src/engines/evaluation/candidate-quality.ts
 //
-// Quality scoring system for template candidates.
+// Marketplace-grade quality scoring and rejection system.
 // Evaluates visual richness, decoration diversity, palette variety,
 // content completeness, and uniqueness to reject bland outputs and
 // rank candidates by marketplace-quality appearance.
@@ -44,15 +44,9 @@ const LAYERING_KINDS = new Set<string>([
   "diagonal_band", "starburst",
 ]);
 
-// All known decoration kind names for diversity scoring
-const ALL_DECOR_KINDS = new Set<string>([
-  "circle", "rect", "blob", "line", "dots_grid", "diagonal_stripe",
-  "half_circle", "accent_bar", "badge_pill", "deco_ring", "triangle",
-  "cross", "wave", "card_panel", "glow_circle", "flower", "squiggle",
-  "arc_stroke", "corner_bracket", "diagonal_band", "noise_overlay",
-  "ribbon", "sticker_circle", "icon_symbol", "checklist", "frame_border",
-  "section_divider", "texture_fill", "photo_circle", "starburst",
-  "price_tag", "banner_strip",
+// Basic geometric shapes — overreliance on these = flat placeholder feel
+const BASIC_KINDS = new Set<string>([
+  "circle", "rect", "line", "blob",
 ]);
 
 // ── Background complexity ranking ─────────────────────────────────────────────
@@ -62,8 +56,8 @@ function scoreBgComplexity(bg: BgTreatment): number {
     case "mesh":            return 1.0;
     case "split":           return 0.75;
     case "radial_gradient": return 0.6;
-    case "linear_gradient": return bg.colors.length >= 3 ? 0.5 : 0.35;
-    case "solid":           return 0.2;
+    case "linear_gradient": return bg.colors.length >= 3 ? 0.45 : 0.3;
+    case "solid":           return 0.15;
     default:                return 0.1;
   }
 }
@@ -74,17 +68,13 @@ export function scoreThemeQuality(theme: DesignTheme): CandidateQualityScore {
   const decos = theme.decorations;
   const kindSet = new Set(decos.map(d => d.kind));
 
-  // Decoration richness: count-based (diminishing returns above 8)
   const decoCount = decos.length;
-  const decorationRichness = clamp(decoCount / 10, 0, 1);
+  const decorationRichness = clamp(decoCount / 12, 0, 1);
 
-  // Decoration diversity: unique kinds / total possible kinds (capped)
-  const decorationDiversity = clamp(kindSet.size / 8, 0, 1);
+  const decorationDiversity = clamp(kindSet.size / 9, 0, 1);
 
-  // Background complexity
   const backgroundComplexity = scoreBgComplexity(theme.background);
 
-  // Palette utilization: count distinct colors used in decorations
   const decoColors = new Set<string>();
   for (const d of decos) {
     if ("color" in d && typeof (d as any).color === "string") {
@@ -93,25 +83,22 @@ export function scoreThemeQuality(theme: DesignTheme): CandidateQualityScore {
   }
   const paletteUtilization = clamp(decoColors.size / 5, 0, 1);
 
-  // Premium elements: proportion of decorations that are "premium" kinds
   const premiumCount = decos.filter(d => PREMIUM_KINDS.has(d.kind)).length;
-  const premiumElements = clamp(premiumCount / 3, 0, 1);
+  const premiumElements = clamp(premiumCount / 4, 0, 1);
 
-  // Visual layering: presence of depth-creating elements
   const layerCount = decos.filter(d => LAYERING_KINDS.has(d.kind)).length;
   const visualLayering = clamp(layerCount / 3, 0, 1);
 
-  // Content completeness is not applicable at theme level — set to neutral
   const contentCompleteness = 0.7;
 
   const total =
-    decorationRichness   * 0.18 +
-    decorationDiversity  * 0.20 +
-    backgroundComplexity * 0.12 +
-    paletteUtilization   * 0.10 +
-    premiumElements      * 0.15 +
+    decorationRichness   * 0.16 +
+    decorationDiversity  * 0.18 +
+    backgroundComplexity * 0.10 +
+    paletteUtilization   * 0.08 +
+    premiumElements      * 0.16 +
     contentCompleteness  * 0.10 +
-    visualLayering       * 0.15;
+    visualLayering       * 0.22;
 
   return {
     decorationRichness,
@@ -133,29 +120,30 @@ export function scoreCandidateQuality(
 ): CandidateQualityScore {
   const themeScore = scoreThemeQuality(theme);
 
-  // Override content completeness with actual content data
   const textZones = content.textContents ?? [];
   const populatedZones = textZones.filter(z => z.text?.trim().length > 0);
   const hasHeadline = populatedZones.some(z => z.zoneId === "headline" || z.zoneId === "name");
   const hasCta = populatedZones.some(z => z.zoneId === "cta");
   const hasSubhead = populatedZones.some(z => z.zoneId === "subhead" || z.zoneId === "tagline");
   const hasBadge = populatedZones.some(z => z.zoneId === "badge" || z.zoneId === "eyebrow");
+  const hasBody = populatedZones.some(z => z.zoneId === "body" || z.zoneId === "body_text");
 
-  let contentCompleteness = 0.3; // base
-  if (hasHeadline) contentCompleteness += 0.3;
+  let contentCompleteness = 0.2;
+  if (hasHeadline) contentCompleteness += 0.30;
   if (hasCta)      contentCompleteness += 0.15;
   if (hasSubhead)  contentCompleteness += 0.15;
-  if (hasBadge)    contentCompleteness += 0.1;
+  if (hasBadge)    contentCompleteness += 0.10;
+  if (hasBody)     contentCompleteness += 0.10;
   contentCompleteness = clamp(contentCompleteness, 0, 1);
 
   const total =
-    themeScore.decorationRichness   * 0.18 +
-    themeScore.decorationDiversity  * 0.20 +
-    themeScore.backgroundComplexity * 0.10 +
-    themeScore.paletteUtilization   * 0.08 +
-    themeScore.premiumElements      * 0.14 +
-    contentCompleteness             * 0.15 +
-    themeScore.visualLayering       * 0.15;
+    themeScore.decorationRichness   * 0.14 +
+    themeScore.decorationDiversity  * 0.16 +
+    themeScore.backgroundComplexity * 0.08 +
+    themeScore.paletteUtilization   * 0.06 +
+    themeScore.premiumElements      * 0.16 +
+    contentCompleteness             * 0.18 +
+    themeScore.visualLayering       * 0.22;
 
   return {
     ...themeScore,
@@ -166,8 +154,8 @@ export function scoreCandidateQuality(
 
 // ── Bland detection ───────────────────────────────────────────────────────────
 
-/** Quality floor — candidates below this score are considered "bland" */
-const BLAND_THRESHOLD = 0.42;
+/** Quality floor — marketplace standard */
+const BLAND_THRESHOLD = 0.48;
 
 export function isBlandCandidate(theme: DesignTheme): boolean {
   const score = scoreThemeQuality(theme);
@@ -175,25 +163,47 @@ export function isBlandCandidate(theme: DesignTheme): boolean {
   // Hard reject: below quality floor
   if (score.total < BLAND_THRESHOLD) return true;
 
-  const kinds = new Set(theme.decorations.map(d => d.kind));
-  const basicKinds = new Set(["circle", "rect", "line", "blob"]);
-  const allBasic = [...kinds].every(k => basicKinds.has(k));
+  const decos = theme.decorations;
+  const kinds = new Set(decos.map(d => d.kind));
+  const allBasic = [...kinds].every(k => BASIC_KINDS.has(k));
 
   // Gradient + few or all-basic decorations = placeholder card
   if (
     (theme.background.kind === "linear_gradient" || theme.background.kind === "solid") &&
-    (theme.decorations.length <= 5 || allBasic) &&
+    (decos.length <= 6 || allBasic) &&
     score.premiumElements === 0
   ) {
     return true;
   }
 
-  // Low diversity: too few unique kinds for the decoration count
-  if (kinds.size <= 1 && theme.decorations.length > 0) return true;
-  if (kinds.size <= 2 && theme.decorations.length >= 5) return true;
+  // Gradient-heavy: linear gradient with thin decoration layer
+  if (
+    theme.background.kind === "linear_gradient" &&
+    kinds.size <= 4 &&
+    score.premiumElements === 0 &&
+    score.visualLayering < 0.34
+  ) {
+    return true;
+  }
 
-  // No visual layering at all
+  // Low diversity: too few unique kinds for the decoration count
+  if (kinds.size <= 1 && decos.length > 0) return true;
+  if (kinds.size <= 2 && decos.length >= 4) return true;
+  if (kinds.size <= 3 && decos.length >= 8) return true;
+
+  // No visual layering at all with simple background
   if (score.visualLayering === 0 && score.backgroundComplexity < 0.5) return true;
+
+  // Repetitive: >50% of decorations are the same kind
+  if (decos.length >= 4) {
+    const kindCounts = new Map<string, number>();
+    for (const d of decos) kindCounts.set(d.kind, (kindCounts.get(d.kind) ?? 0) + 1);
+    const maxCount = Math.max(...kindCounts.values());
+    if (maxCount / decos.length > 0.5) return true;
+  }
+
+  // No premium elements at all — flat card feel
+  if (score.premiumElements === 0 && score.visualLayering < 0.34) return true;
 
   return false;
 }
@@ -202,26 +212,28 @@ export function isBlandCandidate(theme: DesignTheme): boolean {
 
 /** Checks if two themes are too visually similar */
 export function areTooSimilar(a: DesignTheme, b: DesignTheme): boolean {
-  // Same theme ID is always too similar
   if (a.id === b.id) return true;
 
-  // Same background kind + similar colors = too similar
+  // Same background kind + any color overlap
   if (a.background.kind === b.background.kind) {
     const aColors = extractBgColors(a.background);
     const bColors = extractBgColors(b.background);
     const overlap = aColors.filter(c => bColors.includes(c)).length;
-    if (overlap >= 2) return true;
+    if (overlap >= 1) return true;
   }
 
   // Same primary palette color
   if (normalizeColor(a.palette.primary) === normalizeColor(b.palette.primary)) return true;
 
-  // Decoration profile similarity: nearly identical decoration shape mix
+  // Same background color (surface)
+  if (normalizeColor(a.palette.background) === normalizeColor(b.palette.background)) return true;
+
+  // Decoration profile overlap > 65%
   const aKinds = new Set(a.decorations.map(d => d.kind));
   const bKinds = new Set(b.decorations.map(d => d.kind));
   const kindOverlap = [...aKinds].filter(k => bKinds.has(k)).length;
   const kindTotal = new Set([...aKinds, ...bKinds]).size;
-  if (kindTotal > 0 && kindOverlap / kindTotal > 0.8 && Math.abs(a.decorations.length - b.decorations.length) <= 2) return true;
+  if (kindTotal > 0 && kindOverlap / kindTotal > 0.65) return true;
 
   return false;
 }
@@ -264,10 +276,13 @@ export function rankThemeCandidates(themes: DesignTheme[]): RankedThemeCandidate
     }
   }
 
-  // Sort: non-rejected first, then by quality score descending
+  // Sort: non-rejected first, then by marketplace-quality composite
   return candidates.sort((a, b) => {
     if (a.rejected !== b.rejected) return a.rejected ? 1 : -1;
-    return b.quality.total - a.quality.total;
+    // Bias toward visual layering + premium elements (marketplace look)
+    const aMarketplace = a.quality.visualLayering * 0.4 + a.quality.premiumElements * 0.3 + a.quality.total * 0.3;
+    const bMarketplace = b.quality.visualLayering * 0.4 + b.quality.premiumElements * 0.3 + b.quality.total * 0.3;
+    return bMarketplace - aMarketplace;
   });
 }
 
@@ -277,8 +292,32 @@ export function rankThemeCandidates(themes: DesignTheme[]): RankedThemeCandidate
  */
 export function pickBestTheme(themes: DesignTheme[]): DesignTheme {
   const ranked = rankThemeCandidates(themes);
-  // Return best non-rejected, or the least-bad rejected one
   return ranked[0].theme;
+}
+
+/**
+ * Check if a fully-built template passes marketplace-quality bar.
+ * Returns rejection reason string, or null if it passes.
+ */
+export function checkMarketplaceQuality(
+  theme: DesignTheme,
+  content: SvgContent,
+): string | null {
+  const score = scoreCandidateQuality(theme, content);
+
+  if (score.total < 0.40)
+    return `marketplace:low_score(${score.total.toFixed(2)})`;
+
+  if (score.contentCompleteness < 0.50)
+    return `marketplace:sparse_content(${score.contentCompleteness.toFixed(2)})`;
+
+  if (score.visualLayering < 0.20 && score.premiumElements < 0.25)
+    return `marketplace:flat_composition`;
+
+  if (score.decorationDiversity < 0.30)
+    return `marketplace:low_decoration_diversity(${score.decorationDiversity.toFixed(2)})`;
+
+  return null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

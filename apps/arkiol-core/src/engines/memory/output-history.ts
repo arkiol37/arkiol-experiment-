@@ -7,7 +7,7 @@
 import type { DesignTheme } from "../render/design-themes";
 
 const _recentOutputFingerprints: string[] = [];
-const RECENT_OUTPUT_HISTORY = 20;
+const RECENT_OUTPUT_HISTORY = 40;
 
 export function themeFingerprint(theme: DesignTheme): string {
   const bgKind = theme.background.kind;
@@ -15,7 +15,8 @@ export function themeFingerprint(theme: DesignTheme): string {
     ? (theme.background as any).colors.slice(0, 2).join(",")
     : ("color" in theme.background ? (theme.background as any).color : "");
   const decoKinds = [...new Set(theme.decorations.map(d => d.kind))].sort().join(",");
-  return `${theme.id}|${bgKind}|${bgColors}|${decoKinds}`;
+  const paletteSig = [theme.palette.primary, theme.palette.background].join(",").toLowerCase();
+  return `${theme.id}|${bgKind}|${bgColors}|${decoKinds}|${paletteSig}`;
 }
 
 export function recordOutputFingerprint(theme: DesignTheme): void {
