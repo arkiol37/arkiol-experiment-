@@ -25,6 +25,7 @@ import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFi
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
 import { matchPatternToBrief, buildInspirationOverrides } from "../inspiration/pattern-matcher";
+import { type PersonalizationContext } from "../personalization/dna-applicator";
 import { createHash } from "crypto";
 import { z } from "zod";
 
@@ -136,6 +137,7 @@ export async function buildUltimateSvgContent(
   brand?: { primaryColor: string; secondaryColor: string; fontDisplay: string },
   variationIdx = 0,
   themePreferences?: string[],
+  personalization?: PersonalizationContext,
 ): Promise<BuildResult> {
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
@@ -175,6 +177,16 @@ export async function buildUltimateSvgContent(
       const aPreferred = prefSet.has(a.id) ? 1 : 0;
       const bPreferred = prefSet.has(b.id) ? 1 : 0;
       return bPreferred - aPreferred;
+    });
+  }
+
+  // Apply personalization DNA — boost/penalize themes based on user style profile
+  if (personalization?.active) {
+    const tb = personalization.themeBias;
+    candidateThemes.sort((a, b) => {
+      const aBoost = (tb.boosts[a.id] ?? 0) + (tb.penalties[a.id] ?? 0);
+      const bBoost = (tb.boosts[b.id] ?? 0) + (tb.penalties[b.id] ?? 0);
+      return bBoost - aBoost;
     });
   }
 
@@ -220,6 +232,28 @@ export async function buildUltimateSvgContent(
     if (overrides.overlayOpacity && overrides.overlayOpacity > (theme.overlayOpacity ?? 0)) {
       theme = { ...theme, overlayOpacity: overrides.overlayOpacity };
     }
+  }
+
+  // ── Personalization DNA overrides — adapt theme to user style profile
+  if (personalization?.active) {
+    const typoOv = personalization.typographyOverrides;
+    if (typoOv.headlineWeightBias !== 0 && theme.typography.headline) {
+      const newWeight = Math.min(900, Math.max(100, theme.typography.headline.fontWeight + typoOv.headlineWeightBias));
+      theme = { ...theme, typography: { ...theme.typography, headline: { ...theme.typography.headline, fontWeight: newWeight } } };
+    }
+    if (typoOv.headlineSizeScale !== 1.0) {
+      theme = { ...theme, headlineSizeMultiplier: (theme.headlineSizeMultiplier ?? 1.0) * typoOv.headlineSizeScale };
+    }
+    if (typoOv.letterSpacingBias !== 0 && theme.typography.headline) {
+      theme = { ...theme, typography: { ...theme.typography, headline: { ...theme.typography.headline, letterSpacing: (theme.typography.headline.letterSpacing ?? 0) + typoOv.letterSpacingBias } } };
+    }
+    if (typoOv.preferUppercase && theme.typography.headline) {
+      theme = { ...theme, typography: { ...theme.typography, headline: { ...theme.typography.headline, textTransform: "uppercase" } } };
+    }
+    const ctaOv = personalization.ctaBias;
+    if (ctaOv.radiusPreference === "pill") theme = { ...theme, ctaStyle: { ...theme.ctaStyle, borderRadius: 50 } };
+    else if (ctaOv.radiusPreference === "sharp") theme = { ...theme, ctaStyle: { ...theme.ctaStyle, borderRadius: Math.min(theme.ctaStyle.borderRadius, 4) } };
+    if (ctaOv.shadowPreference !== null) theme = { ...theme, ctaStyle: { ...theme.ctaStyle, shadow: ctaOv.shadowPreference } };
   }
 
   // Record after style application so fingerprint reflects actual output

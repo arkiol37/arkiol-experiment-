@@ -63,6 +63,7 @@ import {
   type AgentOrchestrationResult,
   type CriticVerdict,
 } from "../agents/design-agents";
+import { type PersonalizationContext } from "../personalization/dna-applicator";
 import {
   renderGif,
   buildKineticTextFrames,
@@ -136,6 +137,9 @@ export interface PipelineInput {
   // GIF options
   gifFps?:     number;   // default: 12
   gifQuality?: number;   // 1 (best) – 20. Default: 10
+
+  // Personalization — user style profile context
+  personalization?: PersonalizationContext;
 
   // ── On-Demand Asset Engine context ──────────────────────────────────────
   // Must be populated by the orchestrator from org/plan DB data.
@@ -678,6 +682,7 @@ async function renderAssetInner(
     input.brand,
     input.variationIdx,
     agentResult?.plan.themePreferences,
+    input.personalization,
   );
   ctx.render = { content: buildResult.content as SvgContent, violations: buildResult.violations };
 
@@ -731,6 +736,7 @@ async function renderAssetInner(
           input.brand,
           input.variationIdx + 13337,
           agentResult?.plan.themePreferences,
+          input.personalization,
         );
         const retryTheme = retryResult.content._selectedTheme;
         if (retryTheme) {

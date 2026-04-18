@@ -19,6 +19,7 @@
 //   agents/     — AI agent orchestration (creative director, designer, critic)
 //   cocreation/ — real-time co-creation (instruction parsing, design mutation)
 //   inspiration/ — web-scale pattern intelligence (pattern library, matching, overrides)
+//   personalization/ — Design DNA profiles and generation personalization
 
 // ── Co-Creation ────────────────────────────────────────────────────────────
 export {
@@ -272,3 +273,37 @@ export type {
   PatternMatchResult,
   InspirationOverrides,
 } from "./inspiration";
+
+// ── Personalization Engine ─────────────────────────────────────────────────
+export {
+  getDesignDNA,
+  setDesignDNA,
+  hasDesignDNA,
+  deleteDesignDNA,
+  applyDNAFeedback,
+  applyDNAFeedbackBatch,
+  buildDNADiagnostic,
+  computeDNAThemeBias,
+  computeDNATypographyOverrides,
+  computeDNAColorOverrides,
+  computeDNALayoutBias,
+  computeDNACtaBias,
+  buildPersonalizationContext,
+  extractTraitsFromTheme,
+} from "./personalization";
+
+export type {
+  DesignDNA,
+  StyleAffinities,
+  ThemePreferences,
+  DNAFeedbackType,
+  DNAFeedbackSignal,
+  StyleTraitObservation,
+  DNADiagnostic,
+  DNAThemeBias,
+  DNATypographyOverrides,
+  DNAColorOverrides,
+  DNALayoutBias,
+  DNACtaBias,
+  PersonalizationContext,
+} from "./personalization";
