@@ -19,3 +19,10 @@ export {
   paletteMoodToColorMoods,
   type CategoryStylePack,
 } from "./category-style-packs";
+
+export {
+  getCategoryKit,
+  getAllCategoryKits,
+  mergeKitDecorations,
+  type CategoryTemplateKit,
+} from "./category-template-kits";

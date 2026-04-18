@@ -20,6 +20,7 @@ import { measureTextInZone, measureLineWidth, getSvgLineYPositions } from "./tex
 import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
+import { getCategoryKit, mergeKitDecorations } from "../style/category-template-kits";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
@@ -354,18 +355,10 @@ export async function buildUltimateSvgContent(
 
   const {primaryBgColor, gradient} = extractBgFromTheme(theme);
 
-  // Apply category CTA radius bias
-  let ctaBorderRadius = theme.ctaStyle.borderRadius;
-  if (categoryPack) {
-    if (categoryPack.ctaRadiusBias === "pill")    ctaBorderRadius = 50;
-    else if (categoryPack.ctaRadiusBias === "sharp") ctaBorderRadius = Math.min(ctaBorderRadius, 4);
-    else if (categoryPack.ctaRadiusBias === "rounded") ctaBorderRadius = Math.max(8, Math.min(ctaBorderRadius, 16));
-  }
-
   const content: SvgContent = {
     backgroundColor:primaryBgColor, backgroundGradient:gradient, textContents,
     ctaStyle:{ backgroundColor:theme.ctaStyle.backgroundColor, textColor:theme.ctaStyle.textColor,
-      borderRadius:ctaBorderRadius, paddingH:theme.ctaStyle.paddingH,
+      borderRadius:theme.ctaStyle.borderRadius, paddingH:theme.ctaStyle.paddingH,
       paddingV:theme.ctaStyle.paddingV, shadow:theme.ctaStyle.shadow ?? false },
     overlayOpacity:theme.overlayOpacity ?? 0, overlayColor:theme.overlayColor ?? "#000000",
     accentShape:{ type:"none", color:"#000000", x:0, y:0, w:0, h:0 },
@@ -424,9 +417,32 @@ function applyCategoryPackOverrides(
     fontFamily: bodyFont,
   };
 
+  // Apply category template kit — merge signature decorations
+  const kit = getCategoryKit(pack.id);
+  let decorations = theme.decorations;
+  let overlayOpacity = theme.overlayOpacity ?? 0;
+
+  if (kit) {
+    const primary = brand?.primaryColor ?? theme.palette.highlight;
+    const secondary = brand?.secondaryColor ?? theme.palette.secondary;
+    decorations = mergeKitDecorations(theme.decorations, kit, primary, secondary);
+    if (kit.overlayBoost > 0) {
+      overlayOpacity = Math.max(overlayOpacity, kit.overlayBoost);
+    }
+  }
+
+  // Apply CTA radius bias from pack
+  let ctaStyle = theme.ctaStyle;
+  if (pack.ctaRadiusBias === "pill") ctaStyle = { ...ctaStyle, borderRadius: 50 };
+  else if (pack.ctaRadiusBias === "sharp") ctaStyle = { ...ctaStyle, borderRadius: Math.min(ctaStyle.borderRadius, 4) };
+  else if (pack.ctaRadiusBias === "rounded") ctaStyle = { ...ctaStyle, borderRadius: Math.max(8, Math.min(ctaStyle.borderRadius, 16)) };
+
   return {
     ...theme,
     headlineSizeMultiplier: boostedHMult,
+    decorations,
+    overlayOpacity,
+    ctaStyle,
     typography: {
       ...theme.typography,
       display: headlineFont,

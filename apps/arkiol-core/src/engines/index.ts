@@ -362,3 +362,14 @@ export type {
   ExplorationConfig,
   IntelligenceContext,
 } from "./intelligence";
+
+// ── Category Template Kits ────────────────────────────────────────────────
+export {
+  getCategoryKit,
+  getAllCategoryKits,
+  mergeKitDecorations,
+} from "./style/category-template-kits";
+
+export type {
+  CategoryTemplateKit,
+} from "./style/category-template-kits";
