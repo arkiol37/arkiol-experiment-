@@ -21,6 +21,7 @@ import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
+import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
@@ -255,6 +256,9 @@ export async function buildUltimateSvgContent(
     else if (ctaOv.radiusPreference === "sharp") theme = { ...theme, ctaStyle: { ...theme.ctaStyle, borderRadius: Math.min(theme.ctaStyle.borderRadius, 4) } };
     if (ctaOv.shadowPreference !== null) theme = { ...theme, ctaStyle: { ...theme.ctaStyle, shadow: ctaOv.shadowPreference } };
   }
+
+  // Enrich decorations to enforce minimum visual richness
+  theme = { ...theme, decorations: enrichDecorations(theme.decorations, theme) };
 
   // Record after style application so fingerprint reflects actual output
   recordOutputFingerprint(theme);

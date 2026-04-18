@@ -473,7 +473,21 @@ export function buildBackgroundDefs(bg: BgTreatment): { defs: string; fill: stri
       const rad=(bg.angle*Math.PI)/180;
       const x2=50+50*Math.sin(rad), y2=50-50*Math.cos(rad);
       const stops=bg.colors.map((c,i)=>`<stop offset="${Math.round(i/Math.max(bg.colors.length-1,1)*100)}%" stop-color="${c}"/>`).join("");
-      return { defs:`<linearGradient id="bg_grad" x1="0%" y1="0%" x2="${f(x2)}%" y2="${f(y2)}%">${stops}</linearGradient>`, fill:"url(#bg_grad)" };
+      // Secondary perpendicular gradient for richer depth
+      const rad2=((bg.angle+90)*Math.PI)/180;
+      const sx2=50+50*Math.sin(rad2), sy2=50-50*Math.cos(rad2);
+      const midColor=bg.colors[Math.floor(bg.colors.length/2)]??"transparent";
+      const depthGrad=`<linearGradient id="bg_depth" x1="0%" y1="0%" x2="${f(sx2)}%" y2="${f(sy2)}%"><stop offset="0%" stop-color="${midColor}" stop-opacity="0"/><stop offset="50%" stop-color="${midColor}" stop-opacity="0.08"/><stop offset="100%" stop-color="${midColor}" stop-opacity="0"/></linearGradient>`;
+      // Subtle noise texture
+      const noiseFil=`<filter id="bg_noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>`;
+      return {
+        defs:[
+          `<linearGradient id="bg_grad" x1="0%" y1="0%" x2="${f(x2)}%" y2="${f(y2)}%">${stops}</linearGradient>`,
+          depthGrad,
+          noiseFil,
+        ].join(""),
+        fill:"url(#bg_grad)",
+      };
     }
 
     case "radial_gradient": {
@@ -504,11 +518,20 @@ export function buildBackgroundDefs(bg: BgTreatment): { defs: string; fill: stri
 }
 
 export function renderMeshOverlay(bg: BgTreatment, width: number, height: number): string {
-  if (bg.kind !== "mesh") return "";
-  return [
-    `<rect width="${width}" height="${height}" fill="url(#bg_mesh1)" opacity="0.62"/>`,
-    `<rect width="${width}" height="${height}" fill="url(#bg_mesh2)" opacity="0.44"/>`,
-  ].join("\n  ");
+  if (bg.kind === "mesh") {
+    return [
+      `<rect width="${width}" height="${height}" fill="url(#bg_mesh1)" opacity="0.62"/>`,
+      `<rect width="${width}" height="${height}" fill="url(#bg_mesh2)" opacity="0.44"/>`,
+    ].join("\n  ");
+  }
+  // Linear gradients get a depth layer and subtle noise texture
+  if (bg.kind === "linear_gradient") {
+    return [
+      `<rect width="${width}" height="${height}" fill="url(#bg_depth)"/>`,
+      `<rect width="${width}" height="${height}" filter="url(#bg_noise)" opacity="0.025"/>`,
+    ].join("\n  ");
+  }
+  return "";
 }
 
 function f(n: number): string { return n.toFixed(1); }

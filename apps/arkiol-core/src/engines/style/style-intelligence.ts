@@ -7,7 +7,7 @@
 // adapts its aesthetic to content rather than using static style choices.
 
 import type { BriefAnalysis } from "../ai/brief-analyzer";
-import type { DesignTheme, ThemeFont } from "../render/design-themes";
+import type { DesignTheme, ThemeFont, DecorShape } from "../render/design-themes";
 import type { CategoryStylePack } from "./category-style-packs";
 
 // ── Style intent dimensions ──────────────────────────────────────────────────
@@ -353,7 +353,30 @@ function applyMoodDirective(theme: DesignTheme, dir: MoodDirective): DesignTheme
   if (dir.visualEnergy === "explosive") hMult *= 1.08;
   else if (dir.visualEnergy === "calm") hMult *= 0.95;
 
-  return { ...theme, overlayOpacity, headlineSizeMultiplier: hMult };
+  // Upgrade flat backgrounds when directive calls for richer complexity
+  let background = theme.background;
+  if (dir.bgComplexity === "rich" && background.kind === "linear_gradient" && background.colors.length >= 2) {
+    background = { kind: "mesh", colors: background.colors };
+  } else if (dir.bgComplexity === "layered" && background.kind === "solid") {
+    background = { kind: "linear_gradient", colors: [background.color, adjustLightness(background.color, 0.08)], angle: 145 };
+  }
+
+  // Enrich decoration array when directive demands more density
+  let decorations = theme.decorations;
+  if (dir.decorationDensity === "rich") {
+    const kinds = new Set(decorations.map(d => d.kind));
+    const accent = theme.palette.secondary ?? theme.palette.primary;
+    const extras: DecorShape[] = [];
+    if (!kinds.has("accent_bar"))   extras.push({ kind: "accent_bar", x: 5, y: 93, w: 22, h: 0.5, color: accent, rx: 1 });
+    if (!kinds.has("dots_grid"))    extras.push({ kind: "dots_grid", x: 85, y: 5, cols: 3, rows: 3, gap: 3.5, r: 0.9, color: accent, opacity: 0.15 });
+    if (!kinds.has("deco_ring"))    extras.push({ kind: "deco_ring", x: 92, y: 88, r: 12, color: accent, opacity: 0.12, strokeWidth: 1.5 });
+    if (!kinds.has("corner_bracket")) extras.push({ kind: "corner_bracket", x: 3, y: 3, size: 7, color: accent, opacity: 0.2, strokeWidth: 1.5, corner: "tl" });
+    decorations = [...decorations, ...extras];
+  } else if (dir.decorationDensity === "minimal" && decorations.length > 8) {
+    decorations = decorations.slice(0, 6);
+  }
+
+  return { ...theme, overlayOpacity, headlineSizeMultiplier: hMult, background, decorations };
 }
 
 // ── HSL color helpers ────────────────────────────────────────────────────────

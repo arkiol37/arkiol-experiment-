@@ -5,6 +5,24 @@ export interface DecorationPlan {
   shapes: DecorShape[];
 }
 
+// Minimum decorations for a template to avoid looking like a placeholder card
+const MIN_DECORATIONS = 6;
+const MIN_UNIQUE_KINDS = 3;
+
+// Shapes that create visual structure and depth — used for enrichment
+const STRUCTURAL_SHAPES: DecorShape[] = [
+  { kind: "corner_bracket", x: 3, y: 3, size: 8, color: "currentColor", opacity: 0.18, strokeWidth: 1.5, corner: "tl" },
+  { kind: "corner_bracket", x: 97, y: 97, size: 8, color: "currentColor", opacity: 0.18, strokeWidth: 1.5, corner: "br" },
+  { kind: "accent_bar", x: 5, y: 92, w: 18, h: 0.6, color: "currentColor", rx: 1 },
+  { kind: "dots_grid", x: 82, y: 6, cols: 4, rows: 4, gap: 3, r: 0.8, color: "currentColor", opacity: 0.12 },
+  { kind: "section_divider", x: 15, y: 50, w: 70, color: "currentColor", opacity: 0.1, strokeWidth: 0.8, ornament: "dot" },
+  { kind: "deco_ring", x: 90, y: 12, r: 14, color: "currentColor", opacity: 0.08, strokeWidth: 1.2 },
+  { kind: "diagonal_stripe", x: 0, y: 0, w: 100, h: 100, color: "currentColor", opacity: 0.03 },
+  { kind: "half_circle", x: 0, y: 65, r: 22, color: "currentColor", opacity: 0.06, rotation: 90 },
+  { kind: "wave", x: 5, y: 88, w: 90, amplitude: 2.5, frequency: 3, color: "currentColor", opacity: 0.08, strokeWidth: 1 },
+  { kind: "arc_stroke", x: 8, y: 8, r: 30, startAngle: 200, endAngle: 280, color: "currentColor", opacity: 0.07, strokeWidth: 1.2 },
+];
+
 export function buildDecorationPlan(layout: LayoutCandidate, theme: DesignTheme): DecorationPlan {
   const safe = layout.safeZone;
   const elements = layout.elements;
@@ -16,7 +34,47 @@ export function buildDecorationPlan(layout: LayoutCandidate, theme: DesignTheme)
 
   const adapted = filtered.map(shape => adjustShape(shape, safe, layout.style.spacingDensity));
 
-  return { shapes: adapted };
+  const enriched = enrichDecorations(adapted, theme);
+
+  return { shapes: enriched };
+}
+
+export function enrichDecorations(shapes: DecorShape[], theme: DesignTheme): DecorShape[] {
+  const result = [...shapes];
+  const existingKinds = new Set(result.map(s => s.kind));
+
+  const accentColor = theme.palette.secondary ?? theme.palette.primary;
+
+  // If too many decorations were culled, inject structural shapes to compensate
+  if (result.length < MIN_DECORATIONS || existingKinds.size < MIN_UNIQUE_KINDS) {
+    const needed = Math.max(MIN_DECORATIONS - result.length, MIN_UNIQUE_KINDS - existingKinds.size);
+    let added = 0;
+
+    for (const template of STRUCTURAL_SHAPES) {
+      if (added >= needed) break;
+      if (existingKinds.has(template.kind)) continue;
+
+      const shape = resolveColor(template, accentColor);
+      result.push(shape);
+      existingKinds.add(shape.kind);
+      added++;
+    }
+  }
+
+  // Gradient-only compositions must get a noise overlay for texture
+  if (!existingKinds.has("noise_overlay") && !existingKinds.has("texture_fill")) {
+    result.push({ kind: "noise_overlay", opacity: 0.035 });
+  }
+
+  return result;
+}
+
+function resolveColor(shape: DecorShape, accentColor: string): DecorShape {
+  const clone = { ...shape };
+  if ("color" in clone && (clone as any).color === "currentColor") {
+    (clone as any).color = accentColor;
+  }
+  return clone as DecorShape;
 }
 
 function approximateShapeBox(shape: DecorShape) {

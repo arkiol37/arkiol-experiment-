@@ -546,15 +546,15 @@ function scoreCandidate(
   const decorationDiversity = themeQuality.decorationDiversity;
 
   const total =
-    balance * 0.14 +
-    contrast * 0.14 +
-    readability * 0.14 +
-    whitespace * 0.10 +
-    hierarchyClarity * 0.14 +
+    balance * 0.12 +
+    contrast * 0.12 +
+    readability * 0.13 +
+    whitespace * 0.09 +
+    hierarchyClarity * 0.12 +
     novelty * 0.08 +
-    brandAlignment * 0.10 +
-    visualRichness * 0.08 +
-    decorationDiversity * 0.08;
+    brandAlignment * 0.09 +
+    visualRichness * 0.13 +
+    decorationDiversity * 0.12;
 
   return {
     balance,

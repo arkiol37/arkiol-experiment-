@@ -167,10 +167,7 @@ export function scoreCandidateQuality(
 // ── Bland detection ───────────────────────────────────────────────────────────
 
 /** Quality floor — candidates below this score are considered "bland" */
-const BLAND_THRESHOLD = 0.38;
-
-/** Gradient-heavy detection — penalizes templates that are just a gradient + text */
-const GRADIENT_ONLY_THRESHOLD = 0.30;
+const BLAND_THRESHOLD = 0.42;
 
 export function isBlandCandidate(theme: DesignTheme): boolean {
   const score = scoreThemeQuality(theme);
@@ -178,18 +175,25 @@ export function isBlandCandidate(theme: DesignTheme): boolean {
   // Hard reject: below quality floor
   if (score.total < BLAND_THRESHOLD) return true;
 
-  // Gradient-heavy with minimal decorations
+  const kinds = new Set(theme.decorations.map(d => d.kind));
+  const basicKinds = new Set(["circle", "rect", "line", "blob"]);
+  const allBasic = [...kinds].every(k => basicKinds.has(k));
+
+  // Gradient + few or all-basic decorations = placeholder card
   if (
-    theme.background.kind === "linear_gradient" &&
-    theme.decorations.length <= 4 &&
+    (theme.background.kind === "linear_gradient" || theme.background.kind === "solid") &&
+    (theme.decorations.length <= 5 || allBasic) &&
     score.premiumElements === 0
   ) {
     return true;
   }
 
-  // Zero diversity: all decorations are the same kind
-  const kinds = new Set(theme.decorations.map(d => d.kind));
+  // Low diversity: too few unique kinds for the decoration count
   if (kinds.size <= 1 && theme.decorations.length > 0) return true;
+  if (kinds.size <= 2 && theme.decorations.length >= 5) return true;
+
+  // No visual layering at all
+  if (score.visualLayering === 0 && score.backgroundComplexity < 0.5) return true;
 
   return false;
 }
