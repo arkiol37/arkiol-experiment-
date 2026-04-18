@@ -211,11 +211,12 @@ export async function generateMultiOutput(
     .filter(r => r.result)
     .map(r => {
       const outputThemeId = r.result?.evaluationSignals?.themeId;
+      const outputBrand = r.pipelineInput.brand ?? anchorBrand;
       return checkOutputConsistency(
         anchorThemeId,
         outputThemeId,
         anchorBrand,
-        anchorBrand,
+        outputBrand,
       );
     });
 

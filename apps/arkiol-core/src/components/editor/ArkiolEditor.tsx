@@ -379,7 +379,7 @@ const CURSOR2:Record<HandlePos,string>={nw:"nwse-resize",n:"ns-resize",ne:"nesw-
 
 export function ArkiolEditor({
   initialElements=[],canvasWidth=1080,canvasHeight=1080,canvasBg="#f8f7f4",
-  onSave,readOnly=false,projectId="default",brandKit=null,userId,
+  onSave,readOnly=false,projectId="default",brandKit=null,userId,format,
 }:ArkiolEditorProps){
 
   const initialPage:Page={id:pid(),name:"Page 1",elements:initialElements,bgColor:canvasBg};
@@ -766,6 +766,19 @@ export function ArkiolEditor({
       }
     }catch(err){alert("Export failed. Try Print → Save as PDF as an alternative.");}
   },[canvasRef,state.canvasW,state.canvasH,zoom]);
+
+  // Listen for arkiol:export events dispatched by FullPageEditor
+  useEffect(()=>{
+    const handler=(e:Event)=>{
+      const detail=(e as CustomEvent).detail;
+      if(!detail)return;
+      const fmt=detail.format as "png"|"jpg"|"pdf";
+      if(fmt==="png"||fmt==="jpg"||fmt==="pdf")exportCanvas(fmt);
+    };
+    window.addEventListener("arkiol:export",handler);
+    return()=>window.removeEventListener("arkiol:export",handler);
+  },[exportCanvas]);
+
   const selRect=selecting?{left:Math.min(selecting.sx,selecting.cx)*zoom,top:Math.min(selecting.sy,selecting.cy)*zoom,width:Math.abs(selecting.cx-selecting.sx)*zoom,height:Math.abs(selecting.cy-selecting.sy)*zoom}:null;
   const hTicks=useMemo(()=>{const t=[];const s=GRID_SIZE*zoom;for(let i=0;i<state.canvasW*zoom;i+=s)t.push(Math.round(i/zoom));return t;},[state.canvasW,zoom]);
   const vTicks=useMemo(()=>{const t=[];const s=GRID_SIZE*zoom;for(let i=0;i<state.canvasH*zoom;i+=s)t.push(Math.round(i/zoom));return t;},[state.canvasH,zoom]);
