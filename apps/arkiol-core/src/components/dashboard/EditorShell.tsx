@@ -161,7 +161,22 @@ export function EditorShell() {
         {step === "loading"    && <LoadingEditorStep />}
 
         {step === "edit" && editorInit && (
-          <div style={{ height: "calc(100vh - 48px)" }}>
+          <div style={{ height: "calc(100vh - 48px)", position: "relative" }}>
+            {/* Quick link to full-page editor */}
+            <a
+              href={`/edit?format=${format}&projectId=${editorInit.projectId}&w=${editorInit.canvasWidth}&h=${editorInit.canvasHeight}`}
+              style={{
+                position: "absolute", top: 8, right: 12, zIndex: 50,
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 12px", borderRadius: 6,
+                background: "rgba(79,142,247,0.10)", border: "1px solid rgba(79,142,247,0.22)",
+                color: "#4f8ef7", fontSize: 11.5, fontWeight: 600, textDecoration: "none",
+                cursor: "pointer", transition: "background 0.15s",
+              }}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M14 10l6.1-6.1M10 3H6a3 3 0 00-3 3v12a3 3 0 003 3h12a3 3 0 003-3v-4"/></svg>
+              Full-Page Editor
+            </a>
             <ArkiolEditor
               key={editorInit.projectId}
               projectId={editorInit.projectId}

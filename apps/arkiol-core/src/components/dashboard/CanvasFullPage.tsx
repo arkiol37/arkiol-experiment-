@@ -43,14 +43,19 @@ export function CanvasFullPage() {
 
         <div style={{ flex: 1 }} />
 
-        <span aria-label="Canvas workspace" style={{
-          fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase",
-          color: "#4f8ef7", background: "rgba(79,142,247,.10)",
-          border: "1px solid rgba(79,142,247,.22)",
-          padding: "2px 10px", borderRadius: "var(--radius-full)", cursor: "default", userSelect: "none",
-        }}>
-          Canvas Workspace
-        </span>
+        <a
+          href="/edit"
+          style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11.5, fontWeight: 600, color: "#4f8ef7", textDecoration: "none",
+            padding: "4px 12px", borderRadius: "var(--radius-full)",
+            background: "rgba(79,142,247,.10)", border: "1px solid rgba(79,142,247,.22)",
+            transition: "background 0.15s",
+          }}
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M14 10l6.1-6.1M10 3H6a3 3 0 00-3 3v12a3 3 0 003 3h12a3 3 0 003-3v-4"/></svg>
+          Open Full-Page Editor
+        </a>
       </div>
 
       {/* Canvas content */}
