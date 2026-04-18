@@ -26,15 +26,55 @@ import {
 } from "../../lib/asset-library";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
+
+// Intentional purpose of an asset in the layout. Drives positioning, scale,
+// and layering so assets enhance the design rather than cluttering it.
+export type AssetRole =
+  | "background"   // full-bleed surface (bg fill, texture, atmospheric)
+  | "accent"       // small decorative touch near text (badge, icon accent, logo)
+  | "divider"      // separator / ribbon / banner between blocks
+  | "icon-group"   // row of icons that belong with a text zone
+  | "support";     // hero image / illustration that supports the headline
+
+// Coarse position hint relative to the chosen zone (or canvas for full-bleed).
+export type Anchor =
+  | "full-bleed"
+  | "top-left"     | "top-center"    | "top-right"
+  | "center-left"  | "center"        | "center-right"
+  | "bottom-left"  | "bottom-center" | "bottom-right"
+  | "edge-top"     | "edge-bottom";
+
 export interface ElementPlacement {
-  type:        AssetElementType;
-  zone:        ZoneId;
-  prompt:      string;   // AI image generation prompt fragment for this element
-  motion:      boolean;  // should animate in GIF?
-  weight:      number;   // render z-index (from contract)
-  coverageHint:number;   // 0–1 area coverage hint for AI
-  url?:        string;   // resolved CDN URL (populated during asset resolution stage)
+  type:         AssetElementType;
+  zone:         ZoneId;
+  prompt:       string;   // AI image generation prompt fragment for this element
+  motion:       boolean;  // should animate in GIF?
+  weight:       number;   // contract hierarchy weight (from contract.ts)
+  coverageHint: number;   // 0–1 area coverage hint for AI
+  url?:         string;   // resolved CDN URL (populated during asset resolution stage)
+  // ── Composition rules ────────────────────────────────────────────────
+  role:         AssetRole;
+  anchor:       Anchor;
+  scale:        number;              // 0.5–1.5 multiplier applied to the role's base coverage
+  alignment:    "left" | "center" | "right";
+  layer:        number;              // final render z-order (lower → behind)
 }
+
+// Role-driven composition rules. Each role has a clear visual purpose, a
+// coverage range that keeps it balanced, a default anchor so placement is
+// intentional, and a layer that defines back-to-front render order.
+const ROLE_RULES: Record<AssetRole, {
+  layer:         number;
+  coverage:      [number, number];  // [min, max] as fraction of zone area
+  defaultAnchor: Anchor;
+  alignment:     "left" | "center" | "right";
+}> = {
+  background:   { layer:  0, coverage: [0.50, 1.00], defaultAnchor: "full-bleed",   alignment: "center" },
+  divider:      { layer: 10, coverage: [0.08, 0.25], defaultAnchor: "edge-top",     alignment: "center" },
+  support:      { layer: 20, coverage: [0.40, 0.75], defaultAnchor: "center",       alignment: "center" },
+  "icon-group": { layer: 30, coverage: [0.02, 0.10], defaultAnchor: "center-left",  alignment: "left"   },
+  accent:       { layer: 40, coverage: [0.02, 0.12], defaultAnchor: "top-right",    alignment: "right"  },
+};
 
 export interface CompositionPlan {
   elements:        ElementPlacement[];
@@ -76,57 +116,56 @@ export function buildCompositionPlan(
   const elements: ElementPlacement[] = [];
 
   // ── 1. Background is always present ────────────────────────────────────
-  elements.push({
+  elements.push(decorate({
     type:         "background",
     zone:         "background",
     prompt:       buildBackgroundPrompt(brief),
     motion:       false,
     weight:       ASSET_CONTRACTS.background.hierarchyWeight,
     coverageHint: 1.0,
-  });
-  reasoning.push("background: always required");
+  }, "background"));
+  reasoning.push("background: always required (role=background, layer=0)");
 
   // ── 2. Main image element (human or object) ─────────────────────────────
   if (hasImageZone) {
     const imageType = selectImageType(brief, prefs);
-    elements.push({
+    elements.push(decorate({
       type:         imageType,
       zone:         "image",
       prompt:       buildImagePrompt(brief, imageType),
       motion:       forGif && ASSET_CONTRACTS[imageType].motionCompatible,
       weight:       ASSET_CONTRACTS[imageType].hierarchyWeight,
       coverageHint: 0.85,
-    });
-    reasoning.push(`image: selected ${imageType} based on tone="${brief.tone}" imageStyle="${brief.imageStyle}"`);
+    }, "support"));
+    reasoning.push(`image: ${imageType} as supporting visual (role=support, layer=20)`);
   } else {
     reasoning.push("image: no image zone in layout — skipping main image element");
   }
 
   // ── 3. Atmospheric layer (if style warrants it) ─────────────────────────
   if (prefs.preferAtmospheric && !forGif) {
-    // Atmospherics go in background zone alongside background fill
-    elements.push({
+    elements.push(decorate({
       type:         "atmospheric",
       zone:         "background",
       prompt:       buildAtmosphericPrompt(brief),
       motion:       false,
       weight:       1,
       coverageHint: 0.6,
-    });
-    reasoning.push("atmospheric: added for dark_luxury/tech_forward style");
+    }, "background"));
+    reasoning.push("atmospheric: added as background layer (role=background)");
   }
 
   // ── 4. Overlay for legibility ───────────────────────────────────────────
   if (prefs.allowOverlay && hasImageZone) {
-    elements.push({
+    elements.push(decorate({
       type:         "overlay",
       zone:         "background",
       prompt:       "semi-transparent dark scrim for text legibility",
       motion:       false,
       weight:       1,
       coverageHint: 0.9,
-    });
-    reasoning.push("overlay: added to ensure text legibility over image");
+    }, "background"));
+    reasoning.push("overlay: added for text legibility over image");
   }
 
   // ── 5. Texture (if style + format compatible) ───────────────────────────
@@ -135,15 +174,15 @@ export function buildCompositionPlan(
     const formatOk = contract.allowedFormats === "*" ||
                      contract.allowedFormats.includes(spec.family.formats[0]);
     if (formatOk && !forGif) {
-      elements.push({
+      elements.push(decorate({
         type:         "texture",
         zone:         "background",
         prompt:       buildTexturePrompt(brief),
         motion:       false,
         weight:       1,
         coverageHint: 0.3,
-      });
-      reasoning.push("texture: added subtle surface texture for editorial/dark_luxury");
+      }, "background"));
+      reasoning.push("texture: added as background surface (role=background)");
     }
   }
 
@@ -157,13 +196,19 @@ export function buildCompositionPlan(
     const libraryAssets = selectAssetsForCategory(category, { seed, limit: 4 });
     const usedZones = new Set<ZoneId>(elements.map(e => e.zone));
     const usedTypes = new Set<AssetElementType>(elements.map(e => e.type));
+    const usedRoles = new Set<AssetRole>(elements.map(e => e.role));
 
     for (const asset of libraryAssets) {
-      const placement = libraryAssetToPlacement(asset, activeZoneIds, usedZones, usedTypes, forGif);
+      const placement = libraryAssetToPlacement(
+        asset, activeZoneIds, usedZones, usedTypes, usedRoles, forGif,
+      );
       if (placement) {
         elements.push(placement);
         usedTypes.add(placement.type);
-        reasoning.push(`category:${category}: added ${asset.kind} "${asset.label}" → ${placement.zone}`);
+        usedRoles.add(placement.role);
+        reasoning.push(
+          `category:${category}: ${asset.kind} "${asset.label}" → role=${placement.role}, zone=${placement.zone}, anchor=${placement.anchor}`
+        );
       }
     }
   }
@@ -190,11 +235,18 @@ export function buildCompositionPlan(
   const valid = elements.filter(e => !(e.type !== "background" && !activeZoneIds.includes(e.zone)));
 
   // ── GIF: filter to motion-compatible only ───────────────────────────────
-  const finalElements = forGif
+  const gifFiltered = forGif
     ? valid.filter(e => e.type === "background" ||
                         e.motion ||
                         ["overlay"].includes(e.type))
     : valid;
+
+  // ── Balance & ordering ──────────────────────────────────────────────────
+  // Cap decorative visuals relative to text zones so templates don't feel
+  // cluttered, then stable-sort by role layer (back → front) so downstream
+  // rendering receives elements in the correct paint order.
+  const balanced = enforceTextVisualBalance(gifFiltered, activeZoneIds, reasoning);
+  const finalElements = sortByLayer(balanced);
 
   const density = totalDensityScore(finalElements.map(e => e.type));
   const gifOk   = finalElements.every(e => ASSET_CONTRACTS[e.type].motionCompatible);
@@ -299,18 +351,23 @@ function libraryAssetToPlacement(
   activeZones: readonly ZoneId[],
   usedZones:   Set<ZoneId>,
   usedTypes:   Set<AssetElementType>,
+  usedRoles:   Set<AssetRole>,
   forGif:      boolean,
 ): ElementPlacement | null {
   const type = mapKindToElementType(asset.kind, activeZones, usedTypes);
   if (!type) return null;
 
   const contract = ASSET_CONTRACTS[type];
-  const zone = pickZoneForType(type, activeZones, usedZones);
+  const role = roleForLibraryKind(asset.kind);
+  // Keep one of each decorative role per composition to avoid clutter.
+  if (role !== "background" && role !== "support" && usedRoles.has(role)) return null;
+
+  const zone = pickZoneForRole(type, role, activeZones, usedZones);
   if (!zone) return null;
 
   if (forGif && !contract.motionCompatible) return null;
 
-  return {
+  return decorate({
     type,
     zone,
     prompt:       `${asset.label} (${asset.category} library asset)`,
@@ -318,7 +375,7 @@ function libraryAssetToPlacement(
     weight:       contract.hierarchyWeight,
     coverageHint: defaultCoverageForType(type),
     url:          assetToImageSrc(asset),
-  };
+  }, role);
 }
 
 function mapKindToElementType(
@@ -357,14 +414,34 @@ function mapKindToElementType(
   }
 }
 
-function pickZoneForType(
+// Role-aware zone selection. Dividers prefer an "accent" zone when available
+// so they sit between content blocks; icon-groups prefer being adjacent to
+// text (badge/cta zones); accents lean toward badge/logo. Falls back to the
+// contract's allowed zones when the preferred zone isn't active.
+function pickZoneForRole(
   type:        AssetElementType,
+  role:        AssetRole,
   activeZones: readonly ZoneId[],
   usedZones:   Set<ZoneId>,
 ): ZoneId | null {
   const allowed = ASSET_CONTRACTS[type].allowedZones.filter(z => activeZones.includes(z));
-  // Prefer unused zones to avoid stacking assets on top of existing ones.
-  return allowed.find(z => !usedZones.has(z)) ?? allowed[0] ?? null;
+  if (allowed.length === 0) return null;
+
+  const rolePreferences: Record<AssetRole, ZoneId[]> = {
+    background:   ["background"],
+    divider:      ["accent", "badge", "background"],
+    support:      ["image"],
+    "icon-group": ["cta", "badge", "logo"],
+    accent:       ["badge", "logo", "accent", "cta"],
+  };
+
+  const preferred = rolePreferences[role].filter(z => allowed.includes(z));
+  // Prefer unused zones first, then used as a last resort.
+  return preferred.find(z => !usedZones.has(z))
+      ?? preferred[0]
+      ?? allowed.find(z => !usedZones.has(z))
+      ?? allowed[0]
+      ?? null;
 }
 
 function defaultCoverageForType(type: AssetElementType): number {
@@ -377,16 +454,107 @@ function defaultCoverageForType(type: AssetElementType): number {
   }
 }
 
+// Map a library asset kind to the role it should play in a composition.
+// Shapes surface as dividers (ribbons/bursts/arrows between blocks); icons
+// become an icon-group beside text; textures sit behind everything; photos
+// and illustrations play the supporting hero role.
+function roleForLibraryKind(kind: AssetKind): AssetRole {
+  switch (kind) {
+    case "texture":      return "background";
+    case "illustration": return "support";
+    case "photo":        return "support";
+    case "icon":         return "icon-group";
+    case "shape":        return "divider";
+  }
+}
+
+// Fill in role-derived composition fields (anchor, scale, alignment, layer)
+// and clamp coverage into the role's allowed range. Every placement in the
+// plan goes through this so the rules apply uniformly.
+function decorate(
+  base: Omit<ElementPlacement, "role" | "anchor" | "scale" | "alignment" | "layer">,
+  role: AssetRole,
+  overrides?: Partial<Pick<ElementPlacement, "anchor" | "scale" | "alignment">>,
+): ElementPlacement {
+  const rule = ROLE_RULES[role];
+  const scale = overrides?.scale ?? 1;
+  const [minCov, maxCov] = rule.coverage;
+  const clampedCoverage = Math.min(maxCov, Math.max(minCov, base.coverageHint * scale));
+  return {
+    ...base,
+    role,
+    anchor:    overrides?.anchor    ?? rule.defaultAnchor,
+    scale,
+    alignment: overrides?.alignment ?? rule.alignment,
+    // Layer combines role base + contract weight so foreground element types
+    // within the same role sit above back-of-role peers without reordering.
+    layer:     rule.layer + base.weight,
+    coverageHint: clampedCoverage,
+  };
+}
+
+// Stable sort: lower layer renders first (behind), higher layer renders last.
+function sortByLayer(els: ElementPlacement[]): ElementPlacement[] {
+  return els
+    .map((el, i) => ({ el, i }))
+    .sort((a, b) => a.el.layer - b.el.layer || a.i - b.i)
+    .map(x => x.el);
+}
+
+// A text-zone is any active zone that carries copy. We keep decorative
+// visual elements proportional to the amount of text so templates never
+// drown text in imagery.
+const TEXT_ZONES: ZoneId[] = [
+  "headline", "subhead", "body", "cta", "tagline", "badge", "price", "legal",
+  "name", "title", "company", "contact", "section_header",
+  "bullet_1", "bullet_2", "bullet_3",
+];
+
+// Drop the least-essential decorative visuals until there are at most
+// ~1.5× as many accent/divider/icon-group visuals as text zones. Core
+// elements (background, support hero) are never dropped.
+function enforceTextVisualBalance(
+  els:         ElementPlacement[],
+  activeZones: readonly ZoneId[],
+  reasoning:   string[],
+): ElementPlacement[] {
+  const textZoneCount = activeZones.filter(z => TEXT_ZONES.includes(z)).length;
+  const decorativeRoles: AssetRole[] = ["accent", "divider", "icon-group"];
+  const isDecorative = (e: ElementPlacement) => decorativeRoles.includes(e.role);
+  const maxDecorative = Math.max(1, Math.ceil(textZoneCount * 1.5));
+
+  const result = [...els];
+  while (result.filter(isDecorative).length > maxDecorative) {
+    // Drop the highest-layer decorative (least structurally important) first.
+    const candidates = result.filter(isDecorative)
+      .sort((a, b) => b.layer - a.layer);
+    const victim = candidates[0];
+    if (!victim) break;
+    const idx = result.indexOf(victim);
+    result.splice(idx, 1);
+    reasoning.push(
+      `balance: dropped ${victim.type} (role=${victim.role}) — decorative cap ${maxDecorative} for ${textZoneCount} text zones`
+    );
+  }
+  return result;
+}
+
 // ── Composition prompt fragment ───────────────────────────────────────────────
-// Builds the element roster text that's injected into the SVG AI prompt
+// Builds the element roster text that's injected into the SVG AI prompt.
+// Exposes role, anchor, and scale so the AI respects placement intent.
 export function compositionToPromptFragment(plan: CompositionPlan): string {
   const lines = [
     "COMPOSITION ELEMENTS (respect these placements exactly):",
   ];
 
-  for (const el of plan.elements) {
+  // Sorted back-to-front so the roster reads in paint order.
+  for (const el of sortByLayer(plan.elements)) {
     if (el.type === "overlay") continue; // handled separately in renderer
-    lines.push(`  • [${el.type.toUpperCase()} → zone=${el.zone}] ${el.prompt}`);
+    const coveragePct = Math.round(el.coverageHint * 100);
+    lines.push(
+      `  • [${el.type.toUpperCase()} role=${el.role} zone=${el.zone} anchor=${el.anchor} ` +
+      `coverage≈${coveragePct}% align=${el.alignment} layer=${el.layer}] ${el.prompt}`
+    );
   }
 
   if (plan.isGifCompatible) {
