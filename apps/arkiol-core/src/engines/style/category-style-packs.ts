@@ -39,6 +39,8 @@ export interface CategoryStylePack {
   preferUppercase: boolean;
   /** Letter-spacing adjustment for headlines (-0.03 = tight, 0.02 = tracked out) */
   headlineLetterSpacing: number;
+  /** Headline font weight override (0 = use theme default) */
+  headlineWeight: 0 | 300 | 400 | 600 | 700 | 800 | 900;
 
   // ── Background treatment ──────────────────────────────────────────────────
   /** Which background kinds work best for this category */
@@ -79,6 +81,7 @@ const PRODUCTIVITY_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.0,
   preferUppercase: false,
   headlineLetterSpacing: -0.02,
+  headlineWeight: 600,
   preferredBgKinds: ["solid", "linear_gradient"],
   accentIntensity: "subtle",
   ctaRadiusBias: "rounded",
@@ -100,6 +103,7 @@ const WELLNESS_PACK: CategoryStylePack = {
   headlineSizeBoost: 0.95,
   preferUppercase: false,
   headlineLetterSpacing: -0.01,
+  headlineWeight: 300,
   preferredBgKinds: ["linear_gradient", "solid"],
   accentIntensity: "subtle",
   ctaRadiusBias: "pill",
@@ -121,6 +125,7 @@ const EDUCATION_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.05,
   preferUppercase: false,
   headlineLetterSpacing: -0.015,
+  headlineWeight: 600,
   preferredBgKinds: ["solid", "linear_gradient"],
   accentIntensity: "moderate",
   ctaRadiusBias: "rounded",
@@ -142,6 +147,7 @@ const BUSINESS_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.05,
   preferUppercase: false,
   headlineLetterSpacing: -0.025,
+  headlineWeight: 700,
   preferredBgKinds: ["linear_gradient", "solid"],
   accentIntensity: "subtle",
   ctaRadiusBias: "sharp",
@@ -163,6 +169,7 @@ const BEAUTY_PACK: CategoryStylePack = {
   headlineSizeBoost: 0.95,
   preferUppercase: false,
   headlineLetterSpacing: -0.005,
+  headlineWeight: 300,
   preferredBgKinds: ["linear_gradient", "solid", "radial_gradient"],
   accentIntensity: "subtle",
   ctaRadiusBias: "pill",
@@ -184,6 +191,7 @@ const FITNESS_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.15,
   preferUppercase: true,
   headlineLetterSpacing: 0.02,
+  headlineWeight: 900,
   preferredBgKinds: ["mesh", "linear_gradient", "solid"],
   accentIntensity: "bold",
   ctaRadiusBias: "sharp",
@@ -205,6 +213,7 @@ const TRAVEL_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.1,
   preferUppercase: false,
   headlineLetterSpacing: -0.02,
+  headlineWeight: 700,
   preferredBgKinds: ["linear_gradient", "mesh"],
   accentIntensity: "moderate",
   ctaRadiusBias: "pill",
@@ -226,6 +235,7 @@ const MOTIVATION_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.2,
   preferUppercase: true,
   headlineLetterSpacing: 0.01,
+  headlineWeight: 800,
   preferredBgKinds: ["linear_gradient", "mesh", "solid"],
   accentIntensity: "moderate",
   ctaRadiusBias: "sharp",
@@ -247,6 +257,7 @@ const MARKETING_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.15,
   preferUppercase: true,
   headlineLetterSpacing: 0.0,
+  headlineWeight: 800,
   preferredBgKinds: ["mesh", "linear_gradient"],
   accentIntensity: "bold",
   ctaRadiusBias: "pill",
@@ -268,6 +279,7 @@ const FOOD_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.05,
   preferUppercase: false,
   headlineLetterSpacing: -0.01,
+  headlineWeight: 700,
   preferredBgKinds: ["linear_gradient", "solid", "mesh"],
   accentIntensity: "moderate",
   ctaRadiusBias: "rounded",
@@ -289,6 +301,7 @@ const FASHION_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.1,
   preferUppercase: true,
   headlineLetterSpacing: 0.02,
+  headlineWeight: 300,
   preferredBgKinds: ["solid", "linear_gradient"],
   accentIntensity: "subtle",
   ctaRadiusBias: "sharp",
@@ -310,6 +323,7 @@ const TECH_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.1,
   preferUppercase: false,
   headlineLetterSpacing: -0.025,
+  headlineWeight: 600,
   preferredBgKinds: ["mesh", "linear_gradient"],
   accentIntensity: "moderate",
   ctaRadiusBias: "rounded",
@@ -331,6 +345,7 @@ const REALESTATE_PACK: CategoryStylePack = {
   headlineSizeBoost: 1.0,
   preferUppercase: false,
   headlineLetterSpacing: -0.01,
+  headlineWeight: 700,
   preferredBgKinds: ["solid", "linear_gradient"],
   accentIntensity: "subtle",
   ctaRadiusBias: "sharp",

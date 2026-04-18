@@ -97,7 +97,8 @@ export function wrapText(
   fontSize:   number,
   fontFamily: string,
   fontWeight: number,
-  maxWidth:   number
+  maxWidth:   number,
+  lineHeightMultiplier?: number,
 ): WrappedText {
   const words      = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -130,7 +131,7 @@ export function wrapText(
     }
   }
 
-  const lineHeight    = fontSize * 1.25;
+  const lineHeight    = fontSize * (lineHeightMultiplier ?? 1.25);
   const totalHeight   = lines.length * lineHeight;
   const maxLineWidth  = Math.max(
     ...lines.map(l => measureLineWidth(l, fontSize, fontFamily, fontWeight))
@@ -148,7 +149,8 @@ export function measureTextInZone(
   fontWeight: number,
   zone:       Zone,
   canvasW:    number,
-  canvasH:    number
+  canvasH:    number,
+  lineHeightMultiplier?: number,
 ): MeasuredZoneText {
   const zoneWidthPx  = (zone.width  / 100) * canvasW;
   const zoneHeightPx = (zone.height / 100) * canvasH;
@@ -158,10 +160,10 @@ export function measureTextInZone(
   let lo = minFontSize;
   let hi = fontSize;
   let bestFontSize = minFontSize;
-  let bestWrapped  = wrapText(text, minFontSize, fontFamily, fontWeight, zoneWidthPx);
+  let bestWrapped  = wrapText(text, minFontSize, fontFamily, fontWeight, zoneWidthPx, lineHeightMultiplier);
 
   // Fast path: if text fits at requested fontSize, use it
-  const directWrapped = wrapText(text, fontSize, fontFamily, fontWeight, zoneWidthPx);
+  const directWrapped = wrapText(text, fontSize, fontFamily, fontWeight, zoneWidthPx, lineHeightMultiplier);
   if (directWrapped.totalHeight <= zoneHeightPx) {
     bestFontSize = fontSize;
     bestWrapped  = directWrapped;
@@ -169,7 +171,7 @@ export function measureTextInZone(
     // Binary search for largest fitting size
     for (let iter = 0; iter < 12; iter++) {
       const mid     = Math.floor((lo + hi) / 2);
-      const wrapped = wrapText(text, mid, fontFamily, fontWeight, zoneWidthPx);
+      const wrapped = wrapText(text, mid, fontFamily, fontWeight, zoneWidthPx, lineHeightMultiplier);
       if (wrapped.totalHeight <= zoneHeightPx) {
         bestFontSize = mid;
         bestWrapped  = wrapped;

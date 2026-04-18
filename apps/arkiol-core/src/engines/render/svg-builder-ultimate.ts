@@ -103,7 +103,7 @@ interface FontSizeHint {
   hierarchyBias: "headline" | "balanced" | "detail" | "cta";
 }
 
-function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: number, hint?: FontSizeHint): number {
+function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: number, hint?: FontSizeHint, zoneFsMultiplier?: number): number {
   const zH = (zone.height / 100) * canvasH;
   let fill = 0.55;
 
@@ -117,7 +117,6 @@ function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: numb
       if (hint.hierarchyBias === "headline") fill = Math.min(0.95, fill + 0.08);
     }
   } else if (["subhead","tagline"].includes(zoneId)) {
-    // Subheads sit deliberately below headline scale — clear subordination
     fill = 0.56;
     if (hint?.hierarchyBias === "detail") fill = 0.52;
     if (hint && hint.charCount > 80)      fill = 0.48;
@@ -130,6 +129,8 @@ function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: numb
     fill = 0.42;
     if (hint && hint.charCount > 300) fill = 0.38;
   }
+
+  if (zoneFsMultiplier) fill *= zoneFsMultiplier;
 
   let fs = Math.round(zH * fill);
   if (["headline","name","price"].includes(zoneId)) fs = Math.round(fs * hMult);
@@ -379,7 +380,7 @@ export async function buildUltimateSvgContent(
       const zt = resolveZoneTypo(zone.id as ZoneId, typo, theme);
       if (!zt) return [];
       const hint: FontSizeHint = { charCount: text.trim().length, urgency: _briefUrgency, hierarchyBias: _briefHierarchy };
-      const fontSize = targetFontSize(zone, zone.id as ZoneId, dims.height, hMult, hint);
+      const fontSize = targetFontSize(zone, zone.id as ZoneId, dims.height, hMult, hint, zt.fontSizeMultiplier);
       return [{ zoneId:zone.id, text:text.trim(), fontSize, weight:zt.fontWeight, color:zt.color, fontFamily:zt.fontFamily as string }];
     });
 
@@ -424,17 +425,24 @@ function applyCategoryPackOverrides(
   const baseHMult = theme.headlineSizeMultiplier ?? 1.0;
   const boostedHMult = baseHMult * pack.headlineSizeBoost;
 
-  // Determine headline font: prefer pack's display fonts if they match the theme's available set
+  // Determine headline font, then pick body font with typographic contrast (serif vs sans)
   const headlineFont = resolvePackFont(pack.preferredDisplayFonts, theme.typography.display, brand?.fontDisplay);
-  const bodyFont = resolvePackFont(pack.preferredBodyFonts, theme.typography.body);
+  const bodyFont = resolvePackFont(pack.preferredBodyFonts, theme.typography.body, undefined, headlineFont);
+
+  // Uppercase headlines need wider tracking for editorial feel
+  let hLetterSpacing = pack.headlineLetterSpacing;
+  if (pack.preferUppercase && hLetterSpacing < 0.04) {
+    hLetterSpacing = Math.max(hLetterSpacing, 0.05);
+  }
 
   // Build overridden typography
   const headline = {
     ...theme.typography.headline,
     fontFamily: headlineFont,
     fontSizeMultiplier: boostedHMult,
-    letterSpacing: pack.headlineLetterSpacing,
+    letterSpacing: hLetterSpacing,
     ...(pack.preferUppercase ? { textTransform: "uppercase" as const } : {}),
+    ...(pack.headlineWeight ? { fontWeight: pack.headlineWeight } : {}),
   };
 
   const subhead = {
@@ -488,16 +496,26 @@ function applyCategoryPackOverrides(
   };
 }
 
-/** Pick the best font from the pack's preferences, falling back to the theme's default */
+const SERIF_FONTS: ReadonlySet<ThemeFont> = new Set(["Playfair Display", "Cormorant Garamond"]);
+
+function isFontSerif(f: ThemeFont): boolean { return SERIF_FONTS.has(f); }
+
+/** Pick the best font from the pack's preferences, falling back to the theme's default.
+ *  When a pairedWith font is provided, prefer a font that creates typographic contrast
+ *  (serif vs sans-serif) for stronger visual hierarchy. */
 function resolvePackFont(
   preferred: ThemeFont[],
   themeDefault: ThemeFont,
   brandFont?: string,
+  pairedWith?: ThemeFont,
 ): ThemeFont {
-  // Brand font always wins if specified
   if (brandFont) return themeDefault;
-  // Use the first preferred font — all ThemeFont values are registered in the font registry
-  return preferred.length > 0 ? preferred[0] : themeDefault;
+  if (preferred.length === 0) return themeDefault;
+  if (!pairedWith) return preferred[0];
+
+  const pairIsSerif = isFontSerif(pairedWith);
+  const contrasting = preferred.find(f => isFontSerif(f) !== pairIsSerif);
+  return contrasting ?? preferred[0];
 }
 
 // ── SVG Renderer ──────────────────────────────────────────────────────────────
@@ -581,11 +599,12 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
     }
 
     // Standard text zone
-    const m   = measureTextInZone(tc.text, tc.fontSize, tc.fontFamily, tc.weight, zone, width, height);
+    const zt  = resolveZoneTypo(tc.zoneId as ZoneId, typo, theme);
+    const lhMult = zt?.lineHeightMultiplier;
+    const m   = measureTextInZone(tc.text, tc.fontSize, tc.fontFamily, tc.weight, zone, width, height, lhMult);
     const yp  = getSvgLineYPositions(m);
     const fs  = getFontStack(tc.fontFamily);
     const ws  = tc.weight >= 700 ? "bold" : tc.weight >= 600 ? "600" : "normal";
-    const zt  = resolveZoneTypo(tc.zoneId as ZoneId, typo, theme);
     const ls  = zt?.letterSpacing ? ` letter-spacing="${(zt.letterSpacing * m.fontSize).toFixed(2)}"` : "";
     const pl  = (l: string) => zt?.textTransform === "uppercase" ? l.toUpperCase() : l;
     // Text shadow only on headline when sitting over image
