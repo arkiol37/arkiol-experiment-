@@ -53,6 +53,12 @@
   --bg-hover:        rgba(255,255,255,0.05);
   --bg-mesh:         linear-gradient(135deg, #06070d 0%, #0b0d18 50%, #06070d 100%);
 
+  /* ── Editor workspace (pasteboard) ── */
+  --workspace-bg:         #12141c;
+  --workspace-bg-accent:  radial-gradient(ellipse at 50% 40%, rgba(124,127,250,0.035), transparent 65%);
+  --workspace-divider:    inset 1px 0 0 rgba(0,0,0,0.35);
+  --artboard-shadow:      0 1px 0 rgba(255,255,255,0.05) inset, 0 0 0 1px rgba(0,0,0,0.45), 0 24px 60px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
+
   /* ── Borders ── */
   --border:          rgba(255,255,255,0.068);
   --border-strong:   rgba(255,255,255,0.12);

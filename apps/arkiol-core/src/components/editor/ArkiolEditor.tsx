@@ -881,7 +881,7 @@ export function ArkiolEditor({
       </div>
 
       {/* ── CENTER ── */}
-      <div ref={containerRef} style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",alignItems:"center",background:"var(--bg-base)",backgroundImage:"radial-gradient(circle at 30% 20%,rgba(124,127,250,0.03),transparent 60%)",cursor:isPanning?"grabbing":spaceDown?"grab":commentMode?"crosshair":"default",position:"relative",userSelect:isPanning?"none":"auto"}}
+      <div ref={containerRef} style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column",alignItems:"stretch",background:"var(--workspace-bg)",boxShadow:"inset 1px 0 0 rgba(0,0,0,0.4), inset -1px 0 0 rgba(0,0,0,0.4)",cursor:isPanning?"grabbing":spaceDown?"grab":commentMode?"crosshair":"default",position:"relative",userSelect:isPanning?"none":"auto",minWidth:0}}
         onMouseDown={onContDown} onMouseMove={onContMove} onMouseUp={onContUp}
         onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f?.type.startsWith("image/"))handleFileUpload(f);}}
         onDragOver={e=>e.preventDefault()}>
@@ -960,7 +960,7 @@ export function ArkiolEditor({
         )}
 
         {/* Canvas area */}
-        <div style={{flex:1,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:48,position:"relative",width:"100%",boxSizing:"border-box"}}>
+        <div style={{flex:1,minHeight:0,overflow:"auto",display:"flex",alignItems:"center",justifyContent:"center",padding:"72px 88px",position:"relative",width:"100%",boxSizing:"border-box",backgroundImage:"var(--workspace-bg-accent)"}}>
           <div style={{position:"relative",flexShrink:0}}>
             {state.rulerVisible&&(
               <div style={{position:"absolute",top:-RULER_SIZE,left:0,width:state.canvasW*zoom,height:RULER_SIZE,background:"var(--bg-elevated)",borderBottom:"1px solid var(--border)",overflow:"hidden",fontSize:8,color:"var(--text-muted)",fontFamily:"var(--font-mono)",userSelect:"none"}}>
@@ -972,7 +972,7 @@ export function ArkiolEditor({
                 {vTicks.map(t=><span key={t} style={{position:"absolute",top:t*zoom,transform:"translateY(-50%)",left:1,writingMode:"vertical-rl"}}>{t}</span>)}
               </div>
             )}
-            <div ref={canvasRef} style={{position:"relative",width:state.canvasW*zoom,height:state.canvasH*zoom,background:isGradBg?undefined:state.bgColor,backgroundImage:isGradBg?state.bgColor:undefined,overflow:"hidden",flexShrink:0,boxShadow:"0 0 0 1px rgba(255,255,255,0.06),0 20px 70px rgba(0,0,0,0.7)",borderRadius:2}}
+            <div ref={canvasRef} style={{position:"relative",width:state.canvasW*zoom,height:state.canvasH*zoom,background:isGradBg?undefined:state.bgColor,backgroundImage:isGradBg?state.bgColor:undefined,overflow:"hidden",flexShrink:0,boxShadow:"var(--artboard-shadow)",borderRadius:3}}
               onMouseDown={onCanvasDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp} onContextMenu={e=>e.preventDefault()}>
               {state.gridVisible&&(
                 <svg style={{position:"absolute",inset:0,pointerEvents:"none",zIndex:1}} width="100%" height="100%">
