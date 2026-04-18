@@ -6,7 +6,7 @@
 import React, {
   useState, useRef, useCallback, useEffect, useLayoutEffect, useReducer, useMemo,
 } from "react";
-import { fitZoom } from "./CanvasViewport";
+import { fitZoom, zoomStepUp, zoomStepDown, clampZoom, ZOOM_MIN, ZOOM_MAX } from "./CanvasViewport";
 
 export type ElementType = "text" | "image" | "rect" | "ellipse" | "line";
 export type BlendMode = "normal"|"multiply"|"screen"|"overlay"|"darken"|"lighten"|"color-dodge"|"color-burn"|"difference"|"exclusion";
@@ -478,6 +478,12 @@ export function ArkiolEditor({
     return `linear-gradient(${gradAngle}deg,${gradStops.map(s=>`${s.color} ${s.offset}%`).join(",")})`;
   },[gradAngle,gradStops]);
 
+  const doFitZoom=useCallback(()=>{
+    const el=containerRef.current;
+    if(el){const r=el.getBoundingClientRect();setZoom(fitZoom(state.canvasW,state.canvasH,r.width-80,r.height-80));}
+    else setZoom(fitZoom(state.canvasW,state.canvasH));
+  },[state.canvasW,state.canvasH]);
+
   // Feature 19: Zoom to selection (F / Z keys)
   const zoomToSel=useCallback(()=>{
     if(!selEls.length)return;
@@ -485,7 +491,7 @@ export function ArkiolEditor({
     const maxX=Math.max(...selEls.map(e=>e.x+e.width)),maxY=Math.max(...selEls.map(e=>e.y+e.height));
     const cont=containerRef.current;if(!cont)return;
     const elW=maxX-minX,elH=maxY-minY;if(elW<1||elH<1)return;
-    const newZ=Math.min(3,Math.max(0.08,Math.min((cont.clientWidth-96)/elW,(cont.clientHeight-96)/elH)*0.85));
+    const newZ=clampZoom(Math.min((cont.clientWidth-96)/elW,(cont.clientHeight-96)/elH)*0.85);
     setZoom(newZ);
     setTimeout(()=>{
       const c=canvasRef.current;if(!c)return;
@@ -535,7 +541,7 @@ export function ArkiolEditor({
   // Wheel zoom
   useEffect(()=>{
     const el=containerRef.current;if(!el)return;
-    const onWheel=(e:WheelEvent)=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();setZoom(z=>Math.min(3,Math.max(0.08,+(z*(e.deltaY>0?0.9:1.1)).toFixed(2))));};
+    const onWheel=(e:WheelEvent)=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();const f=e.deltaY>0?0.92:1.08;setZoom(z=>clampZoom(z*f));};
     el.addEventListener("wheel",onWheel,{passive:false});
     return()=>el.removeEventListener("wheel",onWheel);
   },[]);
@@ -883,11 +889,10 @@ export function ArkiolEditor({
         {/* Toolbar */}
         <div style={{width:"100%",borderBottom:"1px solid var(--border)",background:"var(--bg-surface)",display:"flex",alignItems:"center",gap:4,padding:"5px 10px",flexShrink:0,flexWrap:"wrap",position:"sticky",top:0,zIndex:100}}>
           <div style={{display:"flex",alignItems:"center",gap:1,background:"var(--bg-elevated)",borderRadius:6,padding:"2px",border:"1px solid var(--border)"}}>
-            <TinyBtn onClick={()=>setZoom(z=>Math.max(0.08,+(z-0.1).toFixed(2)))}>−</TinyBtn>
-            <span onClick={()=>setZoom(1)} style={{fontSize:11,minWidth:38,textAlign:"center",color:"var(--text-secondary)",fontFamily:"var(--font-mono)",cursor:"pointer",padding:"0 2px"}}>{Math.round(zoom*100)}%</span>
-            <TinyBtn onClick={()=>setZoom(z=>Math.min(3,+(z+0.1).toFixed(2)))}>+</TinyBtn>
-            <TinyBtn onClick={()=>{const el=containerRef.current;if(el){const r=el.getBoundingClientRect();setZoom(fitZoom(state.canvasW,state.canvasH,r.width-80,r.height-80));}else{setZoom(fitZoom(state.canvasW,state.canvasH));}}} title="Fit to screen">⊡</TinyBtn>
-            {/* Feature 19: Zoom to selection */}
+            <TinyBtn onClick={()=>setZoom(z=>zoomStepDown(z))}>−</TinyBtn>
+            <span onClick={()=>{const atFull=Math.abs(zoom-1)<0.02;if(atFull)doFitZoom();else setZoom(1);}} style={{fontSize:11,minWidth:38,textAlign:"center",color:"var(--text-secondary)",fontFamily:"var(--font-mono)",cursor:"pointer",padding:"0 2px"}} title="Toggle 100% / Fit">{Math.round(zoom*100)}%</span>
+            <TinyBtn onClick={()=>setZoom(z=>zoomStepUp(z))}>+</TinyBtn>
+            <TinyBtn onClick={doFitZoom} title="Fit to screen">⊡</TinyBtn>
             <TinyBtn onClick={zoomToSel} title="Zoom to selection (F/Z)">⊕</TinyBtn>
           </div>
           <VSep/>
@@ -1810,7 +1815,9 @@ function SettingsPanel({state,dispatch,zoom,setZoom}:{state:EditorState;dispatch
       <Row>
         <TinyBtn onClick={()=>setZoom(0.25)}>25%</TinyBtn>
         <TinyBtn onClick={()=>setZoom(0.5)}>50%</TinyBtn>
+        <TinyBtn onClick={()=>setZoom(0.75)}>75%</TinyBtn>
         <TinyBtn onClick={()=>setZoom(1)}>100%</TinyBtn>
+        <TinyBtn onClick={()=>setZoom(1.5)}>150%</TinyBtn>
         <TinyBtn onClick={()=>setZoom(2)}>200%</TinyBtn>
       </Row>
     </div>

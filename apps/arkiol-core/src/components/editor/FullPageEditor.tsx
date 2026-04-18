@@ -10,7 +10,7 @@ import React, { useState, useCallback, useEffect, useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { SmartExportModal } from "./SmartExportModal";
-import { CanvasViewport, fitZoom } from "./CanvasViewport";
+import { CanvasViewport, fitZoom, zoomStepUp, zoomStepDown } from "./CanvasViewport";
 import { FORMAT_DIMS, CATEGORY_LABELS, type ArkiolCategory } from "../../lib/types";
 
 const ArkiolEditor = dynamic(
@@ -92,18 +92,19 @@ export function FullPageEditor() {
 
         {/* Zoom controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <ZoomBtn onClick={() => setZoom(z => Math.max(0.08, +(z - 0.1).toFixed(2)))}>−</ZoomBtn>
+          <ZoomBtn onClick={() => setZoom(z => zoomStepDown(z))}>−</ZoomBtn>
           <span
-            onClick={() => setZoom(1)}
+            onClick={() => { const atFull = Math.abs(zoom - 1) < 0.02; if (atFull) setZoom(fitZoom(dims.width, dims.height)); else setZoom(1); }}
             style={{
               fontSize: 11, minWidth: 44, textAlign: "center",
               color: "var(--text-secondary)", fontFamily: "var(--font-mono)",
               cursor: "pointer", padding: "2px 4px", userSelect: "none",
             }}
+            title="Toggle 100% / Fit"
           >
             {Math.round(zoom * 100)}%
           </span>
-          <ZoomBtn onClick={() => setZoom(z => Math.min(3, +(z + 0.1).toFixed(2)))}>+</ZoomBtn>
+          <ZoomBtn onClick={() => setZoom(z => zoomStepUp(z))}>+</ZoomBtn>
           <ZoomBtn onClick={() => setZoom(fitZoom(dims.width, dims.height))} title="Fit to screen">⊡</ZoomBtn>
         </div>
 

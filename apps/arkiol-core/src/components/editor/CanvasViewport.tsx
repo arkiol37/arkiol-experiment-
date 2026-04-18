@@ -10,11 +10,32 @@
 
 import React, { useRef, useCallback, useEffect } from "react";
 
+// ── Zoom constants ────────────────────────────────────────────────────────
+export const ZOOM_MIN = 0.05;
+export const ZOOM_MAX = 4.0;
+
+export const ZOOM_STOPS = [
+  0.05, 0.10, 0.15, 0.25, 0.33, 0.50, 0.67, 0.75,
+  1.0, 1.25, 1.5, 2.0, 3.0, 4.0,
+];
+
+export function zoomStepUp(current: number): number {
+  for (const s of ZOOM_STOPS) { if (s > current + 0.005) return s; }
+  return ZOOM_MAX;
+}
+
+export function zoomStepDown(current: number): number {
+  for (let i = ZOOM_STOPS.length - 1; i >= 0; i--) {
+    if (ZOOM_STOPS[i] < current - 0.005) return ZOOM_STOPS[i];
+  }
+  return ZOOM_MIN;
+}
+
+export function clampZoom(z: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, +z.toFixed(3)));
+}
+
 // ── Fit zoom calculation ───────────────────────────────────────────────────
-// Computes the zoom level that fits the canvas inside the available viewport
-// with breathing room on all sides. When called with explicit viewport
-// dimensions (from a measured container), uses those; otherwise estimates
-// from window.innerWidth/Height minus chrome offsets.
 
 export function fitZoom(
   canvasWidth: number,
@@ -27,9 +48,7 @@ export function fitZoom(
   if (vw <= 0 || vh <= 0) return 0.35;
   const scaleX = vw / canvasWidth;
   const scaleY = vh / canvasHeight;
-  // Cap at 1.0 so we never upscale beyond native resolution, floor at 0.08
-  const raw = Math.min(scaleX, scaleY, 1.0);
-  return Math.max(0.08, +raw.toFixed(3));
+  return clampZoom(Math.min(scaleX, scaleY, 1.0));
 }
 
 // ── Props ──────────────────────────────────────────────────────────────────
@@ -62,7 +81,7 @@ export function CanvasViewport({
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.92 : 1.08;
-      onZoomChange(z => Math.min(3, Math.max(0.05, +(z * factor).toFixed(3))));
+      onZoomChange(z => clampZoom(z * factor));
     };
 
     el.addEventListener("wheel", handleWheel, { passive: false });
