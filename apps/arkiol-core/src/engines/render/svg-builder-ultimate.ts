@@ -24,6 +24,7 @@ import { getCategoryKit, mergeKitDecorations } from "../style/category-template-
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { buildSectionFrames } from "./section-frames";
 import { enforceStrictTypographyHierarchy, type TypographyItem } from "../hierarchy/strict-typography";
+import { computeTextInset, refinedLineHeight } from "./text-rhythm";
 import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
@@ -142,30 +143,8 @@ function targetFontSize(zone: Zone, zoneId: ZoneId, canvasH: number, hMult: numb
   return Math.min(hi, Math.max(lo, fs));
 }
 
-function computeLineHeight(fontSize: number, zoneId: string, themeMultiplier?: number): number {
-  if (themeMultiplier) return fontSize * themeMultiplier;
-
-  // Headlines: tight leading for display impact
-  if (zoneId === "headline" || zoneId === "name") {
-    if (fontSize >= 80) return fontSize * 1.02;
-    if (fontSize >= 60) return fontSize * 1.08;
-    if (fontSize >= 42) return fontSize * 1.12;
-    return fontSize * 1.18;
-  }
-  // Subheads: slightly looser than headlines for visual separation
-  if (zoneId === "subhead" || zoneId === "tagline") {
-    return fontSize * 1.3;
-  }
-  // Body: comfortable reading rhythm
-  if (zoneId === "body" || zoneId === "body_text") {
-    return fontSize * 1.55;
-  }
-  // Small labels
-  if (zoneId === "eyebrow" || zoneId === "badge") {
-    return fontSize * 1.2;
-  }
-  return fontSize * 1.25;
-}
+// Line-height policy moved to text-rhythm.refinedLineHeight —
+// role-aware and size-aware with better body/bullet defaults.
 
 export async function buildUltimateSvgContent(
   zones: Zone[], brief: BriefAnalysis, format: string,
@@ -623,8 +602,12 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
 
     // Standard text zone
     const zt  = resolveZoneTypo(tc.zoneId as ZoneId, typo, theme);
-    const lhMult = zt?.lineHeightMultiplier;
-    const m   = measureTextInZone(tc.text, tc.fontSize, tc.fontFamily, tc.weight, zone, width, height, lhMult);
+    // Compute the effective line-height multiplier so measurement and render
+    // share the same leading — otherwise text measured at 1.25 but rendered
+    // at 1.55 can overflow the zone.
+    const effectiveLhMult = refinedLineHeight(tc.fontSize, tc.zoneId, zt?.lineHeightMultiplier) / tc.fontSize;
+    const inset = computeTextInset(zone, tc.zoneId, width, height);
+    const m   = measureTextInZone(tc.text, tc.fontSize, tc.fontFamily, tc.weight, zone, width, height, effectiveLhMult, inset);
     const yp  = getSvgLineYPositions(m);
     const fs  = getFontStack(tc.fontFamily);
     const ws  = tc.weight >= 700 ? "bold" : tc.weight >= 600 ? "600" : "normal";
@@ -634,8 +617,9 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
     const pl  = (l: string) => tt === "uppercase" ? l.toUpperCase() : l;
     // Text shadow only on headline when sitting over image
     const fa  = (tc.zoneId === "headline" && hasImg && (content.overlayOpacity ?? 0) > 0.1) ? ` filter="url(#txt_sh)"` : "";
-    // Zone-aware line height — editorial rhythm varies by zone purpose
-    const lh  = computeLineHeight(m.fontSize, tc.zoneId, zt?.lineHeightMultiplier);
+    // Zone-aware line height — editorial rhythm varies by zone purpose.
+    // Uses the POST-measurement fontSize so shrunken text still reads well.
+    const lh  = refinedLineHeight(m.fontSize, tc.zoneId, zt?.lineHeightMultiplier);
     const tspans = m.lines.map((l,i) =>
       `<tspan x="${f(m.textAnchorX)}" dy="${i===0 ? "0" : f(lh)}">${escSvg(pl(l))}</tspan>`
     );

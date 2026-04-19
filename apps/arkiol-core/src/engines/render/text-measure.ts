@@ -16,6 +16,9 @@ import { REGISTERED_CHAR_WIDTH_RATIOS } from "./font-registry";
 // Ultimate font ratios — Google Fonts (Montserrat, Playfair Display, etc.)
 // Merged here so measureTextInZone works correctly for both base and Ultimate themes.
 import { ULTIMATE_CHAR_WIDTH_RATIOS } from "./font-registry-ultimate";
+// rebalanceShortTail is imported lazily inside wrapText to avoid a circular
+// import at module-evaluation time (text-rhythm depends on measureLineWidth).
+import type { rebalanceShortTail as RebalanceFn } from "./text-rhythm";
 
 // Combined lookup: Ultimate fonts take precedence when present, base fonts as fallback.
 const ALL_CHAR_WIDTH_RATIOS: Record<string, number> = {
@@ -101,7 +104,7 @@ export function wrapText(
   lineHeightMultiplier?: number,
 ): WrappedText {
   const words      = text.split(/\s+/).filter(Boolean);
-  const lines: string[] = [];
+  let lines: string[] = [];
   let currentLine  = "";
 
   for (const word of words) {
@@ -117,19 +120,11 @@ export function wrapText(
   }
   if (currentLine) lines.push(currentLine);
 
-  // Orphan prevention: if the last line has a single short word, pull one
-  // word down from the previous line to balance the visual weight.
-  if (lines.length >= 2) {
-    const lastLine = lines[lines.length - 1];
-    const prevLine = lines[lines.length - 2];
-    const lastWords = lastLine.split(/\s+/);
-    const prevWords = prevLine.split(/\s+/);
-    if (lastWords.length === 1 && lastWords[0].length <= 6 && prevWords.length >= 3) {
-      const pulled = prevWords.pop()!;
-      lines[lines.length - 2] = prevWords.join(" ");
-      lines[lines.length - 1] = `${pulled} ${lastLine}`;
-    }
-  }
+  // Widow/orphan rebalance — deferred require to break the circular dep
+  // (text-rhythm calls measureLineWidth exported from this module).
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const rebalanceShortTail: typeof RebalanceFn = require("./text-rhythm").rebalanceShortTail;
+  lines = rebalanceShortTail(lines, fontSize, fontFamily, fontWeight, maxWidth);
 
   const lineHeight    = fontSize * (lineHeightMultiplier ?? 1.25);
   const totalHeight   = lines.length * lineHeight;
@@ -151,9 +146,12 @@ export function measureTextInZone(
   canvasW:    number,
   canvasH:    number,
   lineHeightMultiplier?: number,
+  inset?:     { x: number; y: number },
 ): MeasuredZoneText {
-  const zoneWidthPx  = (zone.width  / 100) * canvasW;
-  const zoneHeightPx = (zone.height / 100) * canvasH;
+  const insetX = Math.max(0, inset?.x ?? 0);
+  const insetY = Math.max(0, inset?.y ?? 0);
+  const zoneWidthPx  = Math.max(1, (zone.width  / 100) * canvasW - insetX * 2);
+  const zoneHeightPx = Math.max(1, (zone.height / 100) * canvasH - insetY * 2);
   const minFontSize  = zone.minFontSize ?? 8;
 
   // Binary search: find largest fontSize that fits
@@ -192,25 +190,25 @@ export function measureTextInZone(
 
   switch (zone.alignH) {
     case "center":
-      textAnchorX   = zoneX + zoneWidthPx / 2;
+      textAnchorX   = zoneX + insetX + zoneWidthPx / 2;
       canvasAlign   = "center";
       svgTextAnchor = "middle";
       break;
     case "right":
-      textAnchorX   = zoneX + zoneWidthPx;
+      textAnchorX   = zoneX + insetX + zoneWidthPx;
       canvasAlign   = "right";
       svgTextAnchor = "end";
       break;
     default: // "left"
-      textAnchorX   = zoneX;
+      textAnchorX   = zoneX + insetX;
       canvasAlign   = "left";
       svgTextAnchor = "start";
   }
 
-  // Vertical baseline — start from top of zone, center text block
+  // Vertical baseline — start from top of zone (+ inset), center text block
   const blockHeight = bestWrapped.totalHeight;
   const topPad      = (zoneHeightPx - blockHeight) / 2;
-  const baselineY   = zoneY + Math.max(0, topPad) + bestFontSize; // first baseline
+  const baselineY   = zoneY + insetY + Math.max(0, topPad) + bestFontSize; // first baseline
 
   return {
     lines:         bestWrapped.lines,
