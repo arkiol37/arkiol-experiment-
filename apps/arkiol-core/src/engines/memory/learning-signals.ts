@@ -17,6 +17,11 @@ import {
 export interface LearningBias {
   themeBoosts: Record<string, number>;
   layoutBoosts: Record<string, number>;
+  // Step 33: category-specific quality signal. Positive if the
+  // categoryPackId's recent generations outperformed the global mean.
+  // Callers can use it to boost the confidence they apply when a brief
+  // lands in a historically-strong category.
+  categoryBoosts: Record<string, number>;
   confidence: number;
 }
 
@@ -30,15 +35,18 @@ export function computeLearningBias(filter: LedgerFilter = {}): LearningBias {
   const records = getRecentGenerations(filter, 100);
 
   if (records.length < MIN_RECORDS_FOR_BIAS) {
-    return { themeBoosts: {}, layoutBoosts: {}, confidence: 0 };
+    return { themeBoosts: {}, layoutBoosts: {}, categoryBoosts: {}, confidence: 0 };
   }
 
-  const themeBoosts = computeBoosts(records, r => r.themeId);
-  const layoutBoosts = computeBoosts(records, r => r.layoutFamily);
+  const themeBoosts    = computeBoosts(records, r => r.themeId);
+  const layoutBoosts   = computeBoosts(records, r => r.layoutFamily);
+  // Records without a categoryPackId are skipped via empty-string guard
+  // inside computeBoosts; empty keys don't surface in the returned map.
+  const categoryBoosts = computeBoosts(records, r => r.categoryPackId ?? "");
 
   const confidence = Math.min(1, records.length / 50);
 
-  return { themeBoosts, layoutBoosts, confidence };
+  return { themeBoosts, layoutBoosts, categoryBoosts, confidence };
 }
 
 function computeBoosts(
@@ -49,6 +57,9 @@ function computeBoosts(
 
   for (const r of records) {
     const key = keyFn(r);
+    // Skip empty keys so the category-boost map doesn't accumulate an ""
+    // bucket for records without a categoryPackId.
+    if (!key) continue;
     const entry = grouped.get(key) ?? { totalSignal: 0, count: 0 };
     entry.count++;
 
@@ -57,6 +68,11 @@ function computeBoosts(
     if (r.feedback) {
       signal += FEEDBACK_WEIGHT[r.feedback];
     }
+
+    // Step 33: user-selected records carry the strongest signal — they
+    // tell us the user actively chose this output from the candidate
+    // batch, which is a stronger statement than any auto-score.
+    if (r.selected) signal += 0.30;
 
     if (r.recoveryCount > 0) signal -= 0.1;
     if (!r.hierarchyValid) signal -= 0.15;

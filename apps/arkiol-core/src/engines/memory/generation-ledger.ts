@@ -24,6 +24,23 @@ export interface GenerationRecord {
   violationCount: number;
   recoveryCount: number;
   feedback?: "positive" | "negative" | "neutral";
+
+  // Step 33: richer memory signals.
+  //
+  // categoryPackId captures which content bucket the brief landed in
+  // (productivity / wellness / business / beauty / travel / marketing /
+  // education / fitness). Used by the category-preference learner to
+  // bias future generations toward the themes + layouts that historically
+  // worked for this category.
+  categoryPackId?: string;
+  // selected is set to true when the user actually picks this generation
+  // from the gallery (via recordSelection below). Strongest positive
+  // signal we have — outranks raw quality scores in the learning bias.
+  selected?: boolean;
+  // Compact visual fingerprint of what the generation actually looked
+  // like (decoration kinds, bg kind, palette primary, depth mix). See
+  // visual-patterns.ts for the shape and retrieval helpers.
+  patternSignature?: unknown;
 }
 
 // ── Ledger storage ──────────────────────────────────────────────────────────
@@ -45,6 +62,21 @@ export function recordFeedback(
   if (!entry) return false;
   entry.feedback = feedback;
   return true;
+}
+
+// Step 33: mark a previously-generated asset as "selected by the user".
+// Intended call site: the gallery UI when the user opens an asset in the
+// editor, exports it, or otherwise commits to it as the chosen result
+// from a batch of candidates. Returns true if the asset was found.
+export function recordSelection(assetId: string): boolean {
+  const entry = _ledger.find(r => r.assetId === assetId);
+  if (!entry) return false;
+  entry.selected = true;
+  return true;
+}
+
+export function isSelected(assetId: string): boolean {
+  return !!_ledger.find(r => r.assetId === assetId)?.selected;
 }
 
 // ── Query ───────────────────────────────────────────────────────────────────
