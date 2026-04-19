@@ -10,7 +10,7 @@ import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useR
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { SmartExportModal } from "./SmartExportModal";
-import { CanvasViewport, fitZoom, zoomStepUp, zoomStepDown, CANVAS_VIEWPORT_CHROME } from "./CanvasViewport";
+import { CanvasViewport, fitZoom, zoomStepUp, zoomStepDown, measureWorkspace } from "./CanvasViewport";
 import { FORMAT_DIMS, CATEGORY_LABELS, type ArkiolCategory } from "../../lib/types";
 
 const ArkiolEditor = dynamic(
@@ -50,33 +50,37 @@ export function FullPageEditor() {
   const [showExportModal, setShowExportModal] = useState(false);
   const [zoom, setZoom] = useState(() => fitZoom(dims.width, dims.height));
 
-  // Step 26: fit the artboard to the *actual* canvas-area container size on
-  // first mount. The initial useState fallback uses window dimensions which
-  // undercount the top bar and any parent chrome; after layout we have a
-  // real rect to measure. Retries on rAF if the container isn't sized yet
-  // (flex layout not settled) instead of silently missing the fit. Re-runs
-  // when the artboard dimensions change (format / size switch).
+  // Step 26 / 27: all "fit to screen" operations measure the actual canvas
+  // area container instead of guessing from window dimensions. doFit() is
+  // the single source of truth — used by the initial post-mount fit, the
+  // Fit button (⊡), the 100%/Fit toggle, and the double-click-pasteboard
+  // reset inside CanvasViewport.
   const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const doFit = useCallback(() => {
+    const measured = measureWorkspace(canvasAreaRef.current);
+    setZoom(
+      measured
+        ? fitZoom(dims.width, dims.height, measured.availW, measured.availH)
+        : fitZoom(dims.width, dims.height),
+    );
+  }, [dims.width, dims.height]);
+
+  // Post-mount fit — retries on rAF when the flex layout hasn't settled
+  // yet. Re-runs when artboard dimensions change (format switch) so the
+  // new canvas is centered on first paint.
   useLayoutEffect(() => {
     let rafId: number | null = null;
     let fitted = false;
     let attempts = 0;
     const tryFit = () => {
       if (fitted) return;
-      const el = canvasAreaRef.current;
-      if (!el) {
-        if (attempts++ < 5) rafId = requestAnimationFrame(tryFit);
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      const availW = rect.width  - CANVAS_VIEWPORT_CHROME;
-      const availH = rect.height - CANVAS_VIEWPORT_CHROME;
-      if (availW <= 0 || availH <= 0) {
+      const measured = measureWorkspace(canvasAreaRef.current);
+      if (!measured) {
         if (attempts++ < 10) rafId = requestAnimationFrame(tryFit);
         return;
       }
       fitted = true;
-      setZoom(fitZoom(dims.width, dims.height, availW, availH));
+      setZoom(fitZoom(dims.width, dims.height, measured.availW, measured.availH));
     };
     tryFit();
     return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
@@ -125,9 +129,9 @@ export function FullPageEditor() {
 
         {/* Zoom controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
-          <ZoomBtn onClick={() => setZoom(z => zoomStepDown(z))}>−</ZoomBtn>
+          <ZoomBtn onClick={() => setZoom(z => zoomStepDown(z))} title="Zoom out">−</ZoomBtn>
           <span
-            onClick={() => { const atFull = Math.abs(zoom - 1) < 0.02; if (atFull) setZoom(fitZoom(dims.width, dims.height)); else setZoom(1); }}
+            onClick={() => { const atFull = Math.abs(zoom - 1) < 0.02; if (atFull) doFit(); else setZoom(1); }}
             style={{
               fontSize: 11, minWidth: 44, textAlign: "center",
               color: "var(--text-secondary)", fontFamily: "var(--font-mono)",
@@ -137,8 +141,8 @@ export function FullPageEditor() {
           >
             {Math.round(zoom * 100)}%
           </span>
-          <ZoomBtn onClick={() => setZoom(z => zoomStepUp(z))}>+</ZoomBtn>
-          <ZoomBtn onClick={() => setZoom(fitZoom(dims.width, dims.height))} title="Fit to screen">⊡</ZoomBtn>
+          <ZoomBtn onClick={() => setZoom(z => zoomStepUp(z))} title="Zoom in">+</ZoomBtn>
+          <ZoomBtn onClick={doFit} title="Fit to screen">⊡</ZoomBtn>
         </div>
 
         <div style={{ width: 1, height: 20, background: "var(--border)" }} />

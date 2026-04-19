@@ -6,7 +6,13 @@
 import React, {
   useState, useRef, useCallback, useEffect, useLayoutEffect, useReducer, useMemo,
 } from "react";
-import { fitZoom, zoomStepUp, zoomStepDown, clampZoom, ZOOM_MIN, ZOOM_MAX, CANVAS_VIEWPORT_CHROME } from "./CanvasViewport";
+import {
+  fitZoom, zoomStepUp, zoomStepDown, clampZoom,
+  ZOOM_MIN, ZOOM_MAX,
+  CANVAS_VIEWPORT_CHROME,
+  ZOOM_WHEEL_FACTOR, ZOOM_WHEEL_DOWN,
+  measureWorkspace,
+} from "./CanvasViewport";
 import { ExportSizeDialog, computeFitRect, type ExportFit, type ExportFormat } from "./ExportSizeDialog";
 
 export type ElementType = "text" | "image" | "rect" | "ellipse" | "line";
@@ -502,20 +508,33 @@ export function ArkiolEditor({
     return `linear-gradient(${gradAngle}deg,${gradStops.map(s=>`${s.color} ${s.offset}%`).join(",")})`;
   },[gradAngle,gradStops]);
 
+  // Step 27: fit-to-screen uses the same measureWorkspace helper as the
+  // post-mount fit so manual Fit clicks always match the initial fit math.
+  // Falls back to the window-based fitZoom only when the ref isn't wired
+  // (shouldn't happen in practice, but keeps the function total).
   const doFitZoom=useCallback(()=>{
-    const el=containerRef.current;
-    if(el){const r=el.getBoundingClientRect();setZoom(fitZoom(state.canvasW,state.canvasH,r.width-80,r.height-80));}
-    else setZoom(fitZoom(state.canvasW,state.canvasH));
+    const measured=measureWorkspace(containerRef.current);
+    setZoom(
+      measured
+        ?fitZoom(state.canvasW,state.canvasH,measured.availW,measured.availH)
+        :fitZoom(state.canvasW,state.canvasH),
+    );
   },[state.canvasW,state.canvasH]);
 
-  // Feature 19: Zoom to selection (F / Z keys)
+  // Feature 19: Zoom to selection (F / Z keys). Uses CANVAS_VIEWPORT_CHROME
+  // for the viewport padding so it stays in sync with the rest of the
+  // zoom math (previously hard-coded to 96 which was close but coupled).
   const zoomToSel=useCallback(()=>{
     if(!selEls.length)return;
     const minX=Math.min(...selEls.map(e=>e.x)),minY=Math.min(...selEls.map(e=>e.y));
     const maxX=Math.max(...selEls.map(e=>e.x+e.width)),maxY=Math.max(...selEls.map(e=>e.y+e.height));
     const cont=containerRef.current;if(!cont)return;
     const elW=maxX-minX,elH=maxY-minY;if(elW<1||elH<1)return;
-    const newZ=clampZoom(Math.min((cont.clientWidth-96)/elW,(cont.clientHeight-96)/elH)*0.85);
+    const availW=cont.clientWidth-CANVAS_VIEWPORT_CHROME;
+    const availH=cont.clientHeight-CANVAS_VIEWPORT_CHROME;
+    if(availW<=0||availH<=0)return;
+    // 0.85 keeps a bit of breathing room around the selection — pro feel.
+    const newZ=clampZoom(Math.min(availW/elW,availH/elH)*0.85);
     setZoom(newZ);
     setTimeout(()=>{
       const c=canvasRef.current;if(!c)return;
@@ -562,10 +581,16 @@ export function ArkiolEditor({
     return()=>{window.removeEventListener("keydown",onKey);window.removeEventListener("keyup",onKeyUp);};
   },[editingId,selEls,state.elements,zoomToSel]);
 
-  // Wheel zoom
+  // Wheel zoom — exact-inverse factors so up-then-down returns to the
+  // starting zoom (the previous 0.92 / 1.08 pair drifted over many ticks).
   useEffect(()=>{
     const el=containerRef.current;if(!el)return;
-    const onWheel=(e:WheelEvent)=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();const f=e.deltaY>0?0.92:1.08;setZoom(z=>clampZoom(z*f));};
+    const onWheel=(e:WheelEvent)=>{
+      if(!e.ctrlKey&&!e.metaKey)return;
+      e.preventDefault();
+      const f=e.deltaY>0?ZOOM_WHEEL_DOWN:ZOOM_WHEEL_FACTOR;
+      setZoom(z=>clampZoom(z*f));
+    };
     el.addEventListener("wheel",onWheel,{passive:false});
     return()=>el.removeEventListener("wheel",onWheel);
   },[]);
