@@ -43,7 +43,7 @@ import {
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./svg-builder-ultimate";
 import { scoreCandidateQuality } from "../evaluation/candidate-quality";
-import { assessDesignQuality, refineDesign } from "../evaluation/candidate-refinement";
+import { assessDesignQuality, refineDesign, runRefinementPasses } from "../evaluation/candidate-refinement";
 import { polishOutput } from "../evaluation/output-polish";
 import { assessProductionReadiness, type ProductionReadinessReport } from "../evaluation/production-readiness";
 import {
@@ -786,15 +786,22 @@ async function renderAssetInner(
       );
 
       if (designReport.overall < DESIGN_QUALITY_FLOOR || designReport.issues.some(i => i.severity === "error")) {
-        const refinement = refineDesign(
+        // Step 24: multi-pass auto-refinement. A single pass can create new
+        // issues (raising a headline to fix hierarchy may cause overflow),
+        // so we iterate until the fix set stabilizes or we hit the pass cap.
+        // Covers contrast, overflow, hierarchy, and clutter fixes; alignment
+        // and balance remain assessed but not auto-fixable at this layer.
+        const refinement = runRefinementPasses(
           buildResult.content as SvgContent,
-          designReport,
           spec.zones,
-          input.format,
+          { format: input.format, maxPasses: 3 },
         );
         if (refinement.actions.length > 0) {
           buildResult = { content: refinement.content, violations: buildResult.violations };
           qualityGateRefined = true;
+          buildResult.violations.push(
+            `refinement:passes=${refinement.passesRun},stabilized=${refinement.stabilized},actions=${refinement.actions.length}`,
+          );
         }
       }
 

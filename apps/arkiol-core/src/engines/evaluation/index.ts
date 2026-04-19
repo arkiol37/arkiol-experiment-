@@ -28,9 +28,12 @@ export {
 export {
   assessDesignQuality,
   refineDesign,
+  runRefinementPasses,
   type DesignQualityReport,
   type QualityIssue,
   type RefinementResult,
+  type RefinementPassOptions,
+  type RefinementPassResult,
 } from "./candidate-refinement";
 
 export {

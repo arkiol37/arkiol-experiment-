@@ -11,6 +11,10 @@ import type { SvgContent } from "../render/svg-builder-ultimate";
 import { FORMAT_DIMS } from "../../lib/types";
 
 // ── Quality report ───────────────────────────────────────────────────────────
+// Step 24 expands the report vocabulary with alignment + clutter so the
+// auto-refinement pass has a full view of template health before final
+// selection. Every scoring dimension pairs with a fix path so detection
+// and repair stay in the same module.
 
 export interface DesignQualityReport {
   contrastCompliance: number;
@@ -19,12 +23,14 @@ export interface DesignQualityReport {
   visualBalance: number;
   hierarchyClarity: number;
   colorHarmony: number;
+  alignmentConsistency: number;
+  clutterScore: number;
   overall: number;
   issues: QualityIssue[];
 }
 
 export interface QualityIssue {
-  type: "contrast" | "overflow" | "spacing" | "balance" | "hierarchy";
+  type: "contrast" | "overflow" | "spacing" | "balance" | "hierarchy" | "alignment" | "clutter";
   severity: "warning" | "error";
   zoneId?: string;
   message: string;
@@ -46,14 +52,26 @@ const LARGE_BOLD_TEXT_PX = 14;
 const OVERFLOW_WARNING = 1.1;
 const OVERFLOW_ERROR = 1.4;
 
+// Step 24: two new dimensions join the weighted composite. Weights retuned
+// so alignment + clutter together carry 12% — enough to matter, not enough
+// to drown the existing dimensions. Sum = 1.00.
 const QUALITY_WEIGHTS = {
-  contrastCompliance: 0.22,
-  overflowRisk:       0.18,
-  spacingQuality:     0.12,
-  visualBalance:      0.12,
-  hierarchyClarity:   0.18,
-  colorHarmony:       0.18,
+  contrastCompliance:   0.20,
+  overflowRisk:         0.16,
+  spacingQuality:       0.12,
+  visualBalance:        0.12,
+  hierarchyClarity:     0.16,
+  colorHarmony:         0.12,
+  alignmentConsistency: 0.06,
+  clutterScore:         0.06,
 };
+
+// Step 24: auto-refinement runs multiple passes because a single fix
+// (shrinking a headline for overflow) can create a new issue (breaking
+// hierarchy). The multi-pass runner (runRefinementPasses below) iterates
+// until the fix set stabilizes or we hit the cap.
+const DEFAULT_MAX_REFINEMENT_PASSES = 3;
+const CLUTTER_DECORATIONS_PER_QUADRANT = 8;
 
 // ── Assessment ───────────────────────────────────────────────────────────────
 
@@ -237,13 +255,85 @@ export function assessDesignQuality(
     else if (hueRange < 60)  colorHarmony = 1.0;
   }
 
+  // ── Alignment consistency (Step 24) ────────────────────────────────────
+  // Text zones that mix alignments — one zone centered, the next left,
+  // the next right — read as inconsistent. We estimate each zone's implied
+  // alignment from its horizontal position and width, then count how many
+  // deviate from the dominant alignment.
+  const alignBuckets: Record<"left" | "center" | "right", number> = {
+    left: 0, center: 0, right: 0,
+  };
+  for (const tc of content.textContents) {
+    if (!tc.text?.trim()) continue;
+    const zone = zoneMap.get(tc.zoneId as ZoneId);
+    if (!zone) continue;
+    const centerX = zone.x + zone.width / 2;
+    if      (centerX < 40) alignBuckets.left++;
+    else if (centerX > 60) alignBuckets.right++;
+    else                   alignBuckets.center++;
+  }
+  const alignTotal = alignBuckets.left + alignBuckets.center + alignBuckets.right;
+  let alignmentConsistency = 1;
+  if (alignTotal >= 2) {
+    const dominant = Math.max(alignBuckets.left, alignBuckets.center, alignBuckets.right);
+    alignmentConsistency = dominant / alignTotal;
+    if (alignmentConsistency < 0.55) {
+      issues.push({
+        type: "alignment", severity: "warning",
+        message: `mixed alignment (left=${alignBuckets.left} center=${alignBuckets.center} right=${alignBuckets.right})`,
+        autoFixable: false,
+      });
+    }
+  }
+
+  // ── Clutter (Step 24) ───────────────────────────────────────────────────
+  // Too many decorations in the same quadrant make a template feel noisy.
+  // Score 1.0 = even distribution; 0 = everything piled in one quadrant.
+  // Decorations without anchor coords (full-bleed layers) are excluded.
+  const theme = content._selectedTheme;
+  const quadrants: number[] = [0, 0, 0, 0];
+  let placedDecos = 0;
+  if (theme && Array.isArray(theme.decorations)) {
+    for (const d of theme.decorations) {
+      const x = typeof (d as any).x  === "number" ? (d as any).x
+               : typeof (d as any).x1 === "number" ? (d as any).x1 : null;
+      const y = typeof (d as any).y  === "number" ? (d as any).y
+               : typeof (d as any).y1 === "number" ? (d as any).y1 : null;
+      if (x === null || y === null) continue;
+      const qi = (y >= 50 ? 2 : 0) + (x >= 50 ? 1 : 0);
+      quadrants[qi]++;
+      placedDecos++;
+    }
+  }
+  let clutterScore = 1;
+  if (placedDecos > 0) {
+    const maxQuad = Math.max(...quadrants);
+    const overflowQuads = quadrants.filter(q => q > CLUTTER_DECORATIONS_PER_QUADRANT).length;
+    // Penalize both absolute overcrowding and share-of-total concentration.
+    const shareOver = maxQuad / placedDecos;
+    const sharePenalty = shareOver > 0.55 ? (shareOver - 0.55) * 1.6 : 0;
+    const countPenalty = overflowQuads > 0
+      ? Math.min(0.5, (maxQuad - CLUTTER_DECORATIONS_PER_QUADRANT) * 0.06)
+      : 0;
+    clutterScore = clamp(1 - sharePenalty - countPenalty, 0, 1);
+    if (clutterScore < 0.55) {
+      issues.push({
+        type: "clutter", severity: "warning",
+        message: `decoration clutter (max quadrant=${maxQuad}, share=${(shareOver * 100).toFixed(0)}%)`,
+        autoFixable: true,
+      });
+    }
+  }
+
   const overall =
-    contrastCompliance * QUALITY_WEIGHTS.contrastCompliance +
-    overflowScore      * QUALITY_WEIGHTS.overflowRisk +
-    spacingScore       * QUALITY_WEIGHTS.spacingQuality +
-    visualBalance      * QUALITY_WEIGHTS.visualBalance +
-    hierarchyClarity   * QUALITY_WEIGHTS.hierarchyClarity +
-    colorHarmony       * QUALITY_WEIGHTS.colorHarmony;
+    contrastCompliance   * QUALITY_WEIGHTS.contrastCompliance +
+    overflowScore        * QUALITY_WEIGHTS.overflowRisk +
+    spacingScore         * QUALITY_WEIGHTS.spacingQuality +
+    visualBalance        * QUALITY_WEIGHTS.visualBalance +
+    hierarchyClarity     * QUALITY_WEIGHTS.hierarchyClarity +
+    colorHarmony         * QUALITY_WEIGHTS.colorHarmony +
+    alignmentConsistency * QUALITY_WEIGHTS.alignmentConsistency +
+    clutterScore         * QUALITY_WEIGHTS.clutterScore;
 
   return {
     contrastCompliance,
@@ -252,6 +342,8 @@ export function assessDesignQuality(
     visualBalance,
     hierarchyClarity,
     colorHarmony,
+    alignmentConsistency,
+    clutterScore,
     overall,
     issues,
   };
@@ -339,6 +431,59 @@ export function refineDesign(
         }
         break;
       }
+
+      case "clutter": {
+        // Step 24: trim the over-dense quadrant until its count drops to
+        // the allowed band. Library-style "premium" decorations are kept
+        // preferentially; generic basic shapes (circle / rect / line /
+        // blob) are the first to go. Decorations without anchor coords
+        // (full-bleed layers) are never dropped.
+        const theme = content._selectedTheme;
+        if (!theme || !Array.isArray(theme.decorations)) break;
+
+        const getXY = (d: any): { q: number | null } => {
+          const x = typeof d.x === "number" ? d.x : typeof d.x1 === "number" ? d.x1 : null;
+          const y = typeof d.y === "number" ? d.y : typeof d.y1 === "number" ? d.y1 : null;
+          if (x === null || y === null) return { q: null };
+          return { q: (y >= 50 ? 2 : 0) + (x >= 50 ? 1 : 0) };
+        };
+
+        const quadCounts: number[] = [0, 0, 0, 0];
+        const withQ: Array<{ idx: number; q: number | null }> = theme.decorations.map((d, idx) => {
+          const { q } = getXY(d);
+          if (q !== null) quadCounts[q]++;
+          return { idx, q };
+        });
+
+        const overQuads = [0, 1, 2, 3].filter(q => quadCounts[q] > CLUTTER_DECORATIONS_PER_QUADRANT);
+        if (overQuads.length === 0) break;
+
+        const BASIC_KINDS = new Set(["circle", "rect", "line", "blob"]);
+        const dropIndexes = new Set<number>();
+        for (const q of overQuads) {
+          const members = withQ.filter(w => w.q === q).map(w => w.idx);
+          // Sort: prefer dropping basic kinds first, then by decoration
+          // index (later-added = lower structural weight).
+          members.sort((a, b) => {
+            const aBasic = BASIC_KINDS.has((theme.decorations[a] as any).kind) ? 0 : 1;
+            const bBasic = BASIC_KINDS.has((theme.decorations[b] as any).kind) ? 0 : 1;
+            if (aBasic !== bBasic) return aBasic - bBasic;
+            return b - a;
+          });
+          const excess = quadCounts[q] - CLUTTER_DECORATIONS_PER_QUADRANT;
+          for (let i = 0; i < excess && i < members.length; i++) {
+            dropIndexes.add(members[i]);
+          }
+        }
+
+        if (dropIndexes.size > 0) {
+          const newDecos = theme.decorations.filter((_, i) => !dropIndexes.has(i));
+          actions.push(`fix_clutter:dropped ${dropIndexes.size} decoration(s) from over-dense quadrants`);
+          // Shallow-clone the theme so we don't mutate the shared reference.
+          (content as any)._selectedTheme = { ...theme, decorations: newDecos };
+        }
+        break;
+      }
     }
   }
 
@@ -346,6 +491,67 @@ export function refineDesign(
     content: { ...content, textContents, ctaStyle },
     actions,
   };
+}
+
+// ── Multi-pass runner (Step 24) ──────────────────────────────────────────────
+// A single refineDesign call fixes the issues it sees once. But some fixes
+// reveal new issues — raising a headline to restore hierarchy may push it
+// into overflow; shrinking a text block to avoid overflow may break
+// hierarchy. runRefinementPasses iterates until either the issue set
+// stabilizes (no fixable errors remain) or the pass cap is hit. Every
+// pass's actions are concatenated so the audit log shows the full chain.
+
+export interface RefinementPassResult {
+  content:     SvgContent;
+  report:      DesignQualityReport;
+  actions:     string[];             // every action across all passes
+  passesRun:   number;
+  stabilized:  boolean;              // true when we exited on a clean report
+}
+
+export interface RefinementPassOptions {
+  maxPasses?: number;
+  format?:    string;
+}
+
+export function runRefinementPasses(
+  content:   SvgContent,
+  zones:     Zone[],
+  opts:      RefinementPassOptions = {},
+): RefinementPassResult {
+  const maxPasses = Math.max(1, opts.maxPasses ?? DEFAULT_MAX_REFINEMENT_PASSES);
+  const format    = opts.format;
+
+  let current:   SvgContent = content;
+  let report:    DesignQualityReport = assessDesignQuality(current, zones, format);
+  const actions: string[] = [];
+  let passesRun = 0;
+  let stabilized = true;
+
+  for (let pass = 0; pass < maxPasses; pass++) {
+    const fixable = report.issues.filter(i => i.autoFixable);
+    if (fixable.length === 0) {
+      stabilized = true;
+      break;
+    }
+    const { content: nextContent, actions: passActions } = refineDesign(
+      current, report, zones, format,
+    );
+    passesRun++;
+    if (passActions.length === 0) {
+      // Report flagged fixable issues but no action could be applied this
+      // pass (e.g. contrast already at max boundary). Stop — looping
+      // further won't help.
+      stabilized = false;
+      break;
+    }
+    actions.push(...passActions.map(a => `pass${pass + 1}:${a}`));
+    current = nextContent;
+    report  = assessDesignQuality(current, zones, format);
+    stabilized = report.issues.every(i => !i.autoFixable || i.severity !== "error");
+  }
+
+  return { content: current, report, actions, passesRun, stabilized };
 }
 
 // ── Color helpers ────────────────────────────────────────────────────────────
