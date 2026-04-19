@@ -56,6 +56,28 @@ export type AssetRealm =
   | "object"
   | "scene";
 
+// Visual-style axis (Step 36). Describes the *rendering style* of an
+// asset independent of what it depicts — a mountain can be a photo, a
+// 3D render, or a flat illustration. Enforcing style consistency at
+// composition time (one style per template) is what turns a library
+// into a coherent design system.
+//
+//   "3d"          Modern 3D render — clay / claymorphic / glassy
+//   "photo"       Real-world photograph
+//   "illustration" Flat vector illustration (multiple colors)
+//   "flat"        Single- or two-color flat icon
+//   "outline"     Stroke-only outline icon
+//   "hand-drawn"  Sketchy / doodle style
+//
+// When unset, the asset is style-agnostic and matches any style query.
+export type AssetVisualStyle =
+  | "3d"
+  | "photo"
+  | "illustration"
+  | "flat"
+  | "outline"
+  | "hand-drawn";
+
 // How the asset's visual payload is delivered to a renderer.
 export type AssetPayload =
   | { format: "svg";  markup: string }                                   // inline SVG
@@ -86,16 +108,22 @@ export interface Asset {
   // lifestyle scenes / everyday objects / wider scenes). Left unset on
   // abstract / decorative assets.
   realm?:      AssetRealm;
+  // Step 36: rendering-style axis. A mountain asset might be a photo,
+  // a 3D render, or a flat illustration — visualStyle is what the
+  // composition picks to enforce one-style-per-template consistency.
+  // Left unset for style-agnostic assets (ribbons, badges, etc.).
+  visualStyle?:AssetVisualStyle;
   payload:     AssetPayload;
 }
 
 // ── Query shape ───────────────────────────────────────────────────────────────
 
 export interface AssetQuery {
-  category?: AssetCategory;
-  kind?:     AssetKind;
-  style?:    AssetStyle;     // outline / filled / duotone — icon-focused
-  realm?:    AssetRealm;     // Step 35 — real-world subject filter
-  tags?:     string[];       // match if the asset has ANY of these tags
-  limit?:    number;
+  category?:    AssetCategory;
+  kind?:        AssetKind;
+  style?:       AssetStyle;          // outline / filled / duotone — icon-focused
+  realm?:       AssetRealm;          // Step 35 — real-world subject filter
+  visualStyle?: AssetVisualStyle;    // Step 36 — rendering-style filter
+  tags?:        string[];            // match if the asset has ANY of these tags
+  limit?:       number;
 }

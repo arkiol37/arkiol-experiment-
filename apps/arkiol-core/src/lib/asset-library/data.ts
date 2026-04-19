@@ -34,6 +34,27 @@ const tile = (size: number, body: string): string =>
 const photo = (query: string, w = 1600, h = 1600): string =>
   `https://source.unsplash.com/featured/${w}x${h}/?${encodeURIComponent(query)}`;
 
+// Step 36: 3D-render asset URL. Prefixes the query with "3d render
+// claymorphism" so the upstream image host returns consistent 3D /
+// claymorphic renders rather than ordinary photos. Ships as its own
+// helper so a future CDN swap (e.g. `https://cdn.arkiol.com/3d/...`)
+// only has to change this one function.
+//
+// ARKIOL_3D_ASSET_BASE env override lets ops point the helper at a
+// curated 3D-render CDN when one is wired up — the default falls back
+// to the 3D-query Unsplash path so the library keeps working out of
+// the box.
+const render3d = (slug: string, query: string, w = 1600, h = 1600): string => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base = typeof process !== "undefined"
+    ? (process.env as any)?.ARKIOL_3D_ASSET_BASE
+    : undefined;
+  if (typeof base === "string" && base.length > 0) {
+    return `${base.replace(/\/+$/, "")}/${slug}.png`;
+  }
+  return `https://source.unsplash.com/featured/${w}x${h}/?${encodeURIComponent(`3d render ${query}`)}`;
+};
+
 // ── Icons ─────────────────────────────────────────────────────────────────────
 // Each icon is a compact 24px-grid pictogram thematically tied to a category.
 
@@ -734,187 +755,202 @@ const MOTIVATION_ASSETS: Asset[] = [
       '<polygon points="450,15 470,25 450,35" fill="#F59E0B"/>') } },
 ];
 
-// ── Step 35: Real-world visual assets ─────────────────────────────────────────
-// A structured catalog of photographic / illustrative assets depicting
-// real-world subjects — nature, animals, lifestyle scenes, everyday
-// objects, and wider scenes. Each asset carries:
+// ── Step 36: 3D real-world visual assets ─────────────────────────────────────
+// Replaces the Step 35 real-world photo set with a consistent 3D-render
+// catalogue. Every entry:
 //
-//   realm             which real-world bucket (nature / animal / ...)
-//   category          primary contextual bucket (wellness / business / ...)
-//   extraCategories   secondary contexts where this asset also fits
+//   kind         = "illustration"  (3D renders are composed artwork, not
+//                                   raw photography — marking them as
+//                                   illustrations keeps the placement
+//                                   system treating them uniformly and
+//                                   stops them from fighting
+//                                   AI-generated hero photos)
+//   visualStyle  = "3d"            (lets the consistency layer pick one
+//                                   style per template)
+//   realm        = nature / animal / lifestyle / object / scene
+//   category + extraCategories     (unchanged from Step 35 so the
+//                                   category-driven pipeline surfaces
+//                                   them for the right briefs)
 //
-// Every asset lives under one primary category + one or more extras so
-// the existing category-driven selector automatically surfaces them
-// for relevant briefs (a mountain photo shows up for wellness /
-// motivation / travel prompts; a desk photo for productivity /
-// business). Placement is governed by the standard photo placement
-// rule (support-visual tier from Step 15) — no special-casing needed.
+// Every URL goes through the render3d() helper so a real 3D-asset CDN
+// can be swapped in via ARKIOL_3D_ASSET_BASE without touching this
+// catalogue.
 
 const REAL_WORLD_ASSETS: Asset[] = [
-  // ── Nature ──────────────────────────────────────────────────────────
-  { id: "real.nature.mountain-range",    kind: "photo", realm: "nature", category: "travel",
-    extraCategories: ["wellness", "motivation"], label: "Mountain range",
-    tags: ["mountain", "range", "horizon", "nature", "calm"],
+  // ── Nature (3D) ─────────────────────────────────────────────────────
+  { id: "real.nature.mountain-range",    kind: "illustration", realm: "nature", visualStyle: "3d", category: "travel",
+    extraCategories: ["wellness", "motivation"], label: "Mountain range (3D)",
+    tags: ["mountain", "range", "horizon", "nature", "calm", "3d", "claymorphism"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("mountain range horizon landscape"), width: 1920, height: 1200 } },
-  { id: "real.nature.river",             kind: "photo", realm: "nature", category: "wellness",
-    extraCategories: ["travel", "motivation"], label: "River stream",
-    tags: ["river", "stream", "water", "flow", "nature"],
+    payload: { format: "url", url: render3d("nature-mountain-range", "mountain range horizon claymorphic", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.nature.river",             kind: "illustration", realm: "nature", visualStyle: "3d", category: "wellness",
+    extraCategories: ["travel", "motivation"], label: "River stream (3D)",
+    tags: ["river", "stream", "water", "flow", "nature", "3d"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("river stream forest"), width: 1920, height: 1200 } },
-  { id: "real.nature.forest",            kind: "photo", realm: "nature", category: "wellness",
-    extraCategories: ["travel", "education"], label: "Lush forest",
-    tags: ["forest", "trees", "green", "nature", "calm"],
+    payload: { format: "url", url: render3d("nature-river", "river stream stylized 3d", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.nature.forest",            kind: "illustration", realm: "nature", visualStyle: "3d", category: "wellness",
+    extraCategories: ["travel", "education"], label: "Forest scene (3D)",
+    tags: ["forest", "trees", "green", "nature", "calm", "3d"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("lush forest trees light"), width: 1600, height: 1600 } },
-  { id: "real.nature.ocean-waves",       kind: "photo", realm: "nature", category: "travel",
-    extraCategories: ["wellness"], label: "Ocean waves",
-    tags: ["ocean", "waves", "water", "sea", "calm"],
+    payload: { format: "url", url: render3d("nature-forest", "forest 3d illustration claymorphic", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.nature.ocean-waves",       kind: "illustration", realm: "nature", visualStyle: "3d", category: "travel",
+    extraCategories: ["wellness"], label: "Ocean waves (3D)",
+    tags: ["ocean", "waves", "water", "sea", "calm", "3d"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("ocean waves aerial"), width: 1920, height: 1200 } },
-  { id: "real.nature.sky-clouds",        kind: "photo", realm: "nature", category: "motivation",
-    extraCategories: ["wellness", "travel"], label: "Sky clouds",
-    tags: ["sky", "clouds", "open", "light", "aspire"],
+    payload: { format: "url", url: render3d("nature-ocean-waves", "ocean waves 3d stylized", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.nature.sky-clouds",        kind: "illustration", realm: "nature", visualStyle: "3d", category: "motivation",
+    extraCategories: ["wellness", "travel"], label: "Sky clouds (3D)",
+    tags: ["sky", "clouds", "open", "light", "aspire", "3d", "soft"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("blue sky soft clouds"), width: 1920, height: 1200 } },
-  { id: "real.nature.potted-plant",      kind: "photo", realm: "nature", category: "wellness",
-    extraCategories: ["productivity", "beauty"], label: "Potted plant",
-    tags: ["plant", "pothos", "indoor", "green", "nature"],
+    payload: { format: "url", url: render3d("nature-sky-clouds", "fluffy 3d clouds pastel sky", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.nature.potted-plant",      kind: "illustration", realm: "nature", visualStyle: "3d", category: "wellness",
+    extraCategories: ["productivity", "beauty"], label: "Potted plant (3D)",
+    tags: ["plant", "pothos", "indoor", "green", "nature", "3d", "claymorphism"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("indoor potted plant minimal"), width: 1600, height: 1600 } },
-  { id: "real.nature.sunset",            kind: "photo", realm: "nature", category: "motivation",
-    extraCategories: ["travel", "wellness"], label: "Golden hour sunset",
-    tags: ["sunset", "golden hour", "warm", "horizon", "aspire"],
+    payload: { format: "url", url: render3d("nature-potted-plant", "3d claymorphic potted plant", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.nature.sunset",            kind: "illustration", realm: "nature", visualStyle: "3d", category: "motivation",
+    extraCategories: ["travel", "wellness"], label: "Golden hour sunset (3D)",
+    tags: ["sunset", "golden hour", "warm", "horizon", "aspire", "3d"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("golden hour sunset landscape"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: render3d("nature-sunset", "sunset horizon 3d stylized", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.nature.leaf",              kind: "illustration", realm: "nature", visualStyle: "3d", category: "wellness",
+    extraCategories: ["beauty", "motivation"], label: "Leaf (3D)",
+    tags: ["leaf", "green", "plant", "growth", "nature", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("nature-leaf", "3d green leaf isolated", 1600, 1600), width: 1600, height: 1600 } },
 
-  // ── Animal ──────────────────────────────────────────────────────────
-  { id: "real.animal.dog",               kind: "photo", realm: "animal", category: "wellness",
-    extraCategories: ["marketing", "motivation"], label: "Dog portrait",
-    tags: ["dog", "portrait", "pet", "friendly"],
+  // ── Animal (3D) ─────────────────────────────────────────────────────
+  { id: "real.animal.dog",               kind: "illustration", realm: "animal", visualStyle: "3d", category: "wellness",
+    extraCategories: ["marketing", "motivation"], label: "Dog (3D)",
+    tags: ["dog", "portrait", "pet", "friendly", "3d", "claymorphism"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("dog portrait natural light"), width: 1600, height: 1600 } },
-  { id: "real.animal.cat",               kind: "photo", realm: "animal", category: "wellness",
-    extraCategories: ["beauty", "marketing"], label: "Cat curled",
-    tags: ["cat", "pet", "cozy", "calm"],
+    payload: { format: "url", url: render3d("animal-dog", "3d claymorphic dog friendly", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.animal.cat",               kind: "illustration", realm: "animal", visualStyle: "3d", category: "wellness",
+    extraCategories: ["beauty", "marketing"], label: "Cat (3D)",
+    tags: ["cat", "pet", "cozy", "calm", "3d"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("cat curled sunlight"), width: 1600, height: 1600 } },
-  { id: "real.animal.bird-flight",       kind: "photo", realm: "animal", category: "motivation",
-    extraCategories: ["travel"], label: "Bird in flight",
-    tags: ["bird", "flight", "freedom", "sky", "aspire"],
+    payload: { format: "url", url: render3d("animal-cat", "3d claymorphic cat curled", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.animal.bird-flight",       kind: "illustration", realm: "animal", visualStyle: "3d", category: "motivation",
+    extraCategories: ["travel"], label: "Bird in flight (3D)",
+    tags: ["bird", "flight", "freedom", "sky", "aspire", "3d"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("bird in flight silhouette sky"), width: 1920, height: 1200 } },
-  { id: "real.animal.butterfly",         kind: "photo", realm: "animal", category: "beauty",
-    extraCategories: ["wellness"], label: "Butterfly on flower",
-    tags: ["butterfly", "flower", "delicate", "bloom"],
+    payload: { format: "url", url: render3d("animal-bird-flight", "3d bird in flight stylized", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.animal.butterfly",         kind: "illustration", realm: "animal", visualStyle: "3d", category: "beauty",
+    extraCategories: ["wellness"], label: "Butterfly (3D)",
+    tags: ["butterfly", "flower", "delicate", "bloom", "3d"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("butterfly on flower macro"), width: 1600, height: 1600 } },
-  { id: "real.animal.deer",              kind: "photo", realm: "animal", category: "wellness",
-    extraCategories: ["motivation"], label: "Deer in forest",
-    tags: ["deer", "forest", "wildlife", "quiet"],
+    payload: { format: "url", url: render3d("animal-butterfly", "3d butterfly pastel", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.animal.deer",              kind: "illustration", realm: "animal", visualStyle: "3d", category: "wellness",
+    extraCategories: ["motivation"], label: "Deer (3D)",
+    tags: ["deer", "forest", "wildlife", "quiet", "3d"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("deer forest morning light"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: render3d("animal-deer", "3d stylized deer forest", 1920, 1200), width: 1920, height: 1200 } },
 
-  // ── Lifestyle ───────────────────────────────────────────────────────
-  { id: "real.lifestyle.workspace",      kind: "photo", realm: "lifestyle", category: "productivity",
-    extraCategories: ["business"], label: "Workspace setup",
-    tags: ["desk", "workspace", "laptop", "focus", "home office"],
+  // ── Lifestyle (3D) ──────────────────────────────────────────────────
+  { id: "real.lifestyle.workspace",      kind: "illustration", realm: "lifestyle", visualStyle: "3d", category: "productivity",
+    extraCategories: ["business"], label: "Workspace (3D)",
+    tags: ["desk", "workspace", "laptop", "focus", "home office", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("minimal desk workspace laptop plants"), width: 1920, height: 1200 } },
-  { id: "real.lifestyle.reading-nook",   kind: "photo", realm: "lifestyle", category: "education",
-    extraCategories: ["wellness"], label: "Reading nook",
-    tags: ["reading", "cozy", "book", "home", "nook"],
+    payload: { format: "url", url: render3d("lifestyle-workspace", "3d isometric desk workspace laptop", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.lifestyle.reading-nook",   kind: "illustration", realm: "lifestyle", visualStyle: "3d", category: "education",
+    extraCategories: ["wellness"], label: "Reading nook (3D)",
+    tags: ["reading", "cozy", "book", "home", "nook", "3d"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("cozy reading nook armchair"), width: 1920, height: 1200 } },
-  { id: "real.lifestyle.plant-room",     kind: "photo", realm: "lifestyle", category: "wellness",
-    extraCategories: ["productivity", "beauty"], label: "Plant-filled room",
-    tags: ["plants", "interior", "green", "calm", "home"],
+    payload: { format: "url", url: render3d("lifestyle-reading-nook", "3d cozy reading nook armchair", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.lifestyle.plant-room",     kind: "illustration", realm: "lifestyle", visualStyle: "3d", category: "wellness",
+    extraCategories: ["productivity", "beauty"], label: "Plant-filled room (3D)",
+    tags: ["plants", "interior", "green", "calm", "home", "3d"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("plant filled room interior light"), width: 1600, height: 1600 } },
-  { id: "real.lifestyle.kitchen",        kind: "photo", realm: "lifestyle", category: "wellness",
-    extraCategories: ["marketing"], label: "Kitchen counter",
-    tags: ["kitchen", "counter", "food", "home"],
+    payload: { format: "url", url: render3d("lifestyle-plant-room", "3d plant filled room interior", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.lifestyle.kitchen",        kind: "illustration", realm: "lifestyle", visualStyle: "3d", category: "wellness",
+    extraCategories: ["marketing"], label: "Kitchen counter (3D)",
+    tags: ["kitchen", "counter", "food", "home", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("bright kitchen counter fresh ingredients"), width: 1920, height: 1200 } },
-  { id: "real.lifestyle.bedroom",        kind: "photo", realm: "lifestyle", category: "wellness",
-    extraCategories: ["beauty"], label: "Minimal bedroom",
-    tags: ["bedroom", "calm", "home", "sleep"],
+    payload: { format: "url", url: render3d("lifestyle-kitchen", "3d isometric kitchen counter", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.lifestyle.bedroom",        kind: "illustration", realm: "lifestyle", visualStyle: "3d", category: "wellness",
+    extraCategories: ["beauty"], label: "Bedroom (3D)",
+    tags: ["bedroom", "calm", "home", "sleep", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("minimal bedroom neutral tones"), width: 1920, height: 1200 } },
-  { id: "real.lifestyle.home-office",    kind: "photo", realm: "lifestyle", category: "business",
-    extraCategories: ["productivity"], label: "Home office",
-    tags: ["office", "home office", "workspace", "professional"],
+    payload: { format: "url", url: render3d("lifestyle-bedroom", "3d isometric minimal bedroom", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.lifestyle.home-office",    kind: "illustration", realm: "lifestyle", visualStyle: "3d", category: "business",
+    extraCategories: ["productivity"], label: "Home office (3D)",
+    tags: ["office", "home office", "workspace", "professional", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("home office natural light modern"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: render3d("lifestyle-home-office", "3d isometric home office", 1920, 1200), width: 1920, height: 1200 } },
 
-  // ── Object ──────────────────────────────────────────────────────────
-  { id: "real.object.books-stack",       kind: "photo", realm: "object", category: "education",
-    extraCategories: ["productivity"], label: "Stack of books",
-    tags: ["books", "stack", "read", "learn"],
+  // ── Object (3D) ─────────────────────────────────────────────────────
+  { id: "real.object.books-stack",       kind: "illustration", realm: "object", visualStyle: "3d", category: "education",
+    extraCategories: ["productivity"], label: "Stack of books (3D)",
+    tags: ["books", "stack", "read", "learn", "3d", "claymorphism"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("stack of books soft light"), width: 1600, height: 1600 } },
-  { id: "real.object.water-bottle",      kind: "photo", realm: "object", category: "fitness",
-    extraCategories: ["wellness"], label: "Water bottle",
-    tags: ["water", "bottle", "hydration", "fitness"],
+    payload: { format: "url", url: render3d("object-books-stack", "3d claymorphic stack of books", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.object.water-bottle",      kind: "illustration", realm: "object", visualStyle: "3d", category: "fitness",
+    extraCategories: ["wellness"], label: "Water bottle (3D)",
+    tags: ["water", "bottle", "hydration", "fitness", "3d"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("water bottle minimal white"), width: 1600, height: 1600 } },
-  { id: "real.object.dumbbell",          kind: "photo", realm: "object", category: "fitness",
-    extraCategories: ["motivation"], label: "Dumbbell",
-    tags: ["dumbbell", "weight", "gym", "strength"],
+    payload: { format: "url", url: render3d("object-water-bottle", "3d water bottle isolated", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.object.dumbbell",          kind: "illustration", realm: "object", visualStyle: "3d", category: "fitness",
+    extraCategories: ["motivation"], label: "Dumbbell (3D)",
+    tags: ["dumbbell", "weight", "gym", "strength", "3d", "claymorphism"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("dumbbell on floor gym"), width: 1600, height: 1600 } },
-  { id: "real.object.suitcase",          kind: "photo", realm: "object", category: "travel",
-    extraCategories: ["motivation"], label: "Travel suitcase",
-    tags: ["suitcase", "luggage", "travel", "trip"],
+    payload: { format: "url", url: render3d("object-dumbbell", "3d claymorphic dumbbell", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.object.suitcase",          kind: "illustration", realm: "object", visualStyle: "3d", category: "travel",
+    extraCategories: ["motivation"], label: "Suitcase (3D)",
+    tags: ["suitcase", "luggage", "travel", "trip", "3d", "claymorphism"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("suitcase luggage minimal"), width: 1600, height: 1600 } },
-  { id: "real.object.coffee-cup",        kind: "photo", realm: "object", category: "productivity",
-    extraCategories: ["marketing", "wellness"], label: "Coffee cup",
-    tags: ["coffee", "cup", "morning", "desk"],
+    payload: { format: "url", url: render3d("object-suitcase", "3d claymorphic travel suitcase", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.object.coffee-cup",        kind: "illustration", realm: "object", visualStyle: "3d", category: "productivity",
+    extraCategories: ["marketing", "wellness"], label: "Coffee cup (3D)",
+    tags: ["coffee", "cup", "morning", "desk", "3d"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("coffee cup on desk morning"), width: 1600, height: 1600 } },
-  { id: "real.object.laptop",            kind: "photo", realm: "object", category: "business",
-    extraCategories: ["productivity"], label: "Open laptop",
-    tags: ["laptop", "notebook", "tech", "work"],
+    payload: { format: "url", url: render3d("object-coffee-cup", "3d coffee cup steaming", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.object.laptop",            kind: "illustration", realm: "object", visualStyle: "3d", category: "business",
+    extraCategories: ["productivity"], label: "Laptop (3D)",
+    tags: ["laptop", "notebook", "tech", "work", "3d", "isometric"],
     aspectRatio: 1.3,
-    payload: { format: "url", url: photo("open laptop on desk minimal"), width: 1600, height: 1200 } },
-  { id: "real.object.skincare-bottle",   kind: "photo", realm: "object", category: "beauty",
-    extraCategories: ["wellness"], label: "Skincare bottle",
-    tags: ["skincare", "bottle", "serum", "clean"],
+    payload: { format: "url", url: render3d("object-laptop", "3d laptop isometric isolated", 1600, 1200), width: 1600, height: 1200 } },
+  { id: "real.object.skincare-bottle",   kind: "illustration", realm: "object", visualStyle: "3d", category: "beauty",
+    extraCategories: ["wellness"], label: "Skincare bottle (3D)",
+    tags: ["skincare", "bottle", "serum", "clean", "3d", "claymorphism"],
     aspectRatio: 1,
-    payload: { format: "url", url: photo("skincare bottle minimal flatlay"), width: 1600, height: 1600 } },
-  { id: "real.object.notebook",          kind: "photo", realm: "object", category: "education",
-    extraCategories: ["productivity", "motivation"], label: "Open notebook",
-    tags: ["notebook", "journal", "write", "page"],
+    payload: { format: "url", url: render3d("object-skincare-bottle", "3d claymorphic skincare bottle", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.object.notebook",          kind: "illustration", realm: "object", visualStyle: "3d", category: "education",
+    extraCategories: ["productivity", "motivation"], label: "Notebook (3D)",
+    tags: ["notebook", "journal", "write", "page", "3d"],
     aspectRatio: 1.3,
-    payload: { format: "url", url: photo("open notebook pen desk"), width: 1600, height: 1200 } },
+    payload: { format: "url", url: render3d("object-notebook", "3d open notebook pen", 1600, 1200), width: 1600, height: 1200 } },
+  { id: "real.object.toy-rocket",        kind: "illustration", realm: "object", visualStyle: "3d", category: "marketing",
+    extraCategories: ["motivation", "education"], label: "Toy rocket (3D)",
+    tags: ["rocket", "launch", "toy", "play", "3d", "claymorphism"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("object-toy-rocket", "3d claymorphic toy rocket", 1600, 1600), width: 1600, height: 1600 } },
 
-  // ── Scene ───────────────────────────────────────────────────────────
-  { id: "real.scene.city-skyline-dawn",  kind: "photo", realm: "scene", category: "business",
-    extraCategories: ["travel", "marketing"], label: "City skyline at dawn",
-    tags: ["city", "skyline", "dawn", "urban", "corporate"],
+  // ── Scene (3D) ──────────────────────────────────────────────────────
+  { id: "real.scene.city-skyline-dawn",  kind: "illustration", realm: "scene", visualStyle: "3d", category: "business",
+    extraCategories: ["travel", "marketing"], label: "City skyline (3D)",
+    tags: ["city", "skyline", "dawn", "urban", "corporate", "3d", "isometric"],
     aspectRatio: 2,
-    payload: { format: "url", url: photo("city skyline dawn modern"), width: 2000, height: 1000 } },
-  { id: "real.scene.beach-horizon",      kind: "photo", realm: "scene", category: "travel",
-    extraCategories: ["wellness"], label: "Beach horizon",
-    tags: ["beach", "ocean", "horizon", "travel", "calm"],
+    payload: { format: "url", url: render3d("scene-city-skyline", "3d isometric city skyline dawn", 2000, 1000), width: 2000, height: 1000 } },
+  { id: "real.scene.beach-horizon",      kind: "illustration", realm: "scene", visualStyle: "3d", category: "travel",
+    extraCategories: ["wellness"], label: "Beach horizon (3D)",
+    tags: ["beach", "ocean", "horizon", "travel", "calm", "3d"],
     aspectRatio: 2,
-    payload: { format: "url", url: photo("beach horizon panoramic"), width: 2000, height: 1000 } },
-  { id: "real.scene.cafe-interior",      kind: "photo", realm: "scene", category: "marketing",
-    extraCategories: ["productivity", "education"], label: "Café interior",
-    tags: ["cafe", "coffee shop", "interior", "warm"],
+    payload: { format: "url", url: render3d("scene-beach-horizon", "3d beach horizon panoramic stylized", 2000, 1000), width: 2000, height: 1000 } },
+  { id: "real.scene.cafe-interior",      kind: "illustration", realm: "scene", visualStyle: "3d", category: "marketing",
+    extraCategories: ["productivity", "education"], label: "Café interior (3D)",
+    tags: ["cafe", "coffee shop", "interior", "warm", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("cafe interior warm light"), width: 1920, height: 1200 } },
-  { id: "real.scene.living-room",        kind: "photo", realm: "scene", category: "wellness",
-    extraCategories: ["beauty"], label: "Minimal living room",
-    tags: ["living room", "interior", "minimal", "home"],
+    payload: { format: "url", url: render3d("scene-cafe-interior", "3d isometric cafe interior warm", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.scene.living-room",        kind: "illustration", realm: "scene", visualStyle: "3d", category: "wellness",
+    extraCategories: ["beauty"], label: "Living room (3D)",
+    tags: ["living room", "interior", "minimal", "home", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("minimal living room neutral"), width: 1920, height: 1200 } },
-  { id: "real.scene.urban-street",       kind: "photo", realm: "scene", category: "marketing",
-    extraCategories: ["travel", "business"], label: "Urban street",
-    tags: ["urban", "street", "city", "people"],
+    payload: { format: "url", url: render3d("scene-living-room", "3d isometric minimal living room", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "real.scene.urban-street",       kind: "illustration", realm: "scene", visualStyle: "3d", category: "marketing",
+    extraCategories: ["travel", "business"], label: "Urban street (3D)",
+    tags: ["urban", "street", "city", "people", "3d", "isometric"],
     aspectRatio: 1.6,
-    payload: { format: "url", url: photo("urban street morning"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: render3d("scene-urban-street", "3d isometric urban street morning", 1920, 1200), width: 1920, height: 1200 } },
 ];
 
 // ── Public seed ───────────────────────────────────────────────────────────────

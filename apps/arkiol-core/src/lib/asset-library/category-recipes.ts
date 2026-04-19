@@ -9,7 +9,7 @@
 // This module is the foundation that downstream generation logic consults
 // when assembling a default visual roster for a given category.
 
-import type { Asset, AssetCategory, AssetKind } from "./types";
+import type { Asset, AssetCategory, AssetKind, AssetVisualStyle } from "./types";
 import { queryAssets, pickAsset, ASSET_CATEGORIES } from "./registry";
 import { scoreAssetForCategory } from "./category-profile";
 
@@ -165,6 +165,61 @@ export interface SelectOptions {
   // When true, kinds marked `required` will fall back to a cross-category
   // pick of the same kind if the category itself has none of that kind.
   enforceRequired?: boolean;
+  // Step 36: visual-style consistency. When set, the selector pins every
+  // pick to this style (style-agnostic assets without a visualStyle tag
+  // still pass through — ribbons, badges, dividers, etc.). Default
+  // behavior: when omitted, the selector auto-picks the best-available
+  // style for the category — "3d" is preferred if the category has any
+  // 3D assets, otherwise the first style that has enough coverage. This
+  // stops a single template from mixing 3D renders with flat photos or
+  // hand-drawn illustrations.
+  visualStyle?:      AssetVisualStyle;
+  // When true, the auto-style-pick skips styles with fewer than the
+  // recipe's total entry count — prevents "3d" from being chosen just
+  // because one 3D icon exists in the category. Default true.
+  enforceStyleCoverage?: boolean;
+}
+
+// Step 36: preferred visual style fallback order. "3d" first because
+// Step 36 replaces the Unsplash real-world assets with 3D variants and
+// the project visual language is built around 3D.
+const STYLE_PREFERENCE: readonly AssetVisualStyle[] = [
+  "3d", "illustration", "flat", "outline", "photo", "hand-drawn",
+];
+
+/**
+ * Pick the best-available visual style for a category. Walks the
+ * STYLE_PREFERENCE order and returns the first style that covers at
+ * least the recipe's meaningful-entry count (illustrations + photos —
+ * the kinds that actually carry visualStyle). Returns null when no
+ * style has enough coverage, meaning the template falls back to
+ * style-agnostic selection (mixed output is acceptable in that case
+ * because there's no better option).
+ */
+export function resolveVisualStyleForCategory(
+  category: AssetCategory,
+  enforceCoverage: boolean = true,
+): AssetVisualStyle | null {
+  const recipe = CATEGORY_RECIPES[category];
+  if (!recipe) return null;
+
+  // Only illustration / photo kinds carry a visualStyle today, so
+  // coverage = how many illustration/photo entries the recipe asks
+  // for. That's the target threshold.
+  const targetCount = recipe.entries
+    .filter(e => e.kind === "illustration" || e.kind === "photo")
+    .reduce((s, e) => s + e.count, 0);
+
+  for (const style of STYLE_PREFERENCE) {
+    const pool = queryAssets({ category, visualStyle: style })
+      .filter(a => a.visualStyle === style);  // require exact match, not pass-through
+    if (!enforceCoverage) {
+      if (pool.length > 0) return style;
+    } else if (pool.length >= Math.max(1, targetCount)) {
+      return style;
+    }
+  }
+  return null;
 }
 
 /**
@@ -193,9 +248,19 @@ export function selectAssetsForCategory(
   const picked: Asset[] = [];
   const seenIds = new Set<string>();
 
+  // Step 36: resolve visual style once at the top so every recipe slot
+  // pins to the same style. Explicit opts.visualStyle wins; otherwise
+  // auto-pick via STYLE_PREFERENCE — "3d" first when available.
+  const resolvedStyle: AssetVisualStyle | null =
+    opts.visualStyle ?? resolveVisualStyleForCategory(category, opts.enforceStyleCoverage ?? true);
+
   recipe.entries.forEach((entry, entryIdx) => {
-    // Candidate pool: category + kind.
-    const base = queryAssets({ category, kind: entry.kind });
+    // Candidate pool: category + kind, pinned to the resolved visual
+    // style when one was chosen. Style-agnostic assets (no visualStyle
+    // set — ribbons, badges, icons, textures) still pass through.
+    const base = resolvedStyle
+      ? queryAssets({ category, kind: entry.kind, visualStyle: resolvedStyle })
+      : queryAssets({ category, kind: entry.kind });
 
     // Two-key sort: primary key is the category-profile score (how on-brand
     // this asset is for the category overall), secondary key is the entry

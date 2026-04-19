@@ -124,6 +124,14 @@ export function queryAssets(q: AssetQuery = {}): Asset[] {
     pool = pool.filter(a => a.realm === q.realm);
   }
 
+  // Step 36: visualStyle filter passes through style-less assets (they're
+  // style-agnostic — e.g. ribbons, dividers) so a "3d" query doesn't
+  // silently drop decorative elements the template legitimately needs
+  // alongside the 3D real-world assets.
+  if (q.visualStyle) {
+    pool = pool.filter(a => a.visualStyle === undefined || a.visualStyle === q.visualStyle);
+  }
+
   if (typeof q.limit === "number" && q.limit >= 0) {
     pool = pool.slice(0, q.limit);
   }

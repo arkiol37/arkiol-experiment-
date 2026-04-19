@@ -9,6 +9,7 @@ export type {
   AssetKind,
   AssetStyle,
   AssetRealm,
+  AssetVisualStyle,
   AssetPayload,
   AssetQuery,
 } from "./types";
@@ -37,6 +38,7 @@ export type {
 export {
   CATEGORY_RECIPES,
   selectAssetsForCategory,
+  resolveVisualStyleForCategory,
   inferCategoryFromText,
 } from "./category-recipes";
 
