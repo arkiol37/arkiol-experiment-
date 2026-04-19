@@ -21,6 +21,7 @@ import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
 import { getTypographyPersonality, type RolePersonality } from "../style/category-typography-personality";
+import { selectFontPair } from "../style/font-pairing";
 import { getCategoryKit, mergeKitDecorations } from "../style/category-template-kits";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { buildSectionFrames } from "./section-frames";
@@ -420,9 +421,23 @@ function applyCategoryPackOverrides(
   const baseHMult = theme.headlineSizeMultiplier ?? 1.0;
   const boostedHMult = baseHMult * pack.headlineSizeBoost;
 
-  // Determine headline font, then pick body font with typographic contrast (serif vs sans)
-  const headlineFont = resolvePackFont(pack.preferredDisplayFonts, theme.typography.display, brand?.fontDisplay);
-  const bodyFont = resolvePackFont(pack.preferredBodyFonts, theme.typography.body, undefined, headlineFont);
+  // Curated font pairing — scores classification contrast, personality
+  // alignment, role fitness, and canonical typographic pairings. Replaces
+  // the previous first-match serif/sans contrast.
+  const softnessBias: "softer" | "harder" | "neutral" =
+    pack.id === "wellness" || pack.id === "beauty" || pack.id === "fashion" ? "softer" :
+    pack.id === "fitness"  || pack.id === "marketing" || pack.id === "motivation" ? "harder" :
+    "neutral";
+  const pair = selectFontPair({
+    preferredDisplay: pack.preferredDisplayFonts,
+    preferredBody:    pack.preferredBodyFonts,
+    themeDisplay:     theme.typography.display,
+    themeBody:        theme.typography.body,
+    brandDisplay:     brand?.fontDisplay,
+    softnessBias,
+  });
+  const headlineFont = pair.display;
+  const bodyFont     = pair.body;
 
   // Uppercase headlines need wider tracking for editorial feel
   let hLetterSpacing = pack.headlineLetterSpacing;
@@ -523,27 +538,8 @@ function applyCategoryPackOverrides(
   return themed;
 }
 
-const SERIF_FONTS: ReadonlySet<ThemeFont> = new Set(["Playfair Display", "Cormorant Garamond"]);
-
-function isFontSerif(f: ThemeFont): boolean { return SERIF_FONTS.has(f); }
-
-/** Pick the best font from the pack's preferences, falling back to the theme's default.
- *  When a pairedWith font is provided, prefer a font that creates typographic contrast
- *  (serif vs sans-serif) for stronger visual hierarchy. */
-function resolvePackFont(
-  preferred: ThemeFont[],
-  themeDefault: ThemeFont,
-  brandFont?: string,
-  pairedWith?: ThemeFont,
-): ThemeFont {
-  if (brandFont) return themeDefault;
-  if (preferred.length === 0) return themeDefault;
-  if (!pairedWith) return preferred[0];
-
-  const pairIsSerif = isFontSerif(pairedWith);
-  const contrasting = preferred.find(f => isFontSerif(f) !== pairIsSerif);
-  return contrasting ?? preferred[0];
-}
+// Font pairing moved to style/font-pairing.selectFontPair — curated,
+// score-based, with canonical pair weights and anti-pattern penalties.
 
 // ── SVG Renderer ──────────────────────────────────────────────────────────────
 export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: string): string {

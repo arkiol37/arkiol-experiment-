@@ -28,6 +28,19 @@ export {
 } from "./category-typography-personality";
 
 export {
+  selectFontPair,
+  scoreFontPair,
+  getFontMetadata,
+  type FontMetadata,
+  type FontClassification,
+  type FontPersonality,
+  type FontRole,
+  type FontPairOptions,
+  type FontPairResult,
+  type PairScore,
+} from "./font-pairing";
+
+export {
   getCategoryKit,
   getAllCategoryKits,
   mergeKitDecorations,
