@@ -80,6 +80,11 @@ const IG_POST: LayoutFamily = {
     { id: "v3_full_bleed",   name: "Full Bleed",      overrides: { image: { height: 100, zIndex: 0 }, headline: { y: 58, zIndex: 3 }, subhead: { zIndex: 3 }, cta: { zIndex: 4 } } },
     { id: "v4_centered",     name: "Centered Overlay",overrides: { headline: { x: 5, y: 40, width: 90, alignH: "center" }, subhead: { alignH: "center" }, cta: { x: 29 } } },
     { id: "v5_bottom_third", name: "Bottom Third",    overrides: { headline: { y: 72, height: 14, maxFontSize: 36 }, image: { height: 70 } } },
+    { id: "v6_left_half",    name: "Left Half Image", overrides: { image: { x: 0, y: 0, width: 50, height: 100 }, headline: { x: 54, y: 12, width: 42, height: 30 }, subhead: { x: 54, width: 42, y: 46 }, cta: { x: 54, width: 42 } } },
+    { id: "v7_right_half",   name: "Right Half Image",overrides: { image: { x: 50, y: 0, width: 50, height: 100 }, headline: { x: 5, y: 12, width: 42, height: 30 }, subhead: { x: 5, width: 42, y: 46 }, cta: { x: 5, width: 42 } } },
+    { id: "v8_no_image",     name: "Text Only",       overrides: { image: { height: 0 }, headline: { y: 22, height: 30, maxFontSize: 96 }, subhead: { y: 56 }, cta: { y: 80 } } },
+    { id: "v9_corner_badge", name: "Corner Badge",    overrides: { image: { height: 60 }, headline: { y: 64, height: 14 }, subhead: { y: 80 }, cta: { x: 4, y: 90, width: 34 }, logo: { x: 70, y: 4, width: 14, height: 6 } } },
+    { id: "v10_asym_stack",  name: "Asymmetric Stack",overrides: { image: { x: 5, y: 5, width: 55, height: 55 }, headline: { x: 5, y: 63, width: 70 }, subhead: { x: 5, y: 82, width: 70 }, cta: { x: 62, y: 10, width: 33, height: 14 } } },
   ],
 };
 
@@ -104,6 +109,10 @@ const IG_STORY: LayoutFamily = {
     { id: "v2_full_bleed", name: "Full Bleed",     overrides: { image: { y: 0, height: 100, zIndex: 0 }, headline: { y: 65, zIndex: 3 }, subhead: { zIndex: 3 } } },
     { id: "v3_top_text",   name: "Top Text",       overrides: { headline: { y: 8, height: 16 }, image: { y: 28, height: 55 } } },
     { id: "v4_split",      name: "50/50 Split",    overrides: { image: { y: 0, height: 50 }, headline: { y: 52 } } },
+    { id: "v5_mid_band",   name: "Image Mid-Band", overrides: { headline: { y: 8, height: 18 }, image: { y: 30, height: 40 }, subhead: { y: 74, height: 8 }, cta: { y: 86 } } },
+    { id: "v6_text_only",  name: "Text Only",      overrides: { image: { height: 0 }, headline: { y: 30, height: 28, maxFontSize: 140 }, subhead: { y: 62, height: 10 }, cta: { y: 80 } } },
+    { id: "v7_diag_overlay",name: "Diagonal Overlay",overrides: { image: { y: 0, height: 100, zIndex: 0 }, headline: { y: 12, height: 20, zIndex: 3, alignH: "left", x: 5, width: 70 }, subhead: { y: 34, x: 5, width: 70, zIndex: 3, alignH: "left" }, cta: { zIndex: 4 } } },
+    { id: "v8_left_rail",  name: "Left Rail Logo", overrides: { logo: { x: 3, y: 40, width: 8, height: 20 }, headline: { x: 16, y: 55, width: 79, alignH: "left" }, subhead: { x: 16, width: 79, alignH: "left" }, image: { x: 14, y: 8, width: 84, height: 42 } } },
   ],
 };
 
@@ -127,6 +136,10 @@ const YT_THUMB: LayoutFamily = {
     { id: "v2_face_right",   name: "Face Right / Text Left",  overrides: { image: { x: 45, width: 55 }, headline: { x: 3, width: 40 }, badge: { x: 3 } } },
     { id: "v3_product_hero", name: "Product Hero (no face)",  overrides: { image: { x: 0, width: 100, constraints: { faceMode: "product" } }, headline: { x: 5, y: 60, width: 90, alignH: "center", zIndex: 3 }, badge: { x: 5, width: 90, alignH: "center", zIndex: 3 } } },
     { id: "v4_centered",     name: "Centered (minimal)",      overrides: { image: { width: 100 }, headline: { x: 5, y: 28, width: 90, alignH: "center", zIndex: 3 }, badge: { x: 5, width: 90, alignH: "center", zIndex: 3 } } },
+    { id: "v5_bottom_band",  name: "Bottom Headline Band",    overrides: { image: { x: 0, width: 100, height: 62 }, headline: { x: 4, y: 65, width: 92, height: 24, alignH: "left" }, badge: { x: 4, y: 90, width: 32, height: 8 } } },
+    { id: "v6_top_text",     name: "Top Text Strip",          overrides: { image: { x: 0, y: 32, width: 100, height: 68 }, headline: { x: 4, y: 4, width: 92, height: 22 }, badge: { x: 4, y: 26, width: 32, height: 5 } } },
+    { id: "v7_text_left_narrow", name: "Narrow Text Left",    overrides: { image: { x: 38, width: 62 }, headline: { x: 3, width: 32 }, badge: { x: 3 } } },
+    { id: "v8_corner_label", name: "Corner Label",            overrides: { image: { x: 0, width: 100 }, headline: { x: 40, y: 8, width: 56, height: 28, zIndex: 3 }, badge: { x: 40, y: 38, width: 56, height: 12, zIndex: 3 } } },
   ],
 };
 
@@ -152,6 +165,11 @@ const FLYER: LayoutFamily = {
     { id: "v2_no_image",   name: "Text Dominant",   overrides: { image: { height: 0 }, headline: { y: 15, height: 20, maxFontSize: 160 }, subhead: { y: 37 }, body: { y: 48 }, cta: { y: 76 } } },
     { id: "v3_split_col",  name: "Two Column",      overrides: { image: { width: 48, height: 100 }, headline: { x: 52, y: 8, width: 44 }, subhead: { x: 52, width: 44 }, body: { x: 52, width: 44 }, cta: { x: 52, width: 44 } } },
     { id: "v4_full_bleed", name: "Full Bleed Image",overrides: { image: { height: 100 }, headline: { y: 55, zIndex: 3 }, subhead: { zIndex: 3 }, body: { zIndex: 3 }, cta: { zIndex: 4 } } },
+    { id: "v5_header_band",name: "Header Band",     overrides: { headline: { y: 6, height: 14 }, subhead: { y: 22 }, image: { y: 32, height: 35 }, body: { y: 70, height: 14 }, cta: { y: 88 } } },
+    { id: "v6_reverse_col",name: "Reverse Two-Col", overrides: { image: { x: 52, width: 48, height: 100 }, headline: { x: 4, y: 8, width: 44 }, subhead: { x: 4, width: 44 }, body: { x: 4, width: 44 }, cta: { x: 4, width: 44 } } },
+    { id: "v7_corner_img", name: "Corner Image",    overrides: { image: { x: 60, y: 4, width: 36, height: 30 }, headline: { x: 5, y: 6, width: 52, height: 18 }, subhead: { x: 5, y: 26, width: 52 }, body: { y: 40, height: 34 }, cta: { y: 80 } } },
+    { id: "v8_poster_grid",name: "Poster Grid",     overrides: { image: { y: 0, height: 35 }, headline: { y: 38, height: 16, maxFontSize: 140 }, subhead: { y: 56, height: 7 }, body: { y: 66, height: 12 }, cta: { y: 80 }, legal: { y: 95 } } },
+    { id: "v9_footer_cta", name: "Footer CTA Bar",  overrides: { image: { height: 52 }, headline: { y: 55, height: 12 }, subhead: { y: 68 }, body: { y: 76 }, cta: { x: 0, y: 90, width: 100, height: 9, maxFontSize: 48 } } },
   ],
 };
 
@@ -175,6 +193,10 @@ const POSTER: LayoutFamily = {
     { id: "v1_classic",   name: "Classic",    overrides: {} },
     { id: "v2_minimal",   name: "Minimal",    overrides: { image: { height: 0 }, headline: { y: 20, height: 25, maxFontSize: 200 }, subhead: { y: 48 }, tagline: { y: 60 } } },
     { id: "v3_full_art",  name: "Art Poster", overrides: { image: { height: 100 }, headline: { y: 65, zIndex: 3, minFontSize: 80, maxFontSize: 200 }, subhead: { zIndex: 3 } } },
+    { id: "v4_top_bar",   name: "Top Headline Bar", overrides: { headline: { y: 4, height: 16 }, image: { y: 22, height: 50 }, subhead: { y: 74 }, tagline: { y: 84 }, cta: { y: 92 } } },
+    { id: "v5_split_half",name: "Half Split",       overrides: { image: { y: 0, height: 50 }, headline: { y: 54, height: 18, maxFontSize: 180 }, subhead: { y: 74 }, tagline: { y: 84 } } },
+    { id: "v6_footer_band",name: "Footer Band",     overrides: { image: { y: 0, height: 62 }, headline: { y: 65, height: 12 }, subhead: { y: 79 }, tagline: { y: 88 }, cta: { x: 0, y: 94, width: 100, height: 6 } } },
+    { id: "v7_off_center",name: "Off-Center Focus", overrides: { image: { x: 0, y: 0, width: 62, height: 100 }, headline: { x: 64, y: 14, width: 32, height: 40, alignH: "left" }, subhead: { x: 64, y: 58, width: 32, alignH: "left" }, tagline: { x: 64, y: 72, width: 32, alignH: "left" }, cta: { x: 64, y: 86, width: 32 } } },
   ],
 };
 
@@ -200,6 +222,10 @@ const PRES_SLIDE: LayoutFamily = {
     { id: "v2_big_title",    name: "Big Title",       overrides: { headline: { y: 30, height: 40, maxFontSize: 120 }, subhead: { y: 72 }, body: { height: 0 } } },
     { id: "v3_two_col",      name: "Two Column",      overrides: { headline: { y: 5, height: 15 }, body: { x: 52, y: 22, width: 44, height: 65 }, image: { x: 5, y: 22, width: 44, height: 65 } } },
     { id: "v4_full_bleed",   name: "Full Bleed Image",overrides: { image: { x: 0, y: 0, width: 100, height: 100, zIndex: 0 }, headline: { zIndex: 3 }, subhead: { zIndex: 3 }, body: { zIndex: 3 } } },
+    { id: "v5_image_left",   name: "Image Left",      overrides: { image: { x: 5, y: 22, width: 44, height: 65 }, headline: { x: 52, y: 22, width: 44, height: 18 }, subhead: { x: 52, y: 44, width: 44 }, body: { x: 52, y: 58, width: 44, height: 30 } } },
+    { id: "v6_section_title",name: "Section Title",   overrides: { section_header: { x: 5, y: 4, width: 90, height: 5 }, headline: { y: 12, height: 16 }, subhead: { y: 32, width: 90 }, body: { y: 48, width: 90, height: 38 }, image: { height: 0 } } },
+    { id: "v7_side_quote",   name: "Side Quote",      overrides: { headline: { x: 5, y: 28, width: 55, height: 44, maxFontSize: 88 }, subhead: { x: 5, y: 78, width: 55 }, body: { height: 0 }, image: { x: 64, y: 12, width: 32, height: 76 } } },
+    { id: "v8_centered_stat",name: "Centered Stat",   overrides: { headline: { x: 5, y: 22, width: 90, height: 40, maxFontSize: 200, alignH: "center" }, subhead: { x: 5, y: 66, width: 90, alignH: "center" }, body: { x: 5, y: 78, width: 90, height: 10, alignH: "center" }, image: { height: 0 } } },
   ],
 };
 
@@ -223,6 +249,9 @@ const BIZ_CARD: LayoutFamily = {
     { id: "v1_classic",  name: "Classic",      overrides: {} },
     { id: "v2_centered", name: "Centered",     overrides: { logo: { x: 35, y: 8, width: 30, height: 35, alignH: "center" }, name: { x: 5, y: 48, width: 90, alignH: "center" }, title: { x: 5, y: 62, width: 90, alignH: "center" }, company: { x: 5, alignH: "center" }, contact: { x: 5, alignH: "center" } } },
     { id: "v3_horizontal", name: "Horizontal Left", overrides: { logo: { x: 5, y: 20, width: 20, height: 60 }, name: { x: 30, y: 15 }, title: { x: 30, y: 40 } } },
+    { id: "v4_bottom_bar", name: "Bottom Accent Bar", overrides: { accent: { x: 0, y: 80, width: 100, height: 20 }, logo: { x: 5, y: 8, width: 22, height: 30 }, name: { x: 30, y: 10, width: 65, height: 25 }, title: { x: 30, y: 38, width: 65, height: 14 }, company: { x: 5, y: 55, width: 90, height: 18 }, contact: { x: 5, y: 84, width: 90, height: 14 } } },
+    { id: "v5_right_accent", name: "Right Accent",    overrides: { accent: { x: 97, y: 0, width: 3, height: 100 }, logo: { x: 72, y: 12, width: 22, height: 30 }, name: { x: 5, y: 10, width: 62 }, title: { x: 5, y: 36 }, company: { x: 5, y: 54 }, contact: { x: 5, y: 72 } } },
+    { id: "v6_split_diag",   name: "Split Layout",    overrides: { accent: { x: 0, y: 0, width: 40, height: 100 }, logo: { x: 6, y: 35, width: 28, height: 30 }, name: { x: 44, y: 14, width: 52, height: 22 }, title: { x: 44, y: 40, width: 52, height: 14 }, company: { x: 44, y: 58, width: 52, height: 14 }, contact: { x: 44, y: 74, width: 52, height: 22 } } },
   ],
 };
 
@@ -249,6 +278,8 @@ const RESUME: LayoutFamily = {
   variations: [
     { id: "v1_two_col",    name: "Two Column",    overrides: {} },
     { id: "v2_single_col", name: "Single Column", overrides: { accent: { width: 0 }, name: { x: 5 }, title: { x: 5 }, contact: { x: 5 }, section_header: { x: 5 }, body: { x: 5, width: 90 }, bullet_1: { height: 0 }, bullet_2: { height: 0 }, bullet_3: { height: 0 } } },
+    { id: "v3_right_sidebar", name: "Right Sidebar", overrides: { accent: { x: 72, y: 0, width: 28, height: 100 }, name: { x: 4, y: 3, width: 65 }, title: { x: 4, y: 10, width: 65 }, contact: { x: 4, y: 15, width: 65 }, section_header: { x: 4, y: 22, width: 65 }, body: { x: 4, y: 26, width: 65 }, bullet_1: { x: 74, y: 6, width: 22, height: 12 }, bullet_2: { x: 74, y: 22, width: 22, height: 12 }, bullet_3: { x: 74, y: 38, width: 22, height: 12 }, logo: { x: 76, y: 84, width: 18, height: 10 } } },
+    { id: "v4_header_band",name: "Header Band",    overrides: { accent: { x: 0, y: 0, width: 100, height: 18 }, name: { x: 5, y: 3, width: 90 }, title: { x: 5, y: 9, width: 90 }, contact: { x: 5, y: 13, width: 90 }, section_header: { x: 5, y: 22, width: 90 }, body: { x: 5, y: 26, width: 90, height: 68 }, bullet_1: { height: 0 }, bullet_2: { height: 0 }, bullet_3: { height: 0 }, logo: { x: 82, y: 3, width: 14, height: 10 } } },
   ],
 };
 
@@ -271,6 +302,10 @@ const LOGO: LayoutFamily = {
     { id: "v2_icon_top",    name: "Icon + Name",    overrides: {} },
     { id: "v3_monogram",    name: "Monogram",       overrides: { image: { y: 20, height: 60 }, name: { height: 0 }, tagline: { height: 0 } } },
     { id: "v4_horizontal",  name: "Horizontal",     overrides: { image: { x: 5, y: 25, width: 30, height: 50 }, name: { x: 40, y: 30, width: 55, alignH: "left" }, tagline: { x: 40, y: 65, width: 55, alignH: "left" } } },
+    { id: "v5_underline",   name: "Underlined",     overrides: { image: { x: 25, y: 12, width: 50, height: 36 }, name: { y: 54, height: 16 }, accent: { x: 30, y: 72, width: 40, height: 1 }, tagline: { y: 78, height: 8 } } },
+    { id: "v6_stacked",     name: "Stacked Tight",  overrides: { image: { x: 35, y: 14, width: 30, height: 30 }, name: { y: 48, height: 20, maxFontSize: 80 }, tagline: { y: 70, height: 10 } } },
+    { id: "v7_icon_left",   name: "Icon Left",      overrides: { image: { x: 6, y: 30, width: 28, height: 40 }, name: { x: 38, y: 36, width: 58, alignH: "left", height: 18 }, tagline: { x: 38, y: 58, width: 58, alignH: "left", height: 10 } } },
+    { id: "v8_name_first",  name: "Name Above Icon",overrides: { name: { y: 12, height: 20, maxFontSize: 110 }, image: { y: 38, height: 40 }, tagline: { y: 82, height: 10 } } },
   ],
 };
 
@@ -287,6 +322,54 @@ for (const family of LAYOUT_FAMILIES) {
     FAMILIES_BY_FORMAT[fmt] = FAMILIES_BY_FORMAT[fmt] ?? [];
     FAMILIES_BY_FORMAT[fmt].push(family);
   }
+}
+
+// ── Deterministic permutation ───────────────────────────────────────────────
+//
+// The gallery renders N templates per format with sequential variationIdx
+// values (0, 1, 2, ...). A plain hash-mod-N selector causes collisions
+// whenever N exceeds the variation count, so the first template and the
+// sixth template of the same family end up looking identical.
+//
+// Instead, for each (campaignId, format, stylePreset) we derive a seed and
+// produce a Fisher-Yates permutation of [0..N-1]. Calling
+// `pickPermutedIndex(seed, N, variationIdx)` returns
+// `permutation[variationIdx % N]`, guaranteeing that the first N templates
+// cover all N variations before any repeats.
+
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6D2B79F5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function permutation(size: number, seedHex: string): number[] {
+  const arr = Array.from({ length: size }, (_, i) => i);
+  // Mix several hex chunks into the RNG seed to keep spread wide
+  const seedInt = parseInt(seedHex.slice(0, 8), 16) ^ parseInt(seedHex.slice(8, 16), 16);
+  const rand = mulberry32(seedInt || 1);
+  for (let i = size - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Deterministically pick the index of the variationIdx-th item in a
+ * permutation of [0..size-1], seeded by `seedHex`. The first `size` calls
+ * with distinct variationIdx values cover every index exactly once.
+ */
+export function pickPermutedIndex(seedHex: string, size: number, variationIdx: number): number {
+  if (size <= 1) return 0;
+  const perm = permutation(size, seedHex);
+  const step = ((variationIdx % size) + size) % size;
+  return perm[step];
 }
 
 // Alias extended social formats to closest canonical layout family
@@ -332,12 +415,20 @@ export function selectLayout(ctx: SelectionContext): LayoutSelection {
     .update(`${ctx.campaignId}:${ctx.format}:${ctx.variationIdx}:${ctx.stylePreset}`)
     .digest("hex");
 
-  const familyIdx    = parseInt(seed.slice(0, 8),  16) % families.length;
-  const variationIdx = parseInt(seed.slice(8, 16), 16) % families[familyIdx].variations.length;
+  const fSeed = createHash("sha256")
+    .update(`${ctx.campaignId}:${ctx.format}:${ctx.stylePreset}:family`)
+    .digest("hex");
+  const familyIdx = pickPermutedIndex(fSeed, families.length, ctx.variationIdx);
+  const family    = families[familyIdx];
+
+  const vSeed = createHash("sha256")
+    .update(`${ctx.campaignId}:${ctx.format}:${ctx.stylePreset}:${family.id}`)
+    .digest("hex");
+  const variationIdx = pickPermutedIndex(vSeed, family.variations.length, ctx.variationIdx);
 
   return {
-    family:    families[familyIdx],
-    variation: families[familyIdx].variations[variationIdx],
+    family,
+    variation: family.variations[variationIdx],
     seed,
   };
 }

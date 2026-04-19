@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import {
   Zone, ZoneId, LayoutFamily, LayoutVariation,
   LAYOUT_FAMILIES, FAMILIES_BY_FORMAT,
+  pickPermutedIndex,
 } from "./families";
 import {
   getCategoryLayoutProfile,
@@ -105,22 +106,33 @@ export function resolveLayoutSpec(ctx: AuthorityContext): LayoutSpec {
     variation      = fallback.variations[0];
     variationIndex = 0;
   } else {
-    const fIdx     = parseInt(seed.slice(0, 8),  16) % families.length;
-    const hashVIdx = parseInt(seed.slice(8, 16), 16) % families[fIdx].variations.length;
+    // Use a permutation for the family index so sequential variationIdx
+    // values cycle through every family before repeating.
+    const fSeed    = createHash("sha256")
+      .update([ctx.campaignId, ctx.format, ctx.stylePreset, "family"].join(":"))
+      .digest("hex");
+    const fIdx     = pickPermutedIndex(fSeed, families.length, ctx.variationIdx);
     family         = families[fIdx];
 
+    // Variation selection uses a campaign-stable permutation so the first
+    // N gallery templates cover all N variations of this family before any
+    // repeats. The permutation seed incorporates the chosen family so that
+    // every (family, slot) pair picks a different variation ordering.
+    const vSeed    = createHash("sha256")
+      .update([ctx.campaignId, ctx.format, ctx.stylePreset, family.id].join(":"))
+      .digest("hex");
+    const permVIdx = pickPermutedIndex(vSeed, family.variations.length, ctx.variationIdx);
+
     // Bias variation selection toward the category's preferred composition
-    // approach when a profile exists for the detected category. Keeps hash
-    // determinism when no category is detected or the category has no
-    // matching preference in this family.
+    // approach when a profile exists for the detected category.
     const profile  = getCategoryLayoutProfile(ctx.categoryId);
     const vIdx     = profile
       ? selectCategoryVariationIndex(
           family.variations.map(v => v.id),
           profile,
-          hashVIdx,
+          permVIdx,
         )
-      : hashVIdx;
+      : permVIdx;
 
     variation      = family.variations[vIdx];
     variationIndex = vIdx;
