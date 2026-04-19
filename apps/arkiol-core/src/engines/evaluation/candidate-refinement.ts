@@ -9,6 +9,7 @@
 import type { Zone, ZoneId } from "../layout/families";
 import type { SvgContent } from "../render/svg-builder-ultimate";
 import { FORMAT_DIMS } from "../../lib/types";
+import { runMicroPolish } from "../render/micro-polish";
 
 // ── Quality report ───────────────────────────────────────────────────────────
 // Step 24 expands the report vocabulary with alignment + clutter so the
@@ -549,6 +550,24 @@ export function runRefinementPasses(
     current = nextContent;
     report  = assessDesignQuality(current, zones, format);
     stabilized = report.issues.every(i => !i.autoFixable || i.severity !== "error");
+  }
+
+  // Step 39: final micro-polish pass. Snaps font sizes to the modular
+  // scale, normalizes hex colours to lowercase, rounds CTA padding /
+  // border-radius to the 8 px grid. Runs exactly once at the end of
+  // the refinement chain — every adjustment here is a value
+  // normalization, not a bug fix, so there's no reason to loop.
+  const polish = runMicroPolish(current);
+  if (polish.actions.length > 0) {
+    current = polish.content;
+    actions.push(
+      ...polish.actions.map(a =>
+        `polish:${a.field}${a.zoneId ? `@${a.zoneId}` : ""} ${a.before}→${a.after}` +
+        (a.detail ? ` (${a.detail})` : ""),
+      ),
+    );
+    // Re-assess in case a font-size snap reshuffled overflow risk.
+    report = assessDesignQuality(current, zones, format);
   }
 
   return { content: current, report, actions, passesRun, stabilized };

@@ -33,6 +33,18 @@ export {
   type AssetCarrier,
 } from "./self-healing";
 
+// Step 39: micro-polish — final pass that snaps font sizes, normalizes
+// colors, and rounds CTA padding/radius to the 8 px grid.
+export {
+  runMicroPolish,
+  MICRO_POLISH_MODULAR_SCALE,
+  MICRO_POLISH_LINE_HEIGHT_BAND,
+  MICRO_POLISH_DEFAULT_SPACING_UNIT,
+  type PolishAction,
+  type MicroPolishResult,
+  type MicroPolishOptions,
+} from "./micro-polish";
+
 export {
   createPipelineContext,
   type PipelineContext,

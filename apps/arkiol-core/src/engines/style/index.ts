@@ -59,3 +59,18 @@ export {
   type AlignmentRhythm,
   type FormatZoneOverrides,
 } from "./category-layout-profiles";
+
+// Step 39: pack coherence — shared palette / typography / spacing /
+// corner radius across a batch of candidate templates so the gallery
+// reads as one curated pack.
+export {
+  PACK_COHERENCE_FLOOR,
+  extractPackAnchor,
+  extractPackAnchorFrom,
+  lockThemeToAnchor,
+  scorePackCoherence,
+  filterCoherentPack,
+  type PackAnchor,
+  type PackCoherenceReport,
+  type CoherenceFilterResult,
+} from "./pack-coherence";
