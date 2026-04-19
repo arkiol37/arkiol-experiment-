@@ -178,6 +178,36 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
+  // ── Generic / uninspired (Step 38) ──────────────────────────────────────
+  // The "mid-range-across-the-board" failure: no single dimension dips
+  // low enough to trigger the focused rules above, but the composition
+  // is uniformly mediocre. Flags outputs where the visual quality
+  // dimensions (hierarchy, layering, asset usage, composition balance)
+  // all sit between 0.30–0.45 — a sure tell that no single craft
+  // element is pulling its weight. A marketplace-grade template should
+  // have at least one dimension pushing >= 0.55 even when the total
+  // scrapes by.
+  {
+    id:          "generic_output",
+    severity:    "hard",
+    description: "All craft dimensions sit in mid-range — template reads as uninspired.",
+    evaluate(theme, _content, score) {
+      const s = score ?? scoreThemeQuality(theme);
+      const craft = [
+        s.hierarchyClarity,
+        s.visualLayering,
+        s.assetUsage,
+        s.compositionBalance,
+      ];
+      const anyStrong = craft.some(v => v >= 0.55);
+      const allMid    = craft.every(v => v >= 0.30 && v <= 0.45);
+      if (!anyStrong && allMid) {
+        return `generic_output:craft=[${craft.map(v => v.toFixed(2)).join(",")}]`;
+      }
+      return null;
+    },
+  },
+
   // ── Sparse content (soft) ────────────────────────────────────────────────
   {
     id:          "sparse_content",

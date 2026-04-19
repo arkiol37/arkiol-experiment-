@@ -41,11 +41,12 @@ import {
 // ── Criteria vocabulary ──────────────────────────────────────────────────────
 
 export type MarketplaceCriterion =
-  | "polished"           // refined + no critical contrast / overflow / spacing
+  | "polished"           // refined + no critical contrast / overflow / spacing + hero present
   | "layered"            // real visual depth — layering + bg complexity
   | "categorySpecific"   // tone + colorMood + hierarchy align with brief
   | "assetRich"          // enough library-style assets to read as curated
-  | "publishReady";      // composite pass + no hard rejection rule firing
+  | "publishReady"       // composite pass + no hard rejection rule firing
+  | "styleConsistent";   // Step 38 — single visual style across the composition
 
 export interface CriterionResult {
   name:     MarketplaceCriterion;
@@ -70,26 +71,37 @@ export interface MarketplaceVerdict {
 // composite total yet still fail `polished` (spacing floor) or `layered`
 // (backgroundComplexity floor) here.
 
+// Step 38: tightened floors across every criterion so the gate rejects
+// mid-range outputs instead of nodding them through. "Polished" now
+// requires cleaner spacing / overflow / contrast, "layered" demands
+// real depth, "assetRich" requires genuine variety, and "publishReady"
+// raises the composite bar.
 export const MARKETPLACE_THRESHOLDS = {
   polished: {
-    contrastCompliance: 0.90,
-    overflowRisk:       0.85,
-    spacingQuality:     0.70,
+    contrastCompliance: 0.92,   // was 0.90
+    overflowRisk:       0.88,   // was 0.85
+    spacingQuality:     0.75,   // was 0.70
   },
   layered: {
-    visualLayering:       0.50,
-    backgroundComplexity: 0.40,
+    visualLayering:       0.55, // was 0.50
+    backgroundComplexity: 0.45, // was 0.40
   },
   categorySpecific: {
-    hierarchyClarity: 0.45,
+    hierarchyClarity: 0.50,     // was 0.45
   },
   assetRich: {
-    assetUsage:          0.40,
-    premiumElements:     0.35,
-    decorationDiversity: 0.50,
+    assetUsage:          0.45,  // was 0.40
+    premiumElements:     0.40,  // was 0.35
+    decorationDiversity: 0.55,  // was 0.50
   },
   publishReady: {
-    compositeTotal: 0.58,
+    compositeTotal: 0.62,       // was 0.58
+  },
+  // Step 38: new criterion — at most one secondary style alongside
+  // the dominant visual style. A template with 3D assets mixed with
+  // flat icons and hand-drawn illustrations fails consistency.
+  styleConsistent: {
+    dominantShareMin: 0.80,
   },
 } as const;
 
@@ -116,6 +128,16 @@ export interface MarketplaceContext {
   format?:            string;
   brief?:             BriefAnalysis;
   refinementPassed?:  boolean;            // true when runRefinementPasses stabilized
+  // Step 38: hero presence signal. True when the composition plan
+  // declared a primary visual with a compositionMode (Step 37). When
+  // omitted, the gate skips the hero check — callers that want the
+  // full polish bar should always pass it.
+  heroPresent?:       boolean;
+  // Step 38: list of visualStyle values used by the composition (one
+  // entry per placed asset that carries a style). The gate checks that
+  // a single style dominates (>= styleConsistent.dominantShareMin).
+  // Omit for pre-composition calls (e.g. theme-only evaluation).
+  placedStyles?:      (string | undefined)[];
   // Pre-computed signals — pass them in if the caller already has them so
   // we avoid re-scoring. All are optional.
   qualityScore?:      CandidateQualityScore;
@@ -132,15 +154,22 @@ export function passesMarketplaceStandard(ctx: MarketplaceContext): MarketplaceV
     {} as Record<MarketplaceCriterion, CriterionResult>;
 
   // ── polished ────────────────────────────────────────────────────────────
-  // A polished template has no critical fix-worthy issues and survived
-  // refinement cleanly.
+  // A polished template has no critical fix-worthy issues, survived
+  // refinement cleanly, AND declares a primary visual (hero). Step 38
+  // added the hero requirement: without a focal element the template
+  // may still be valid but doesn't read as marketplace-polished.
   const tP = MARKETPLACE_THRESHOLDS.polished;
   const contrast = report?.contrastCompliance ?? (q.readability >= 0.6 ? 0.95 : 0.7);
   const overflow = report?.overflowRisk       ?? 0.9;
   const spacing  = report?.spacingQuality     ?? 0.8;
   const polishedRefinedOk = ctx.refinementPassed !== false;
+  // Hero is required when the caller supplies the signal. When the
+  // caller hasn't threaded composition context (heroPresent undefined),
+  // fall back to a pass so theme-only callers aren't penalized.
+  const polishedHeroOk = ctx.heroPresent !== false;
   const polishedPass =
     polishedRefinedOk                 &&
+    polishedHeroOk                    &&
     contrast >= tP.contrastCompliance &&
     overflow >= tP.overflowRisk       &&
     spacing  >= tP.spacingQuality;
@@ -150,7 +179,8 @@ export function passesMarketplaceStandard(ctx: MarketplaceContext): MarketplaceV
     actual: Math.min(contrast, overflow, spacing),
     floor:  Math.min(tP.contrastCompliance, tP.overflowRisk, tP.spacingQuality),
     detail: `contrast=${contrast.toFixed(2)} overflow=${overflow.toFixed(2)} ` +
-            `spacing=${spacing.toFixed(2)} refined=${polishedRefinedOk}`,
+            `spacing=${spacing.toFixed(2)} refined=${polishedRefinedOk} ` +
+            `hero=${polishedHeroOk}`,
   };
 
   // ── layered ─────────────────────────────────────────────────────────────
@@ -228,6 +258,39 @@ export function passesMarketplaceStandard(ctx: MarketplaceContext): MarketplaceV
             (rejection.hardReasons.length > 0
               ? ` hard=[${rejection.hardReasons.slice(0, 2).join("|")}]`
               : ""),
+  };
+
+  // ── styleConsistent (Step 38) ───────────────────────────────────────────
+  // A marketplace-grade template sticks to one visual style. When the
+  // caller passes placedStyles (the list of visualStyle values from
+  // placed assets), we compute the dominant share — share of the most-
+  // frequent style among all styled assets — and require it to clear
+  // the floor. Style-less assets (undefined) don't count so decorative
+  // elements like ribbons / badges / icons don't distort the check.
+  const tS = MARKETPLACE_THRESHOLDS.styleConsistent;
+  let dominantShare = 1;
+  let styleDetail = "no placedStyles supplied (skipped)";
+  if (ctx.placedStyles && ctx.placedStyles.length > 0) {
+    const tally = new Map<string, number>();
+    for (const s of ctx.placedStyles) {
+      if (!s) continue;
+      tally.set(s, (tally.get(s) ?? 0) + 1);
+    }
+    const styledTotal = [...tally.values()].reduce((a, b) => a + b, 0);
+    if (styledTotal > 0) {
+      const dominantCount = Math.max(...tally.values());
+      dominantShare = dominantCount / styledTotal;
+      const top = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
+      styleDetail = `dominant=${top?.[0] ?? "none"} share=${dominantShare.toFixed(2)} ` +
+                    `styles=${[...tally.keys()].join("|")}`;
+    }
+  }
+  criteria.styleConsistent = {
+    name:   "styleConsistent",
+    pass:   dominantShare >= tS.dominantShareMin,
+    actual: dominantShare,
+    floor:  tS.dominantShareMin,
+    detail: styleDetail,
   };
 
   const failedCriteria: MarketplaceCriterion[] = (
@@ -331,4 +394,62 @@ export function describeMarketplaceVerdict(v: MarketplaceVerdict): string {
   const score  = v.marketplaceScore.toFixed(2);
   const failed = v.failedCriteria.length > 0 ? ` failed=[${v.failedCriteria.join(",")}]` : "";
   return `marketplace:${status} score=${score}${failed}`;
+}
+
+// ── Decisive pipeline enforcement (Step 38) ──────────────────────────────────
+// When the pipeline is running in strict marketplace mode, a failed
+// gate verdict throws MarketplaceQualityError so callers (worker,
+// gallery-batch filter) can drop the candidate before it reaches the
+// gallery. In non-strict mode (default) the gate still runs but only
+// emits violations — preserves the existing behavior for test / dev.
+//
+// Enable strict mode via ARKIOL_STRICT_MARKETPLACE=1 in the worker's
+// environment. The check is cheap; the throw path is only hit when
+// the verdict says reject.
+
+export class MarketplaceQualityError extends Error {
+  readonly name = "MarketplaceQualityError";
+  readonly verdict: MarketplaceVerdict;
+  readonly jobId:   string;
+  readonly format:  string;
+  constructor(jobId: string, format: string, verdict: MarketplaceVerdict) {
+    super(
+      `Marketplace quality gate rejected: failed=[${verdict.failedCriteria.join(",")}] ` +
+      `score=${verdict.marketplaceScore.toFixed(2)}`,
+    );
+    this.verdict = verdict;
+    this.jobId   = jobId;
+    this.format  = format;
+  }
+}
+
+export interface MarketplaceEnforceOptions {
+  jobId?:  string;
+  format?: string;
+  // When true, throw MarketplaceQualityError on failure. When false
+  // (default), return the verdict unchanged and let the caller log it.
+  strict?: boolean;
+}
+
+/**
+ * Evaluate + optionally enforce the marketplace standard. When
+ * opts.strict is true and the verdict fails, throws
+ * MarketplaceQualityError. Otherwise returns the verdict.
+ *
+ * This is the decisive entry point Step 38 introduces so pipeline
+ * callers can fail hard instead of merely logging a rejection.
+ */
+export function enforceMarketplaceStandard(
+  ctx:  MarketplaceContext,
+  opts: MarketplaceEnforceOptions = {},
+): MarketplaceVerdict {
+  const verdict = passesMarketplaceStandard(ctx);
+  if (!verdict.approved && opts.strict) {
+    throw new MarketplaceQualityError(
+      opts.jobId ?? "",
+      opts.format ?? "",
+      verdict,
+    );
+  }
+  return verdict;
 }

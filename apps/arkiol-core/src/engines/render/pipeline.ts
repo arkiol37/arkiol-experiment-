@@ -44,6 +44,7 @@ import {
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
 import { scoreCandidateQuality } from "../evaluation/candidate-quality";
+import { enforceMarketplaceStandard } from "../evaluation/marketplace-gate";
 import { assessDesignQuality, refineDesign, runRefinementPasses } from "../evaluation/candidate-refinement";
 import { polishOutput } from "../evaluation/output-polish";
 import { assessProductionReadiness, type ProductionReadinessReport } from "../evaluation/production-readiness";
@@ -322,7 +323,8 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
     if (err?.name === "KillSwitchError" ||
         err?.name === "SpendGuardError" ||
         err?.name === "AssetPresenceError" ||
-        err?.name === "LayoutConstraintError") throw err;
+        err?.name === "LayoutConstraintError" ||
+        err?.name === "MarketplaceQualityError") throw err;
 
     const durationMs = Date.now() - startMs;
     logger.error(
@@ -905,6 +907,67 @@ async function renderAssetInner(
     retried: qualityGateRetried,
   };
   violations.push(...buildResult.violations);
+
+  // ── Step 38: Marketplace quality enforcement ──────────────────────────
+  // Runs the marketplace gate at the pipeline level with the full
+  // composition context (hero presence from Step 37, visualStyle list
+  // from Step 36) threaded in. Operates in two modes:
+  //   Strict  (ARKIOL_STRICT_MARKETPLACE=1): throws
+  //           MarketplaceQualityError on failure so the worker drops
+  //           the candidate before it reaches the gallery.
+  //   Default: logs the verdict as violations; downstream batch
+  //           selection / rejection-rules do the filtering.
+  try {
+    const buildContent = buildResult.content as SvgContent;
+    const heroEl       = composition.elements.find(e => e.primary);
+    // placedStyles surfaces the visualStyle axis (Step 36) so the
+    // styleConsistent criterion can check mix. Pipeline doesn't
+    // currently carry per-element style through the composition plan
+    // (that lives in the asset library), so we pass an empty array
+    // for now — the gate treats it as "not supplied" and skips the
+    // check, preserving behavior while the wiring lands in a later
+    // step that threads selection context all the way through.
+    const placedStyles: (string | undefined)[] = [];
+
+    if (buildContent._selectedTheme) {
+      const strictGate = typeof process !== "undefined"
+        ? (process.env as Record<string, string | undefined>).ARKIOL_STRICT_MARKETPLACE === "1"
+        : false;
+      const verdict = enforceMarketplaceStandard(
+        {
+          theme:            buildContent._selectedTheme,
+          content:          buildContent,
+          zones:            spec.zones,
+          format:           input.format,
+          brief:            input.brief,
+          refinementPassed: qualityGateRefined || !qualityGateRetried,
+          heroPresent:      !!heroEl && !!heroEl.compositionMode,
+          placedStyles,
+        },
+        {
+          jobId:  input.jobId,
+          format: input.format,
+          strict: strictGate,
+        },
+      );
+      violations.push(
+        `marketplace_gate:${verdict.approved ? "APPROVED" : "REJECTED"} ` +
+        `score=${verdict.marketplaceScore.toFixed(2)}` +
+        (verdict.failedCriteria.length > 0
+          ? ` failed=[${verdict.failedCriteria.join(",")}]`
+          : ""),
+      );
+    }
+  } catch (gateErr: any) {
+    if (gateErr?.name === "MarketplaceQualityError") throw gateErr;
+    recoveryLog.push({
+      stage:     "marketplace_gate",
+      issue:     gateErr?.message ?? "marketplace gate failed",
+      action:    "Skipped marketplace gate — proceeding with unscored output",
+      severity:  "warning",
+      timestamp: Date.now(),
+    });
+  }
 
   // ── Stage 5: Hierarchy enforcement ────────────────────────────────────
   const hierarchyResult = enforceHierarchy(
