@@ -23,6 +23,7 @@ import {
   type CategoryLayoutProfile,
 } from "../style/category-layout-profiles";
 import { snapZonesToGrid } from "./artboard-grid";
+import { applyContentResponse } from "./content-response";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -187,6 +188,16 @@ export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResul
 
   // ── Phase 1.5: Content-driven layout intent ────────────────────────────
   zones = applyLayoutIntent(zones, metrics, adjustments) as Zone[];
+
+  // ── Phase 1.8: Content-length response ──────────────────────────────────
+  // Shape the composition to match content length: short headlines become
+  // focal, long content spreads into multi-block layouts, and overflow /
+  // compression is prevented up-front before downstream phases fine-tune.
+  {
+    const response = applyContentResponse(zones, brief, formatCategory);
+    zones = response.zones;
+    adjustments.push(...response.adjustments);
+  }
 
   // ── Phase 2: Content-adaptive resizing ──────────────────────────────────
   zones = adaptZoneSizes(zones, metrics, density, adjustments) as Zone[];
