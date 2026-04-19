@@ -620,18 +620,6 @@ export function renderScene(
   return svg;
 }
 
-// Test / debug helper — lets callers verify cache warmth.
-export function getSceneCacheSize(): number { return _sceneCache.size; }
-export function clearSceneCache():  void   { _sceneCache.clear(); }
-
-export function getSceneAspectRatio(kind: SceneKind): number {
-  return SCENES[kind].aspectRatio;
-}
-
-export const SCENE_KINDS: readonly SceneKind[] = Object.freeze(
-  Object.keys(SCENES) as SceneKind[],
-);
-
 function hashCode(s: string): number {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;

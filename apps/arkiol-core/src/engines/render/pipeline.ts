@@ -43,7 +43,7 @@ import {
 } from "../assets/contract";
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
-import { scoreCandidateQuality } from "../evaluation/candidate-quality";
+import { scoreCandidateQuality, scoreThemeQuality } from "../evaluation/candidate-quality";
 import { enforceMarketplaceStandard } from "../evaluation/marketplace-gate";
 import { assessDesignQuality, refineDesign, runRefinementPasses } from "../evaluation/candidate-refinement";
 import { polishOutput } from "../evaluation/output-polish";
@@ -1199,14 +1199,12 @@ async function renderAssetInner(
     const theme = (buildResult.content as SvgContent)._selectedTheme;
     if (!theme) return undefined;
     const decorationKinds = Array.from(new Set((theme.decorations ?? []).map(d => d.kind))).sort();
-    // Score the theme on demand — keeps this block independent of
-    // wherever the upstream quality-gate stage stashed its score.
+    // Score the theme on demand. Guarded because scoreThemeQuality
+    // can theoretically throw on an unexpected theme shape and we
+    // don't want a throw here to fail the whole pipeline.
     let assetUsage = 0;
-    try {
-      const { scoreThemeQuality } = require("../evaluation/candidate-quality") as
-        typeof import("../evaluation/candidate-quality");
-      assetUsage = scoreThemeQuality(theme).assetUsage;
-    } catch { /* fall through with default 0 */ }
+    try { assetUsage = scoreThemeQuality(theme).assetUsage; }
+    catch { /* fall through with default 0 */ }
     const assetUsageBand: VisualPatternSignature["assetUsageBand"] =
       assetUsage >= 0.60 ? "high"
       : assetUsage >= 0.30 ? "mid"

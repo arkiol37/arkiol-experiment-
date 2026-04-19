@@ -963,10 +963,10 @@ const REAL_WORLD_ASSETS: Asset[] = [
 // Each scene is palette-driven (category → ScenePalette mapping), so
 // one scene kind supports multiple category homes with the right colors.
 
-// Deferred import to avoid circular dep on the engines path.
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { renderScene } = require("../../engines/assets/svg-scene-composer") as
-  typeof import("../../engines/assets/svg-scene-composer");
+// svg-scene-composer is self-contained (no imports from the asset
+// library) so a plain static import is safe and preferable for
+// bundler tree-shaking.
+import { renderScene } from "../../engines/assets/svg-scene-composer";
 
 const sceneAsset = (opts: {
   id:       string;
