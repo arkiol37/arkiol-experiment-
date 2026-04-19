@@ -11,6 +11,7 @@
 
 import type { Asset, AssetCategory, AssetKind } from "./types";
 import { queryAssets, pickAsset, ASSET_CATEGORIES } from "./registry";
+import { scoreAssetForCategory } from "./category-profile";
 
 // ── Recipe shape ──────────────────────────────────────────────────────────────
 
@@ -156,6 +157,18 @@ export interface SelectOptions {
 /**
  * Select a concrete list of assets for a given category, following its recipe.
  * No layout / placement logic here — just the picks.
+ *
+ * Selection order within each recipe entry:
+ *   1. Pool = assets whose category (or extraCategories) includes `category`,
+ *      filtered by recipe entry kind.
+ *   2. Rank by category-profile score (see category-profile.ts) so picks lean
+ *      toward the on-brand choices for the category (e.g. checklist icons
+ *      for productivity, calm blobs for wellness, charts for business,
+ *      energy bursts for fitness).
+ *   3. Break remaining ties using recipe tag bias — this keeps per-entry
+ *      narrowing (e.g. icon entry asking for "time" + "done" tags) working
+ *      alongside the global category profile.
+ *   4. Deterministic pickFromPool via seed.
  */
 export function selectAssetsForCategory(
   category: AssetCategory,
@@ -168,13 +181,22 @@ export function selectAssetsForCategory(
   const seenIds = new Set<string>();
 
   recipe.entries.forEach((entry, entryIdx) => {
-    // Candidate pool: category + kind, then optional tag filter.
+    // Candidate pool: category + kind.
     const base = queryAssets({ category, kind: entry.kind });
-    const taggedFirst = entry.tags && entry.tags.length > 0
-      ? [...base].sort((a, b) => tagScore(b, entry.tags!) - tagScore(a, entry.tags!))
-      : base;
 
-    let remaining = [...taggedFirst];
+    // Two-key sort: primary key is the category-profile score (how on-brand
+    // this asset is for the category overall), secondary key is the entry
+    // tag score (how well it matches this particular recipe slot).
+    const ranked = [...base].sort((a, b) => {
+      const ds = scoreAssetForCategory(b, category) - scoreAssetForCategory(a, category);
+      if (ds !== 0) return ds;
+      if (entry.tags && entry.tags.length > 0) {
+        return tagScore(b, entry.tags) - tagScore(a, entry.tags);
+      }
+      return 0;
+    });
+
+    let remaining = [...ranked];
 
     for (let i = 0; i < entry.count; i++) {
       // Stable per-slot seed keeps the mix reproducible across reloads.
@@ -182,7 +204,14 @@ export function selectAssetsForCategory(
       const pool = remaining.filter(a => !seenIds.has(a.id));
       if (pool.length === 0) break;
 
-      const pick = pickFromPool(pool, slotSeed);
+      // Pick from the top-scoring segment first — only fall back to the
+      // long tail if the seed rotates us past it. This biases toward
+      // category-aligned picks without making them forced.
+      const topScore = scoreAssetForCategory(pool[0], category);
+      const topBand  = pool.filter(a => scoreAssetForCategory(a, category) >= Math.max(1, topScore - 2));
+      const pickPool = topBand.length > 0 ? topBand : pool;
+
+      const pick = pickFromPool(pickPool, slotSeed);
       if (!pick) break;
       picked.push(pick);
       seenIds.add(pick.id);
@@ -190,9 +219,17 @@ export function selectAssetsForCategory(
     }
 
     // Required-fallback: if this kind is required and we found nothing in
-    // the category, pull any asset of this kind from the global pool.
+    // the category, pull any asset of this kind from the global pool,
+    // ranked by category-profile score so the fallback is still on-brand.
     if (enforceRequired && entry.required && picked.filter(a => a.kind === entry.kind).length === 0) {
-      const fallback = pickAsset({ kind: entry.kind, seed: opts.seed ? `${opts.seed}::fallback::${entry.kind}` : undefined });
+      const global = queryAssets({ kind: entry.kind });
+      const rankedGlobal = [...global].sort(
+        (a, b) => scoreAssetForCategory(b, category) - scoreAssetForCategory(a, category),
+      );
+      const fallback = pickFromPool(
+        rankedGlobal.filter(a => !seenIds.has(a.id)),
+        opts.seed ? `${opts.seed}::fallback::${entry.kind}` : undefined,
+      ) ?? pickAsset({ kind: entry.kind, seed: opts.seed ? `${opts.seed}::fallback::${entry.kind}` : undefined });
       if (fallback && !seenIds.has(fallback.id)) {
         picked.push(fallback);
         seenIds.add(fallback.id);

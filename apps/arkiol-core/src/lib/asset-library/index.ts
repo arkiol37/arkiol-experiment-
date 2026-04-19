@@ -35,3 +35,14 @@ export {
   selectAssetsForCategory,
   inferCategoryFromText,
 } from "./category-recipes";
+
+export type {
+  CategoryProfile,
+} from "./category-profile";
+
+export {
+  CATEGORY_PROFILES,
+  scoreAssetForCategory,
+  rankAssetsForCategory,
+  filterAssetsForCategory,
+} from "./category-profile";
