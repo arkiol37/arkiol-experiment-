@@ -24,7 +24,13 @@ export {
   healContent,
   buildSafetyNetSvg,
   buildDegradedResult,
+  retryWithBackoff,
+  runResilientRender,
+  recoverMissingAssets,
   type RecoveryAction,
+  type RetryOptions,
+  type ResilientRenderOptions,
+  type AssetCarrier,
 } from "./self-healing";
 
 export {

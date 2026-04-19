@@ -41,7 +41,7 @@ import {
   motionCompatibleElements, ASSET_CONTRACTS,
 } from "../assets/contract";
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
-import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent } from "./svg-builder-ultimate";
+import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
 import { scoreCandidateQuality } from "../evaluation/candidate-quality";
 import { assessDesignQuality, refineDesign, runRefinementPasses } from "../evaluation/candidate-refinement";
 import { polishOutput } from "../evaluation/output-polish";
@@ -58,6 +58,8 @@ import {
   healContent,
   buildSafetyNetSvg,
   buildDegradedResult,
+  runResilientRender,
+  recoverMissingAssets,
   type RecoveryAction,
 } from "./self-healing";
 import { recordGeneration } from "../memory/generation-ledger";
@@ -726,6 +728,22 @@ async function renderAssetInner(
         }
   }
 
+  // Step 32: missing-asset recovery. After on-demand resolution, drop any
+  // composition elements that ended up with neither a URL nor a prompt,
+  // and any image-type elements that require a URL but didn't get one
+  // (AI generation failed or upstream asset not materialized). Prevents
+  // broken placements from reaching the SVG builder.
+  const beforeCount = composition.elements.length;
+  composition.elements = recoverMissingAssets(
+    composition.elements,
+    recoveryLog,
+    { requireUrlForTypes: ["human", "object"] },
+  );
+  const droppedCount = beforeCount - composition.elements.length;
+  if (droppedCount > 0) {
+    violations.push(`self_healing:assets: dropped ${droppedCount} unrenderable placement(s)`);
+  }
+
   ctx.currentStage = "assets";
   ctx.assets = {
     injectedAssets,
@@ -748,15 +766,36 @@ async function renderAssetInner(
   };
 
   ctx.currentStage = "render";
-  let buildResult = await buildUltimateSvgContent(
-    spec.zones,
-    enrichedBrief,
-    input.format,
-    input.brand,
-    input.variationIdx,
-    agentResult?.plan.themePreferences,
-    input.personalization,
-  );
+  // Step 32: resilient render loop. Retries on throw OR weak score using a
+  // permuted variationIdx per attempt; keeps the best across attempts.
+  // Previously a single thrown render fell straight through to the
+  // catastrophic fallback; now we try once more with an alternate
+  // variation before giving up.
+  const resilientRender = await runResilientRender<BuildResult>({
+    stage:              "render",
+    maxAttempts:        2,
+    baseVariationIdx:   input.variationIdx,
+    weakScoreThreshold: undefined, // score-based retry handled by quality gate below
+    recoveryLog,
+    render: async (variationIdx) => {
+      const result = await buildUltimateSvgContent(
+        spec.zones,
+        enrichedBrief,
+        input.format,
+        input.brand,
+        variationIdx,
+        agentResult?.plan.themePreferences,
+        input.personalization,
+      );
+      return { result };
+    },
+  });
+  let buildResult = resilientRender.result;
+  if (resilientRender.attempts > 1) {
+    violations.push(
+      `self_healing:render: recovered on attempt ${resilientRender.attempts}/2 (${resilientRender.reason})`,
+    );
+  }
   ctx.render = { content: buildResult.content as SvgContent, violations: buildResult.violations };
 
   // ── Content integrity healing — fix invalid colors, NaN font sizes ──────

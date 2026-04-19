@@ -21,6 +21,10 @@ export interface RecoveryAction {
   action: string;
   severity: "warning" | "error" | "critical";
   timestamp: number;
+  // Step 32: retry iteration that produced this action (1-indexed). Useful
+  // when auditing how many times a stage was attempted before succeeding
+  // (or giving up).
+  attempt?: number;
 }
 
 // ── Safe stage runner ───────────────────────────────────────────────────────
@@ -198,6 +202,227 @@ export function buildSafetyNetSvg(
 }
 
 // ── Degraded pipeline result ────────────────────────────────────────────────
+
+// ── Retry with exponential backoff (Step 32) ─────────────────────────────
+// Wraps any async operation in a bounded retry loop. Each attempt logs a
+// RecoveryAction before the next try so the audit trail captures the
+// full recovery path. Use for anything that can be *transiently* flaky:
+// AI calls, asset fetches, remote image loads.
+//
+// Returns the resolved value on first success; throws the last error if
+// every attempt failed. A custom `shouldRetry(err)` lets the caller skip
+// retrying on permanent errors (kill switch, validation failure, etc.).
+
+export interface RetryOptions {
+  stage:           string;
+  maxAttempts?:    number;           // default 3
+  initialDelayMs?: number;           // default 200
+  maxDelayMs?:     number;           // default 2000
+  shouldRetry?:    (err: unknown) => boolean;
+  recoveryLog?:    RecoveryAction[];
+}
+
+export async function retryWithBackoff<T>(
+  fn:   (attempt: number) => Promise<T> | T,
+  opts: RetryOptions,
+): Promise<T> {
+  const maxAttempts    = Math.max(1, opts.maxAttempts    ?? 3);
+  const initialDelayMs = Math.max(0, opts.initialDelayMs ?? 200);
+  const maxDelayMs     = Math.max(initialDelayMs, opts.maxDelayMs ?? 2000);
+  const shouldRetry    = opts.shouldRetry ?? (() => true);
+
+  let lastErr: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn(attempt);
+    } catch (err) {
+      lastErr = err;
+      const isLast = attempt === maxAttempts;
+      const retry  = !isLast && shouldRetry(err);
+
+      opts.recoveryLog?.push({
+        stage:    opts.stage,
+        issue:    (err as any)?.message ?? "unknown error",
+        action:   retry ? `Retrying (attempt ${attempt + 1}/${maxAttempts})` : "Giving up",
+        severity: retry ? "warning" : "error",
+        timestamp: Date.now(),
+        attempt,
+      });
+
+      logger.warn(
+        { stage: opts.stage, attempt, error: (err as any)?.message },
+        `[self-healing] Stage "${opts.stage}" attempt ${attempt}/${maxAttempts} failed${retry ? " — retrying" : ""}`,
+      );
+
+      if (!retry) throw err;
+      const delay = Math.min(maxDelayMs, initialDelayMs * Math.pow(2, attempt - 1));
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}
+
+// ── Resilient render loop (Step 32) ──────────────────────────────────────
+// Wraps the render stage: attempts a render up to N times with a per-
+// attempt variationIdx permutation. Keeps the best-scoring result across
+// attempts. A thrown attempt is recorded but doesn't disqualify the
+// entire render — if a later attempt succeeds, that becomes the result.
+// If every attempt throws, the final error is rethrown so the top-level
+// catastrophic catch in pipeline.ts can fall through to the degraded
+// result path.
+
+export interface ResilientRenderOptions<R> {
+  stage:              string;                  // tag for logs
+  maxAttempts?:       number;                  // default 2
+  baseVariationIdx:   number;                  // seed; perturbed per attempt
+  weakScoreThreshold?:number;                  // if score < threshold → try again
+  // Per-attempt render. Returns a result + optional numeric score used to
+  // pick the best across attempts. Score is optional; when absent we
+  // assume the first successful attempt is good enough.
+  render:             (variationIdx: number, attempt: number) => Promise<{
+    result: R;
+    score?: number;
+  }>;
+  recoveryLog?:       RecoveryAction[];
+}
+
+export async function runResilientRender<R>(
+  opts: ResilientRenderOptions<R>,
+): Promise<{ result: R; attempts: number; reason: "first_ok" | "best_of_n" }> {
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 2);
+  const threshold   = opts.weakScoreThreshold;
+  let best: { result: R; score: number } | null = null;
+  let lastErr: unknown = null;
+  let attemptsRun = 0;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    attemptsRun = attempt;
+    // Per-attempt variationIdx perturbation — PRNG-friendly prime offset so
+    // subsequent attempts sample a different composition / theme.
+    const vIdx = opts.baseVariationIdx + (attempt - 1) * 13337;
+    try {
+      const { result, score } = await opts.render(vIdx, attempt);
+      const s = typeof score === "number" ? score : Number.POSITIVE_INFINITY;
+
+      if (!best || s > best.score) {
+        best = { result, score: s };
+      }
+
+      // Strong enough — stop early to save work.
+      if (threshold == null || s >= threshold || attempt === maxAttempts) {
+        if (attempt > 1) {
+          opts.recoveryLog?.push({
+            stage:    opts.stage,
+            issue:    threshold == null
+              ? "previous attempt failed"
+              : `previous attempt score below threshold ${threshold}`,
+            action:   `Succeeded on attempt ${attempt}`,
+            severity: "warning",
+            timestamp: Date.now(),
+            attempt,
+          });
+        }
+        return {
+          result:   best.result,
+          attempts: attempt,
+          reason:   attempt === 1 ? "first_ok" : "best_of_n",
+        };
+      }
+
+      // Below threshold → try again.
+      opts.recoveryLog?.push({
+        stage:    opts.stage,
+        issue:    `Attempt ${attempt} score ${s.toFixed(2)} below threshold ${threshold}`,
+        action:   `Retrying with alternate variation (attempt ${attempt + 1}/${maxAttempts})`,
+        severity: "warning",
+        timestamp: Date.now(),
+        attempt,
+      });
+    } catch (err) {
+      lastErr = err;
+      const isLast = attempt === maxAttempts;
+      opts.recoveryLog?.push({
+        stage:    opts.stage,
+        issue:    (err as any)?.message ?? "unknown error",
+        action:   isLast && !best
+          ? "All attempts failed — propagating to catastrophic handler"
+          : `Attempt ${attempt} failed — retrying (attempt ${attempt + 1}/${maxAttempts})`,
+        severity: isLast && !best ? "critical" : "error",
+        timestamp: Date.now(),
+        attempt,
+      });
+      logger.warn(
+        { stage: opts.stage, attempt, error: (err as any)?.message },
+        `[self-healing] Resilient render attempt ${attempt}/${maxAttempts} failed`,
+      );
+    }
+  }
+
+  if (best) {
+    return { result: best.result, attempts: attemptsRun, reason: "best_of_n" };
+  }
+  // Every attempt threw and no successful result was captured.
+  throw lastErr ?? new Error(`[self-healing] ${opts.stage} exhausted all attempts`);
+}
+
+// ── Missing-asset recovery (Step 32) ─────────────────────────────────────
+// After asset resolution, some placements may carry no URL and no useful
+// prompt — e.g. an AI generation failed or an upstream library asset
+// couldn't be materialized. Shipping such a placement produces a blank
+// element. This helper drops those placements and reports each drop so
+// the downstream renderer sees only renderable elements.
+
+// Structural type the caller's element shape must satisfy. Callers pass
+// their own richer types (e.g. ElementPlacement) and this function
+// preserves the full type via the generic parameter.
+export interface AssetCarrier {
+  type:   string;
+  zone:   string;
+  url?:   string;
+  prompt: string;
+}
+
+export function recoverMissingAssets<E extends AssetCarrier>(
+  elements: E[],
+  recoveryLog: RecoveryAction[],
+  opts: { requireUrlForTypes?: string[] } = {},
+): E[] {
+  // Types that cannot render from a prompt alone (they need a resolved
+  // bitmap URL). Everything else can fall back to the AI generation path
+  // or SVG-composed content, so it's fine without a URL.
+  const needsUrl = new Set(opts.requireUrlForTypes ?? ["human", "object", "photo"]);
+
+  return elements.filter(el => {
+    const hasUrl    = typeof el.url    === "string" && el.url.length    > 0;
+    const hasPrompt = typeof el.prompt === "string" && el.prompt.trim().length > 0;
+
+    // Completely empty — never renderable.
+    if (!hasUrl && !hasPrompt) {
+      recoveryLog.push({
+        stage:    "asset_resolution",
+        issue:    `Element type=${el.type} zone=${el.zone} has neither URL nor prompt`,
+        action:   "Dropped empty placement",
+        severity: "warning",
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+
+    // Needs-URL type without a URL — renderer can't substitute a prompt.
+    if (needsUrl.has(el.type) && !hasUrl) {
+      recoveryLog.push({
+        stage:    "asset_resolution",
+        issue:    `Element type=${el.type} zone=${el.zone} has no URL after resolution`,
+        action:   `Dropped placement (type "${el.type}" requires a resolved URL)`,
+        severity: "warning",
+        timestamp: Date.now(),
+      });
+      return false;
+    }
+
+    return true;
+  });
+}
 
 export function buildDegradedResult(
   input: PipelineInput,
