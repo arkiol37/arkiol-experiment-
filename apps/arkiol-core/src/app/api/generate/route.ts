@@ -21,6 +21,11 @@ import { generationQueue }  from "../../../lib/queue";
 import { withErrorHandling, dbUnavailable, aiUnavailable, authUnavailable } from "../../../lib/error-handling";
 import { ApiError, getCreditCost, GIF_ELIGIBLE_FORMATS } from "../../../lib/types";
 import {
+  GALLERY_DEFAULT_CANDIDATE_COUNT,
+  GALLERY_MAX_CANDIDATE_COUNT,
+  GALLERY_MIN_CANDIDATE_COUNT,
+} from "../../../lib/gallery-config";
+import {
   assertGenerationAllowed,
   countOrgRunningJobs,
 } from "../../../lib/planGate";
@@ -53,7 +58,16 @@ const GenerateSchema = z.object({
     ] as const)
   ).min(1).max(9),
   stylePreset:    z.string().max(80).default("auto"),
-  variations:     z.number().int().min(1).max(5).default(1),
+  // Step 21: gallery flow defaults to GALLERY_DEFAULT_CANDIDATE_COUNT so a
+  // single prompt produces a real shortlist of layouts / compositions /
+  // styling picks to choose from. Requests are always clamped downstream
+  // by the caller's plan (maxVariationsPerRun), so lower tiers still
+  // receive the correct number even if the client asked for the default.
+  variations:     z.number()
+                   .int()
+                   .min(GALLERY_MIN_CANDIDATE_COUNT)
+                   .max(GALLERY_MAX_CANDIDATE_COUNT)
+                   .default(GALLERY_DEFAULT_CANDIDATE_COUNT),
   brandId:        z.string().optional(),
   campaignId:     z.string().optional(),
   includeGif:     z.boolean().default(false),

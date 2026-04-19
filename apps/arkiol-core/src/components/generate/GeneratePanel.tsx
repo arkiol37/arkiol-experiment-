@@ -4,6 +4,7 @@
 
 import React, { useState, useRef } from "react";
 import { ARKIOL_CATEGORIES, CATEGORY_LABELS } from "../../lib/types";
+import { GALLERY_DEFAULT_CANDIDATE_COUNT } from "../../lib/gallery-config";
 import { AIGenerationStage } from "./AIGenerationStage";
 
 interface GeneratePanelProps {
@@ -69,6 +70,11 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
         stylePreset: preset === "auto" ? undefined : preset,
         includeGif:  gif && gifEligible,
         archetypeOverride: { archetypeId: archetype, presetId: preset },
+        // Step 21: request a real gallery shortlist per prompt so the
+        // user sees multiple layouts / compositions / styling picks.
+        // Plan caps apply downstream (maxVariationsPerRun), so users on
+        // lower tiers still get the correct number for their plan.
+        variations: GALLERY_DEFAULT_CANDIDATE_COUNT,
       }),
     });
     const data = await res.json().catch(() => ({}));

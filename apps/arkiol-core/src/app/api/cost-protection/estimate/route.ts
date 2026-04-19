@@ -10,6 +10,11 @@ import { prisma }            from "../../../../lib/prisma";
 import { getCreditCost, GIF_ELIGIBLE_FORMATS } from "../../../../lib/types";
 import { CREDIT_COSTS } from "@arkiol/shared";
 import { z }                 from "zod";
+import {
+  GALLERY_DEFAULT_CANDIDATE_COUNT,
+  GALLERY_MAX_CANDIDATE_COUNT,
+  GALLERY_MIN_CANDIDATE_COUNT,
+} from "../../../../lib/gallery-config";
 
 const COST_PER_CREDIT_USD     = 0.008;
 const MAX_COST_PER_RENDER_USD = 0.50;  // margin safeguard per render
@@ -18,7 +23,13 @@ const ABUSE_WINDOW_MINUTES    = 10;
 
 const EstimateSchema = z.object({
   formats:    z.array(z.string()).min(1).max(9),
-  variations: z.number().int().min(1).max(5).default(1),
+  // Step 21: mirror the /api/generate schema so the UI can preview cost
+  // for the broader gallery candidate count.
+  variations: z.number()
+               .int()
+               .min(GALLERY_MIN_CANDIDATE_COUNT)
+               .max(GALLERY_MAX_CANDIDATE_COUNT)
+               .default(GALLERY_DEFAULT_CANDIDATE_COUNT),
   includeGif: z.boolean().default(false),
   hqUpgrade:  z.boolean().default(false), // explicit HQ upgrade — costs more credits
 });
