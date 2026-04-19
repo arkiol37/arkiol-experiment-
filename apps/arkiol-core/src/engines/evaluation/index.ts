@@ -26,6 +26,20 @@ export {
 } from "./rejection-rules";
 
 export {
+  MARKETPLACE_THRESHOLDS,
+  MARKETPLACE_SCORE_WEIGHTS,
+  passesMarketplaceStandard,
+  selectMarketplaceApproved,
+  describeMarketplaceVerdict,
+  type MarketplaceCriterion,
+  type CriterionResult,
+  type MarketplaceVerdict,
+  type MarketplaceContext,
+  type MarketplaceSelectionResult,
+  type MarketplaceSelectionOptions,
+} from "./marketplace-gate";
+
+export {
   assessDesignQuality,
   refineDesign,
   runRefinementPasses,

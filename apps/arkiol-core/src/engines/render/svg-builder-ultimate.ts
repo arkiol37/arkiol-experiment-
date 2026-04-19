@@ -30,6 +30,7 @@ import { computeTextInset, refinedLineHeight } from "./text-rhythm";
 import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { evaluateRejection } from "../evaluation/rejection-rules";
+import { passesMarketplaceStandard, describeMarketplaceVerdict } from "../evaluation/marketplace-gate";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
 import { matchPatternToBrief, buildInspirationOverrides } from "../inspiration/pattern-matcher";
@@ -411,6 +412,24 @@ export async function buildUltimateSvgContent(
   const rejection = evaluateRejection(theme, content);
   for (const r of rejection.hardReasons) violations.push(`rejection:${r}`);
   for (const r of rejection.softReasons) violations.push(`rejection_soft:${r}`);
+
+  // ── Step 25: marketplace-quality final gate ──────────────────────────
+  // Runs *after* the per-template rejection rules. Every earlier gate
+  // was about "is this output acceptable?" — this one asks "is this
+  // output *marketplace-grade*?" (polished + layered + categorySpecific
+  // + assetRich + publishReady). Templates that fail get a
+  // "marketplace_gate:<status> failed=[...]" violation the pipeline can
+  // act on when filtering the gallery batch.
+  const marketplace = passesMarketplaceStandard({
+    theme,
+    content,
+    qualityScore:     qualityScore,
+    rejectionVerdict: rejection,
+  });
+  violations.push(describeMarketplaceVerdict(marketplace));
+  for (const c of marketplace.failedCriteria) {
+    violations.push(`marketplace_fail:${c}:${marketplace.criteria[c].detail}`);
+  }
 
   const buildResult: BuildResult = { content, violations };
   svgCacheSet(cacheKey, buildResult);
