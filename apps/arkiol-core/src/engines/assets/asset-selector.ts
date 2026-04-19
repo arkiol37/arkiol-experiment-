@@ -622,18 +622,75 @@ function enforceTextVisualBalance(
 
 export interface AssetPresenceViolation {
   rule:     "missing_background"
-          | "no_visual_richness"
-          | "insufficient_variety"
-          | "missing_decorative_accent";
+          | "text_on_background_only"
+          | "invisible_meaningful_visuals"
+          | "below_minimum_visual_coverage"
+          | "missing_decorative_accent"
+          | "insufficient_variety";
   severity: "error" | "warning";
   message:  string;
 }
 
+// ── Presence thresholds ──────────────────────────────────────────────────────
+// These define what "visible" means in the context of a final template.
+// Kept here (not hidden inside the function) so downstream callers can
+// reason about and surface them.
+
+// Minimum coverageHint for a single element to count as visible. Anything
+// below this is effectively invisible at render time.
+export const MIN_VISIBLE_ELEMENT_COVERAGE = 0.02;
+
+// Minimum aggregate coverage of all meaningful (non-background) visuals.
+// Prevents templates where the only "visual" is a 1% sparkle in a corner.
+export const MIN_TOTAL_VISUAL_COVERAGE    = 0.04;
+
+// Minimum number of visible meaningful visual elements a template must ship
+// with. At least one icon / illustration / shape / frame / accent / image.
+export const MIN_VISIBLE_VISUAL_ELEMENTS  = 1;
+
+// ── Visibility predicates ────────────────────────────────────────────────────
+
+// A meaningful role — i.e. one that produces a supporting visual rather than
+// just a background field. Overlays and background fills don't count.
+const MEANINGFUL_ROLES: readonly AssetRole[] = ["support", "accent", "divider", "icon-group"];
+
+function isMeaningfulRole(role: AssetRole): boolean {
+  return MEANINGFUL_ROLES.includes(role);
+}
+
+// An element counts as *visible* when it actually produces something on the
+// canvas: has a resolved URL or a non-empty generation prompt, and its
+// coverageHint is not effectively zero. Elements that fail this are noted
+// as "invisible" and must be remedied before the template ships.
+function isVisibleElement(el: ElementPlacement): boolean {
+  const hasContent = (typeof el.url === "string" && el.url.length > 0)
+                  || (typeof el.prompt === "string" && el.prompt.trim().length > 0);
+  return hasContent && el.coverageHint >= MIN_VISIBLE_ELEMENT_COVERAGE;
+}
+
+// Total coverage of all meaningful visuals in a plan — used to catch the
+// "everything is a 1% corner accent" edge case.
+function totalMeaningfulCoverage(plan: CompositionPlan): number {
+  return plan.elements
+    .filter(e => isMeaningfulRole(e.role) && isVisibleElement(e))
+    .reduce((sum, e) => sum + e.coverageHint, 0);
+}
+
+// ── Validation ───────────────────────────────────────────────────────────────
+
 // Inspect a plan and return violations if visual richness is insufficient.
-// - missing_background (error): no background/overlay/texture/atmospheric element
-// - no_visual_richness (error): only background + maybe overlays → text on a box
-// - missing_decorative_accent (warning): has a hero but no accent/divider/icon-group
-// - insufficient_variety (warning): fewer than 2 distinct roles represented
+//   missing_background            (error)   no background/overlay/texture at all
+//   text_on_background_only       (error)   zero visible meaningful visuals —
+//                                           template is literally just text
+//                                           on a background
+//   invisible_meaningful_visuals  (error)   every meaningful element exists
+//                                           but none would render (no url /
+//                                           no prompt / zero coverage)
+//   below_minimum_visual_coverage (error)   sum of meaningful-visual coverage
+//                                           is below MIN_TOTAL_VISUAL_COVERAGE
+//                                           — e.g. one 1% corner sparkle
+//   missing_decorative_accent     (warning) has a hero but no accent/divider
+//   insufficient_variety          (warning) fewer than 2 distinct roles
 export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViolation[] {
   const violations: AssetPresenceViolation[] = [];
 
@@ -652,21 +709,45 @@ export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViola
     });
   }
 
-  const meaningfulVisuals =
-    roleCounts.support + roleCounts.accent + roleCounts.divider + roleCounts["icon-group"];
+  // Count meaningful elements in two buckets: declared (any role) vs actually
+  // visible (has url/prompt + non-trivial coverage). Distinguishing these
+  // lets us produce a clearer violation when the issue is "element present
+  // but empty" vs "element never added".
+  const meaningfulElements = plan.elements.filter(e => isMeaningfulRole(e.role));
+  const visibleMeaningful  = meaningfulElements.filter(isVisibleElement);
 
-  if (meaningfulVisuals === 0) {
+  if (meaningfulElements.length === 0) {
     violations.push({
-      rule: "no_visual_richness",
+      rule: "text_on_background_only",
       severity: "error",
-      message: "Template lacks visual richness — only text on a background. Add at least one icon, illustration, shape, or decorative accent.",
+      message: "Template is only text on a background — no icons, illustrations, shapes, frames, decorative accents, or images. Every generated template must carry at least one visible supporting visual.",
     });
-  } else if (roleCounts.support > 0 && roleCounts.accent === 0 && roleCounts.divider === 0 && roleCounts["icon-group"] === 0) {
+  } else if (visibleMeaningful.length < MIN_VISIBLE_VISUAL_ELEMENTS) {
     violations.push({
-      rule: "missing_decorative_accent",
-      severity: "warning",
-      message: "Template has a hero visual but no decorative accent (badge, icon group, or divider) to support it.",
+      rule: "invisible_meaningful_visuals",
+      severity: "error",
+      message: `Template has ${meaningfulElements.length} meaningful element(s) but none would render visibly (missing url/prompt or coverage < ${MIN_VISIBLE_ELEMENT_COVERAGE}). At least ${MIN_VISIBLE_VISUAL_ELEMENTS} visible supporting visual is required.`,
     });
+  } else {
+    const coverage = totalMeaningfulCoverage(plan);
+    if (coverage < MIN_TOTAL_VISUAL_COVERAGE) {
+      violations.push({
+        rule: "below_minimum_visual_coverage",
+        severity: "error",
+        message: `Meaningful visuals cover only ${(coverage * 100).toFixed(1)}% of the template — below the ${(MIN_TOTAL_VISUAL_COVERAGE * 100).toFixed(1)}% minimum. Add a larger supporting visual (illustration, frame, photo) or scale up the existing ones.`,
+      });
+    }
+
+    if (roleCounts.support > 0 &&
+        roleCounts.accent === 0 &&
+        roleCounts.divider === 0 &&
+        roleCounts["icon-group"] === 0) {
+      violations.push({
+        rule: "missing_decorative_accent",
+        severity: "warning",
+        message: "Template has a hero visual but no decorative accent (badge, icon group, or divider) to support it.",
+      });
+    }
   }
 
   const distinctRoles = Object.values(roleCounts).filter(c => c > 0).length;
@@ -682,9 +763,11 @@ export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViola
 }
 
 // Attempt to satisfy presence rules by injecting category-matched library
-// assets. Used as a self-heal step before the pipeline hard-rejects a
-// template. Tries the inferred category first, then falls back across the
-// other categories so a compatible asset can almost always be found.
+// assets and, if those aren't enough, composed decorative components. Used
+// as a self-heal step before the pipeline hard-rejects a template. Tries
+// the inferred category first, falls back across other categories, and
+// finally pulls from the decorative-component roster so a compatible
+// visible visual can almost always be found.
 export function enrichForPresence(
   plan:   CompositionPlan,
   spec:   LayoutSpec,
@@ -698,34 +781,60 @@ export function enrichForPresence(
     ? [primary, ...ASSET_CATEGORIES.filter(c => c !== primary)]
     : [...ASSET_CATEGORIES];
 
-  // Stop as soon as presence is satisfied — we only need to fill the gap,
-  // not flood the composition.
+  const hasPresenceErrors = () =>
+    validateAssetPresence(plan).some(v => v.severity === "error");
+
+  // Shared trackers so every heal attempt respects the caps already
+  // accumulated in the plan.
+  const mkTrackers = () => ({
+    usedZones:   new Set<ZoneId>(plan.elements.map(e => e.zone)),
+    usedTypes:   new Set<AssetElementType>(plan.elements.map(e => e.type)),
+    usedRoles:   new Set<AssetRole>(plan.elements.map(e => e.role)),
+    usedKinds:   new Map<AssetKind, number>(),
+    usedAnchors: new Set<Anchor>(plan.elements.map(e => e.anchor)),
+  });
+
+  const tryPlace = (asset: Asset, tag: string): void => {
+    const t = mkTrackers();
+    const placement = libraryAssetToPlacement(
+      asset, activeZones, t.usedZones, t.usedTypes, t.usedRoles, t.usedKinds, t.usedAnchors, forGif,
+    );
+    if (placement) {
+      plan.elements.push(placement);
+      added.push(tag);
+    }
+  };
+
+  // ── Pass 1: library assets, primary category first ────────────────────────
   for (const category of ordered) {
-    if (validateAssetPresence(plan).every(v => v.severity !== "error")) break;
+    if (!hasPresenceErrors()) break;
 
     const picks = selectAssetsForCategory(category, {
       seed:  `${brief.headline ?? ""}::${category}::heal`,
       limit: 4,
     });
-    const usedZones   = new Set<ZoneId>(plan.elements.map(e => e.zone));
-    const usedTypes   = new Set<AssetElementType>(plan.elements.map(e => e.type));
-    const usedRoles   = new Set<AssetRole>(plan.elements.map(e => e.role));
-    const usedKinds   = new Map<AssetKind, number>();
-    const usedAnchors = new Set<Anchor>(plan.elements.map(e => e.anchor));
 
     for (const asset of picks) {
-      if (validateAssetPresence(plan).every(v => v.severity !== "error")) break;
-      const placement = libraryAssetToPlacement(
-        asset, activeZones, usedZones, usedTypes, usedRoles, usedKinds, usedAnchors, forGif,
-      );
-      if (placement) {
-        plan.elements.push(placement);
-        usedTypes.add(placement.type);
-        usedRoles.add(placement.role);
-        usedKinds.set(asset.kind, (usedKinds.get(asset.kind) ?? 0) + 1);
-        usedAnchors.add(placement.anchor);
-        added.push(`${category}:${asset.kind}:${asset.label}`);
-      }
+      if (!hasPresenceErrors()) break;
+      tryPlace(asset, `lib:${category}:${asset.kind}:${asset.label}`);
+    }
+  }
+
+  // ── Pass 2: decorative components as final-resort ─────────────────────────
+  // When the library can't provide a placeable asset for the active layout
+  // (e.g. no image zone + no badge zone), composed components are guaranteed
+  // to carry their own SVG payload and degrade gracefully — making them a
+  // reliable last line of defense against "text on background" outputs.
+  if (hasPresenceErrors()) {
+    const componentCategory = primary ?? "marketing";
+    const roster = composeDecorativeRoster({
+      category: componentCategory,
+      seed:     `${brief.headline ?? ""}::components::heal`,
+      limit:    3,
+    });
+    for (const asset of roster) {
+      if (!hasPresenceErrors()) break;
+      tryPlace(asset, `component:${asset.kind}:${asset.label}`);
     }
   }
 
