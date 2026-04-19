@@ -22,6 +22,7 @@ import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypogr
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
 import { getCategoryKit, mergeKitDecorations } from "../style/category-template-kits";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
+import { buildSectionFrames } from "./section-frames";
 import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
@@ -570,6 +571,14 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
       layers += `\n  <rect x="${f(ox)}" y="${f(oy)}" width="${f(ow)}" height="${f(oh)}" fill="${content.overlayColor ?? '#000'}" opacity="${content.overlayOpacity}"/>`;
     }
   }
+
+  // ── Section frames (structural regions: header / content / visual / list / cta)
+  // Renders BEFORE decorations so decorative detail can layer on top of the
+  // structural surfaces, and text stays on top of everything. These frames
+  // replace "floating text on a background" with an intentionally composed
+  // surface.
+  const sectionFrames = buildSectionFrames(zones, theme, format);
+  if (sectionFrames.trim()) layers += `\n  <g class="sections" aria-hidden="true">\n    ${sectionFrames}\n  </g>`;
 
   // ── Decorations (below text) ─────────────────────────────────────────────────
   if (cleanDecor.trim()) layers += `\n  <g class="decor" aria-hidden="true">\n    ${cleanDecor}\n  </g>`;
