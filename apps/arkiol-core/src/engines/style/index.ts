@@ -21,6 +21,13 @@ export {
 } from "./category-style-packs";
 
 export {
+  getTypographyPersonality,
+  listTypographyPersonalities,
+  type TypographyPersonality,
+  type RolePersonality,
+} from "./category-typography-personality";
+
+export {
   getCategoryKit,
   getAllCategoryKits,
   mergeKitDecorations,

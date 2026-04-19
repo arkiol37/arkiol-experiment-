@@ -20,6 +20,7 @@ import { measureTextInZone, measureLineWidth, getSvgLineYPositions } from "./tex
 import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
+import { getTypographyPersonality, type RolePersonality } from "../style/category-typography-personality";
 import { getCategoryKit, mergeKitDecorations } from "../style/category-template-kits";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { buildSectionFrames } from "./section-frames";
@@ -429,29 +430,51 @@ function applyCategoryPackOverrides(
     hLetterSpacing = Math.max(hLetterSpacing, 0.05);
   }
 
-  // Build overridden typography
-  const headline = {
+  // Typography personality — per-role expression that carries the category
+  // character through body, cta, bullets, and micro labels.
+  const personality = getTypographyPersonality(pack);
+  const applyRole = <T extends Partial<ZoneTypography>>(
+    base: T,
+    role: RolePersonality | undefined,
+  ): T => {
+    if (!role) return base;
+    return {
+      ...base,
+      ...(role.fontWeight    !== undefined ? { fontWeight:           role.fontWeight    } : {}),
+      ...(role.letterSpacing !== undefined ? { letterSpacing:        role.letterSpacing } : {}),
+      ...(role.lineHeightMultiplier !== undefined ? { lineHeightMultiplier: role.lineHeightMultiplier } : {}),
+      ...(role.textTransform !== undefined ? { textTransform:        role.textTransform } : {}),
+    } as T;
+  };
+
+  // Build overridden typography — pack values first, personality layered last
+  // so per-role dials (body leading, cta tracking, etc.) take precedence.
+  const headline = applyRole({
     ...theme.typography.headline,
     fontFamily: headlineFont,
     fontSizeMultiplier: boostedHMult,
     letterSpacing: hLetterSpacing,
     ...(pack.preferUppercase ? { textTransform: "uppercase" as const } : {}),
     ...(pack.headlineWeight ? { fontWeight: pack.headlineWeight } : {}),
-  };
+  }, personality?.headline);
 
-  const subhead = {
+  const subhead = applyRole({
     ...theme.typography.subhead,
     fontFamily: bodyFont !== theme.typography.body ? bodyFont : theme.typography.subhead.fontFamily,
     letterSpacing: pack.subheadLetterSpacing,
     ...(pack.subheadWeight ? { fontWeight: pack.subheadWeight } : {}),
     ...(pack.subheadContrast === "subtle" ? { fontSizeMultiplier: 0.55 } :
         pack.subheadContrast === "strong" ? { fontSizeMultiplier: 0.75 } : {}),
-  };
+  }, personality?.subhead);
 
-  const body_text = {
+  const body_text = applyRole({
     ...theme.typography.body_text,
     fontFamily: bodyFont,
-  };
+  }, personality?.body);
+
+  const cta     = applyRole({ ...theme.typography.cta     }, personality?.cta);
+  const badge   = applyRole({ ...theme.typography.badge   }, personality?.badge);
+  const eyebrow = applyRole({ ...theme.typography.eyebrow }, personality?.eyebrow);
 
   // Apply category template kit — merge signature decorations
   const kit = getCategoryKit(pack.id);
@@ -473,7 +496,7 @@ function applyCategoryPackOverrides(
   else if (pack.ctaRadiusBias === "sharp") ctaStyle = { ...ctaStyle, borderRadius: Math.min(ctaStyle.borderRadius, 4) };
   else if (pack.ctaRadiusBias === "rounded") ctaStyle = { ...ctaStyle, borderRadius: Math.max(8, Math.min(ctaStyle.borderRadius, 16)) };
 
-  return {
+  const themed: DesignTheme = {
     ...theme,
     headlineSizeMultiplier: boostedHMult,
     decorations,
@@ -486,8 +509,18 @@ function applyCategoryPackOverrides(
       headline,
       subhead,
       body_text,
+      cta,
+      badge,
+      eyebrow,
     },
   };
+  // Stash the personality on the theme so resolveZoneTypo can apply per-zone
+  // dials (bullet leading, contact tracking, legal weight) that don't map to
+  // a distinct ZoneTypography slot on the theme itself.
+  if (personality) {
+    (themed as DesignTheme & { _typographyPersonality?: typeof personality })._typographyPersonality = personality;
+  }
+  return themed;
 }
 
 const SERIF_FONTS: ReadonlySet<ThemeFont> = new Set(["Playfair Display", "Cormorant Garamond"]);
@@ -736,7 +769,29 @@ function resolveZoneTypo(zoneId: ZoneId, typo: ThemeTypography, theme: DesignThe
     price:    { ...typo.headline, color: theme.palette.highlight },
     legal:    { ...typo.body_text, fontWeight: 300 },
   };
-  return m[zoneId] ?? null;
+  const base = m[zoneId];
+  if (!base) return null;
+
+  // Apply category personality's zone-specific dials (bullet/contact/legal).
+  // body_text already picked up the personality.body dials inside
+  // applyCategoryPackOverrides, so these here override *further* for zones
+  // that fall through to body_text but want a distinct expression.
+  const personality = (theme as DesignTheme & { _typographyPersonality?: import("../style/category-typography-personality").TypographyPersonality })._typographyPersonality;
+  if (!personality) return base;
+
+  let role: RolePersonality | undefined;
+  if (zoneId === "bullet_1" || zoneId === "bullet_2" || zoneId === "bullet_3") role = personality.bullet;
+  else if (zoneId === "contact") role = personality.contact;
+  else if (zoneId === "legal")   role = personality.legal;
+  if (!role) return base;
+
+  return {
+    ...base,
+    ...(role.fontWeight    !== undefined ? { fontWeight:           role.fontWeight    } : {}),
+    ...(role.letterSpacing !== undefined ? { letterSpacing:        role.letterSpacing } : {}),
+    ...(role.lineHeightMultiplier !== undefined ? { lineHeightMultiplier: role.lineHeightMultiplier } : {}),
+    ...(role.textTransform !== undefined ? { textTransform:        role.textTransform } : {}),
+  };
 }
 
 function extractBgFromTheme(theme: DesignTheme): {primaryBgColor: string; gradient: SvgContent["backgroundGradient"]} {
