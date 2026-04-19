@@ -73,6 +73,16 @@ export type Anchor =
   | "bottom-left"  | "bottom-center" | "bottom-right"
   | "edge-top"     | "edge-bottom";
 
+// Composition mode for a primary visual (hero). Controls whether the
+// focal element runs full-bleed, occupies a side column, or sits inside
+// a framed section. Pinned once per template so the whole composition
+// reads as one intentional arrangement.
+export type CompositionMode =
+  | "background-hero"   // full-bleed backdrop behind text
+  | "side-left"         // occupies ~45% of canvas on the left, text right
+  | "side-right"        // occupies ~45% of canvas on the right, text left
+  | "framed-center";    // centered hero inside an inset frame
+
 export interface ElementPlacement {
   type:         AssetElementType;
   zone:         ZoneId;
@@ -87,6 +97,13 @@ export interface ElementPlacement {
   scale:        number;              // 0.5–1.5 multiplier applied to the role's base coverage
   alignment:    "left" | "center" | "right";
   layer:        number;              // final render z-order (lower → behind)
+  // ── Primary-visual promotion (Step 37) ───────────────────────────────
+  // Exactly one placement per composition is marked primary — the focal
+  // point of the template. Its `compositionMode` declares how it sits
+  // relative to text (background / side / framed). Non-primary elements
+  // leave both fields unset.
+  primary?:        boolean;
+  compositionMode?:CompositionMode;
   // ── Depth & layering (Step 19) ───────────────────────────────────────
   // Semantic depth band. The renderer reads this to decide drop shadow
   // strength, parallax hints, and foreground/background separation.
@@ -333,6 +350,13 @@ export function buildCompositionPlan(
 
   // Remove dropped elements
   const valid = elements.filter(e => !(e.type !== "background" && !activeZoneIds.includes(e.zone)));
+
+  // ── Step 37: promote exactly one primary visual ─────────────────────────
+  // Scan the plan, promote the strongest support-role element to
+  // primary, and pin it to a composition mode derived from the brief's
+  // tone. Every template now reads as "one hero + supporting elements"
+  // rather than a random stack.
+  promotePrimaryVisual(valid, brief, activeZoneIds, reasoning);
 
   // ── GIF: filter to motion-compatible only ───────────────────────────────
   const gifFiltered = forGif
@@ -670,6 +694,185 @@ const TEXT_ZONES: ZoneId[] = [
 // Drop the least-essential decorative visuals until there are at most
 // ~1.5× as many accent/divider/icon-group visuals as text zones. Core
 // elements (background, support hero) are never dropped.
+// ── Primary-visual promotion (Step 37) ───────────────────────────────────
+// Every finished template should have exactly one clear focal visual.
+// This pass:
+//   1. Picks the single best candidate — support-role element with the
+//      highest coverage × layer (illustration / photo / frame kinds).
+//   2. Marks it `primary: true` and assigns a `compositionMode` chosen
+//      from the brief's tone (bold_lifestyle / vibrant_social → side
+//      composition; editorial / dark_luxury → framed-center; everything
+//      else → background-hero).
+//   3. Tunes the hero's anchor + coverage to match the mode so the
+//      text zones have breathing room.
+//
+// Idempotent: if a primary is already set (e.g. in enrichForPresence
+// fallback), no-ops.
+
+const COMPOSITION_MODE_BY_TONE: Record<string, CompositionMode> = {
+  modern_minimal:  "framed-center",
+  bold_lifestyle:  "side-right",
+  dark_luxury:     "framed-center",
+  clean_product:   "side-right",
+  vibrant_social:  "side-left",
+  editorial:       "framed-center",
+  tech_forward:    "side-left",
+  natural_organic: "background-hero",
+};
+
+export function resolveCompositionMode(
+  tone:           string,
+  hasImageZone:   boolean,
+): CompositionMode {
+  const fallback: CompositionMode = hasImageZone ? "side-right" : "background-hero";
+  return COMPOSITION_MODE_BY_TONE[tone] ?? fallback;
+}
+
+function promotePrimaryVisual(
+  els:         ElementPlacement[],
+  brief:       BriefAnalysis,
+  activeZones: readonly ZoneId[],
+  reasoning:   string[],
+): void {
+  // Short-circuit if one is already promoted.
+  if (els.some(e => e.primary)) return;
+
+  // Candidate = support-role elements (human / object / atmospheric
+  // rarely work as hero; the contract restricts support to support
+  // kinds). Rank by (coverageHint * weight) so the biggest / most
+  // prominent element wins.
+  const candidates = els
+    .filter(e => e.role === "support")
+    .sort((a, b) => (b.coverageHint * b.weight) - (a.coverageHint * a.weight));
+
+  const hero = candidates[0];
+  if (!hero) return;  // no hero-eligible element — let presence rules handle it
+
+  const hasImageZone = activeZones.includes("image");
+  const mode = resolveCompositionMode(brief.tone, hasImageZone);
+
+  hero.primary         = true;
+  hero.compositionMode = mode;
+
+  // Tune anchor + coverage per mode so the text layout actually has
+  // room to breathe. Explicit overrides to the role-derived defaults:
+  switch (mode) {
+    case "background-hero":
+      hero.anchor       = "full-bleed";
+      hero.coverageHint = Math.max(hero.coverageHint, 0.70);
+      break;
+    case "side-left":
+      hero.anchor       = "center-left";
+      hero.coverageHint = Math.min(Math.max(hero.coverageHint, 0.40), 0.50);
+      break;
+    case "side-right":
+      hero.anchor       = "center-right";
+      hero.coverageHint = Math.min(Math.max(hero.coverageHint, 0.40), 0.50);
+      break;
+    case "framed-center":
+      hero.anchor       = "center";
+      hero.coverageHint = Math.min(Math.max(hero.coverageHint, 0.45), 0.60);
+      break;
+  }
+
+  reasoning.push(
+    `hero: promoted ${hero.type} (zone=${hero.zone}) → mode=${mode}, anchor=${hero.anchor}, coverage≈${hero.coverageHint.toFixed(2)}`
+  );
+}
+
+// ── Hero composition validation (Step 37) ────────────────────────────────
+// Runs after the plan is finalized. Rejects plans where the primary
+// visual is missing, too small, has no composition mode, or would
+// overlap text zones in a way that kills readability.
+
+export interface HeroCompositionIssue {
+  rule:     "hero_missing"
+          | "hero_too_small"
+          | "hero_no_mode"
+          | "hero_overlaps_text";
+  severity: "error" | "warning";
+  message:  string;
+}
+
+// Minimum coverage each mode needs to read as a proper hero (not an
+// oversized accent).
+const HERO_MIN_COVERAGE: Record<CompositionMode, number> = {
+  "background-hero": 0.55,
+  "side-left":       0.32,
+  "side-right":      0.32,
+  "framed-center":   0.35,
+};
+
+// Text zones that must stay readable when the hero is placed. A
+// side-composition hero that anchors center-right must not overlap a
+// body zone that lives on the right side.
+const PRIMARY_TEXT_ZONES: ZoneId[] = ["headline", "subhead", "body", "cta"];
+
+export function validateHeroComposition(
+  plan:        CompositionPlan,
+  activeZones: readonly ZoneId[],
+): HeroCompositionIssue[] {
+  const issues: HeroCompositionIssue[] = [];
+
+  const primaries = plan.elements.filter(e => e.primary);
+  if (primaries.length === 0) {
+    issues.push({
+      rule:     "hero_missing",
+      severity: "error",
+      message:  "No primary visual — every template must have exactly one hero element marked primary.",
+    });
+    return issues;
+  }
+
+  const hero = primaries[0];
+  if (!hero.compositionMode) {
+    issues.push({
+      rule:     "hero_no_mode",
+      severity: "error",
+      message:  `Primary visual (${hero.type}, zone=${hero.zone}) has no compositionMode — can't be composed.`,
+    });
+  } else {
+    const floor = HERO_MIN_COVERAGE[hero.compositionMode];
+    if (hero.coverageHint < floor) {
+      issues.push({
+        rule:     "hero_too_small",
+        severity: "error",
+        message:  `Primary visual coverage ${hero.coverageHint.toFixed(2)} is below floor ${floor} for mode ${hero.compositionMode}.`,
+      });
+    }
+  }
+
+  // Text-overlap check — side-composition hero must occupy the opposite
+  // side of whatever text zones are active.
+  if (hero.compositionMode === "side-left" || hero.compositionMode === "side-right") {
+    const heroSide = hero.compositionMode === "side-left" ? "left" : "right";
+    const textSides = activeZones
+      .filter(z => PRIMARY_TEXT_ZONES.includes(z))
+      .map(zoneHorizontalSide);
+
+    // If a primary text zone sits on the same side as the hero, they'll
+    // collide visually.
+    const clash = textSides.includes(heroSide);
+    if (clash) {
+      issues.push({
+        rule:     "hero_overlaps_text",
+        severity: "warning",
+        message:  `Primary visual anchored ${hero.anchor} clashes with text on the same side — consider swapping mode or text alignment.`,
+      });
+    }
+  }
+
+  return issues;
+}
+
+function zoneHorizontalSide(zone: ZoneId): "left" | "center" | "right" {
+  // Rough zone-name heuristic — zones don't carry x/width at this layer.
+  // Layout families place headline/subhead/cta centered in most cases;
+  // this is a best-effort call used only for the overlap warning.
+  if (zone === "bullet_1") return "left";
+  return "center";
+}
+
 function enforceTextVisualBalance(
   els:         ElementPlacement[],
   activeZones: readonly ZoneId[],
@@ -920,6 +1123,14 @@ export function enrichForPresence(
     }
   }
 
+  // Step 37: once the self-heal has brought presence back to compliance,
+  // promote a primary visual on the patched plan. The heal often pulls in
+  // a new illustration / photo — that's our best hero candidate, so we
+  // re-run promotion here rather than leaving the plan without a hero.
+  const heroReason: string[] = [];
+  promotePrimaryVisual(plan.elements, brief, activeZones, heroReason);
+  added.push(...heroReason);
+
   plan.elements = sortByLayer(plan.elements);
   return { plan, added };
 }
@@ -932,6 +1143,16 @@ export function compositionToPromptFragment(plan: CompositionPlan): string {
     "COMPOSITION ELEMENTS (respect these placements exactly):",
   ];
 
+  // Step 37: hero line first so the renderer / AI reads the primary
+  // composition intent before any per-element details.
+  const hero = plan.elements.find(e => e.primary);
+  if (hero && hero.compositionMode) {
+    lines.push(
+      `  PRIMARY VISUAL: ${hero.type} (${hero.prompt}) — composition=${hero.compositionMode}, ` +
+      `anchor=${hero.anchor}, coverage≈${Math.round(hero.coverageHint * 100)}%`,
+    );
+  }
+
   // Sorted back-to-front so the roster reads in paint order.
   for (const el of sortByLayer(plan.elements)) {
     if (el.type === "overlay") continue; // handled separately in renderer
@@ -940,8 +1161,9 @@ export function compositionToPromptFragment(plan: CompositionPlan): string {
     const shadow = el.shadow
       ? ` shadow=y${el.shadow.offsetY.toFixed(3)}b${el.shadow.blur.toFixed(3)}o${el.shadow.opacity.toFixed(2)}`
       : "";
+    const primary = el.primary ? " PRIMARY" : "";
     lines.push(
-      `  • [${el.type.toUpperCase()} role=${el.role} zone=${el.zone} anchor=${el.anchor} ` +
+      `  • [${el.type.toUpperCase()} role=${el.role}${primary} zone=${el.zone} anchor=${el.anchor} ` +
       `coverage≈${coveragePct}% align=${el.alignment} layer=${el.layer}${tier}${shadow}] ${el.prompt}`
     );
   }

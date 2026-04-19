@@ -22,14 +22,18 @@ export {
   compositionToPromptFragment,
   enrichForPresence,
   validateAssetPresence,
+  validateHeroComposition,
+  resolveCompositionMode,
   MIN_VISIBLE_ELEMENT_COVERAGE,
   MIN_TOTAL_VISUAL_COVERAGE,
   MIN_VISIBLE_VISUAL_ELEMENTS,
   type ElementPlacement,
   type CompositionPlan,
+  type CompositionMode,
   type AssetRole,
   type Anchor,
   type AssetPresenceViolation,
+  type HeroCompositionIssue,
 } from "./asset-selector";
 
 // ── Element contracts ────────────────────────────────────────────────────

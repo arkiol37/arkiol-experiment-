@@ -35,6 +35,7 @@ import { enforceHierarchy, TextContent } from "../hierarchy/enforcer";
 import {
   buildCompositionPlan, compositionToPromptFragment, ElementPlacement,
   validateAssetPresence, enrichForPresence, type AssetPresenceViolation,
+  validateHeroComposition,
 } from "../assets/asset-selector";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
@@ -527,6 +528,18 @@ async function renderAssetInner(
   violations.push(
     ...presenceViolations.map(v => `asset_presence:${v.rule}[${v.severity}]: ${v.message}`)
   );
+
+  // ── Step 37: Hero composition enforcement ────────────────────────────
+  // Every template must declare one primary visual with a clear
+  // compositionMode (background / side / framed). Validation happens
+  // *after* presence healing so self-healed assets get a fair chance
+  // to be promoted. Errors surface as violations but don't throw —
+  // the marketplace gate downstream weights them via the `layered`
+  // and `assetRich` criteria.
+  const heroIssues = validateHeroComposition(composition, spec.activeZoneIds);
+  for (const h of heroIssues) {
+    violations.push(`hero_composition:${h.rule}[${h.severity}]: ${h.message}`);
+  }
 
   ctx.currentStage = "composition";
   ctx.composition = { plan: composition, contractViolations };
