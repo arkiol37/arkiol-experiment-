@@ -35,6 +35,10 @@ import {
   describePlacement,
 } from "./asset-placement";
 import { composeDecorativeRoster } from "./decorative-components";
+import {
+  resolveBackgroundTreatment,
+  type BackgroundTreatment,
+} from "./background-treatments";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
 
@@ -126,16 +130,42 @@ export function buildCompositionPlan(
 
   const elements: ElementPlacement[] = [];
 
-  // ── 1. Background is always present ────────────────────────────────────
-  elements.push(decorate({
-    type:         "background",
-    zone:         "background",
-    prompt:       buildBackgroundPrompt(brief),
-    motion:       false,
-    weight:       ASSET_CONTRACTS.background.hierarchyWeight,
-    coverageHint: 1.0,
-  }, "background"));
-  reasoning.push("background: always required (role=background, layer=0)");
+  // ── 1. Background treatment (layered surface stack) ────────────────────
+  // Step 18: every template gets a multi-layer background stack rather than
+  // a single plain gradient. The treatment catalog (background-treatments.ts)
+  // resolves a tone-appropriate recipe — layered gradient, framed zone,
+  // patterned region, structured bands, soft texture wash, or subtle image
+  // wash — and returns an ordered list of layers. Each layer becomes its
+  // own role=background element so the renderer paints them in the right
+  // back-to-front order.
+  const treatment: BackgroundTreatment = resolveBackgroundTreatment(brief, {
+    preferImageWash: hasImageZone,
+  });
+  for (const layer of treatment.layers) {
+    // Fixed (SVG) texture layers are compatible with any format; AI-generated
+    // layers follow the global forGif/format gating used by the old code path.
+    const isFixedSvg = !!layer.url;
+    if (!isFixedSvg && forGif && !ASSET_CONTRACTS[layer.type].motionCompatible) continue;
+    if (!isFixedSvg && layer.type === "texture") {
+      const c = ASSET_CONTRACTS.texture;
+      const formatOk = c.allowedFormats === "*" || c.allowedFormats.includes(spec.family.formats[0]);
+      if (!formatOk) continue;
+    }
+    const placement = decorate({
+      type:         layer.type,
+      zone:         "background",
+      prompt:       layer.prompt ?? `${brief.colorMood} background layer: ${layer.note}`,
+      motion:       false,
+      weight:       ASSET_CONTRACTS[layer.type].hierarchyWeight + layer.layerHint * 0.01,
+      coverageHint: layer.coverageHint,
+      url:          layer.url,
+    }, "background");
+    elements.push(placement);
+    reasoning.push(
+      `background[${treatment.kind}]: ${layer.type} layer#${layer.layerHint} — ${layer.note}`
+    );
+  }
+  reasoning.push(`background: treatment=${treatment.kind} — ${treatment.description}`);
 
   // ── 2. Main image element (human or object) ─────────────────────────────
   if (hasImageZone) {
@@ -153,48 +183,21 @@ export function buildCompositionPlan(
     reasoning.push("image: no image zone in layout — skipping main image element");
   }
 
-  // ── 3. Atmospheric layer (if style warrants it) ─────────────────────────
-  if (prefs.preferAtmospheric && !forGif) {
-    elements.push(decorate({
-      type:         "atmospheric",
-      zone:         "background",
-      prompt:       buildAtmosphericPrompt(brief),
-      motion:       false,
-      weight:       1,
-      coverageHint: 0.6,
-    }, "background"));
-    reasoning.push("atmospheric: added as background layer (role=background)");
-  }
-
-  // ── 4. Overlay for legibility ───────────────────────────────────────────
-  if (prefs.allowOverlay && hasImageZone) {
+  // ── 3. Legibility overlay over hero image ───────────────────────────────
+  // Kept as a separate conditional step: the treatment stack already
+  // includes a scrim for image-wash treatments, but when the hero image
+  // sits on top of a non-image-wash treatment (e.g. patterned-region with
+  // bold_lifestyle) the layout still needs a light scrim for text.
+  if (prefs.allowOverlay && hasImageZone && treatment.kind !== "subtle-image-wash") {
     elements.push(decorate({
       type:         "overlay",
       zone:         "background",
-      prompt:       "semi-transparent dark scrim for text legibility",
+      prompt:       "semi-transparent dark scrim for text legibility over hero image",
       motion:       false,
       weight:       1,
       coverageHint: 0.9,
     }, "background"));
     reasoning.push("overlay: added for text legibility over image");
-  }
-
-  // ── 5. Texture (if style + format compatible) ───────────────────────────
-  if (prefs.preferTexture) {
-    const contract = ASSET_CONTRACTS.texture;
-    const formatOk = contract.allowedFormats === "*" ||
-                     contract.allowedFormats.includes(spec.family.formats[0]);
-    if (formatOk && !forGif) {
-      elements.push(decorate({
-        type:         "texture",
-        zone:         "background",
-        prompt:       buildTexturePrompt(brief),
-        motion:       false,
-        weight:       1,
-        coverageHint: 0.3,
-      }, "background"));
-      reasoning.push("texture: added as background surface (role=background)");
-    }
   }
 
   // ── 6. Category-matched library assets ──────────────────────────────────
@@ -320,29 +323,6 @@ function selectImageType(
   return styleMap[brief.imageStyle] ?? (prefs.preferHuman ? "human" : "object");
 }
 
-function buildBackgroundPrompt(brief: BriefAnalysis): string {
-  // v9: Try to enrich the background prompt with asset library style data
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { retrieveAssets, buildRetrievalContext } = require("./asset-library");
-    const ctx = buildRetrievalContext({
-      intent:            brief.headline ?? "design",
-      format:            "generic",
-      tonePreference:    brief.tone,
-      brandPrimaryColor: brief.colorMood?.includes("dark") ? "#1a1a2e" : "#4f6ef7",
-      brandPrefersDarkBg:brief.colorMood?.includes("dark") ?? false,
-      brandToneKeywords: brief.keywords?.slice(0, 3) ?? [],
-    });
-    const assets = retrieveAssets(ctx, 1) as Array<{ generationPrompt: string }>;
-    if (assets.length > 0 && assets[0]?.generationPrompt) {
-      return `${assets[0].generationPrompt}, ${brief.colorMood} color mood, ${brief.tone} brand tone`;
-    }
-  } catch {
-    // Fallback silently
-  }
-  return `${brief.colorMood} color mood, ${brief.tone} brand tone, abstract background design`;
-}
-
 function buildImagePrompt(brief: BriefAnalysis, type: AssetElementType): string {
   const base = brief.imageStyle === "photography"
     ? `professional ${type === "human" ? "lifestyle photography" : "product photography"}`
@@ -354,27 +334,10 @@ function buildImagePrompt(brief: BriefAnalysis, type: AssetElementType): string 
   return `${base}, ${brief.colorMood} aesthetic, ${keywords}, ${audience}, high quality, no text`.trim();
 }
 
-function buildAtmosphericPrompt(brief: BriefAnalysis): string {
-  const map: Record<string, string> = {
-    vibrant:   "colorful bokeh light effects",
-    dark:      "subtle dark fog and depth haze",
-    warm:      "warm golden light rays",
-    cool:      "cool blue atmospheric haze",
-    natural:   "soft organic light diffusion",
-    luxury:    "dark vignette with subtle glow",
-    minimal:   "clean white light bloom",
-  };
-  return map[brief.colorMood] ?? "subtle depth atmospheric effect";
-}
-
-function buildTexturePrompt(brief: BriefAnalysis): string {
-  const map: Record<string, string> = {
-    editorial:   "fine paper grain texture, subtle",
-    dark_luxury: "dark brushed metal or fabric texture",
-    natural_organic: "natural linen or wood grain texture",
-  };
-  return map[brief.tone] ?? "subtle surface texture overlay";
-}
+// Background / atmospheric / texture prompts are now produced by the
+// tone-keyed treatment catalog in background-treatments.ts. The single-shot
+// helpers that used to live here have been removed in favor of the
+// multi-layer treatment stack built during composition.
 
 // ── Category → library asset integration ─────────────────────────────────────
 
