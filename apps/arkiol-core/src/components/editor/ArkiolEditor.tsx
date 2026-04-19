@@ -823,9 +823,18 @@ export function ArkiolEditor({
   // When targetW/H differ from the artboard, the bitmap is re-composited onto
   // an output canvas with the chosen fit strategy so the design adapts
   // intelligently to the new dimensions.
+  //
+  // Step 29:
+  //   • `scale` multiplier (1× / 2× / 3×) applied to the output canvas for
+  //     retina-quality exports. Previously collected by SmartExportModal
+  //     but silently dropped.
+  //   • Fit strategy (contain / cover / stretch) honored uniformly — a
+  //     contain export letterboxes with the artboard's background color
+  //     so the composition is preserved; cover crops edges; stretch
+  //     fills exactly.
   const exportCanvas=useCallback(async(
     format:ExportFormat,
-    opts?:{targetW?:number;targetH?:number;fit?:ExportFit},
+    opts?:{targetW?:number;targetH?:number;fit?:ExportFit;scale?:number},
   )=>{
     setShowExport(false);
     setExportDialog(null);
@@ -836,7 +845,10 @@ export function ArkiolEditor({
     const tgtW=opts?.targetW??srcW;
     const tgtH=opts?.targetH??srcH;
     const fit:ExportFit=opts?.fit??"contain";
+    const scaleMul=Math.max(1,Math.min(3,Math.round(opts?.scale??1)));
     const resized=tgtW!==srcW||tgtH!==srcH;
+    const outW=Math.max(1,Math.round(tgtW*scaleMul));
+    const outH=Math.max(1,Math.round(tgtH*scaleMul));
 
     try{
       const {default:html2canvas}=await import(/* webpackIgnore: true */ "html2canvas").catch(()=>({default:null}));
@@ -854,24 +866,28 @@ export function ArkiolEditor({
       });
 
       const mime=format==="jpg"?"image/jpeg":"image/png";
+      const needsCompose=resized||scaleMul!==1;
 
-      // Fast path: no resize requested.
-      if(!resized){
+      // Fast path: same dimensions and native scale.
+      if(!needsCompose){
         const url=src.toDataURL(mime,0.95);
         const a=document.createElement("a");a.href=url;a.download=`design.${format}`;a.click();
         return;
       }
 
-      // Compose onto a target-sized canvas with smart fit.
+      // Compose onto a target-sized (and scale-multiplied) canvas with
+      // smart fit. Output resolution = tgtW × tgtH × scaleMul per axis.
       const out=document.createElement("canvas");
-      out.width=Math.max(1,Math.round(tgtW));
-      out.height=Math.max(1,Math.round(tgtH));
+      out.width=outW;
+      out.height=outH;
       const ctx=out.getContext("2d");
       if(!ctx){alert("Export failed: 2D canvas not supported.");return;}
       ctx.imageSmoothingEnabled=true;
       ctx.imageSmoothingQuality="high";
 
-      // Background: solid bg for JPG (no alpha) or letterboxed contain.
+      // Background: solid bg for JPG (no alpha) or letterboxed contain so
+      // the letterbox reads as an intentional continuation of the artboard
+      // rather than a transparent band.
       const isGrad=state.bgColor.includes("gradient");
       if(format==="jpg"||fit==="contain"){
         ctx.fillStyle=isGrad?"#ffffff":state.bgColor;
@@ -882,24 +898,36 @@ export function ArkiolEditor({
       ctx.drawImage(src,dx,dy,dw,dh);
 
       const url=out.toDataURL(mime,0.95);
-      const a=document.createElement("a");a.href=url;a.download=`design_${tgtW}x${tgtH}.${format}`;a.click();
+      const a=document.createElement("a");a.href=url;
+      const suffix=scaleMul>1?`_${scaleMul}x`:"";
+      a.download=`design_${tgtW}x${tgtH}${suffix}.${format}`;a.click();
     }catch(err){alert("Export failed. Try Print → Save as PDF as an alternative.");}
   },[canvasRef,state.canvasW,state.canvasH,state.bgColor,zoom]);
 
-  // Listen for arkiol:export events dispatched by FullPageEditor
+  // Listen for arkiol:export events dispatched by FullPageEditor's
+  // SmartExportModal bridge. Reads targetW/targetH/fit/scale from the
+  // detail (Step 29 fixed name mismatch that previously silently dropped
+  // the size picker's output).
   useEffect(()=>{
     const handler=(e:Event)=>{
       const detail=(e as CustomEvent).detail;
       if(!detail)return;
       const fmt=detail.format as ExportFormat;
-      if(fmt==="png"||fmt==="jpg"||fmt==="pdf"){
-        if(detail.targetW&&detail.targetH){
-          exportCanvas(fmt,{targetW:detail.targetW,targetH:detail.targetH,fit:detail.fit??"contain"});
-        }else if(fmt==="pdf"){
-          exportCanvas(fmt);
-        }else{
-          setExportDialog({format:fmt});
-        }
+      if(fmt!=="png"&&fmt!=="jpg"&&fmt!=="pdf")return;
+
+      if(fmt==="pdf"){exportCanvas(fmt);return;}
+
+      if(detail.targetW&&detail.targetH){
+        exportCanvas(fmt,{
+          targetW: detail.targetW,
+          targetH: detail.targetH,
+          fit:     detail.fit   ?? "contain",
+          scale:   detail.scale ?? 1,
+        });
+      }else{
+        // No size supplied — fall back to the standalone size dialog so
+        // the user still gets a size selection flow.
+        setExportDialog({format:fmt});
       }
     };
     window.addEventListener("arkiol:export",handler);

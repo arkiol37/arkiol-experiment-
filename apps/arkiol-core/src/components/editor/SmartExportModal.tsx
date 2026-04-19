@@ -44,13 +44,26 @@ const SIZE_PRESETS: SizePreset[] = [
 
 // ── Props ──────────────────────────────────────────────────────────────────
 
+export type ExportFit = "contain" | "cover" | "stretch";
+
 interface SmartExportModalProps {
   currentWidth: number;
   currentHeight: number;
   currentFormat?: string;
   onClose: () => void;
-  onExport: (opts: { width: number; height: number; format: "png" | "jpg" | "svg" | "pdf"; scale: number }) => void;
+  onExport: (opts: {
+    width:  number;
+    height: number;
+    format: "png" | "jpg" | "svg" | "pdf";
+    scale:  number;
+    fit:    ExportFit;
+  }) => void;
 }
+
+// Aspect-ratio difference under this threshold is treated as "effectively
+// the same aspect" — Smart default stretches (no letterbox); above it we
+// default to contain (letterbox, preserve the design's composition).
+const ASPECT_DIFF_SIGNIFICANT = 0.02;
 
 // ── Component ──────────────────────────────────────────────────────────────
 
@@ -66,6 +79,11 @@ export function SmartExportModal({
   const [customH, setCustomH] = useState(currentHeight);
   const [exportFormat, setExportFormat] = useState<"png" | "jpg" | "svg" | "pdf">("png");
   const [scale, setScale] = useState(1);
+  // Fit strategy: how the design is adapted when the target aspect differs
+  // from the artboard. Default "contain" preserves the composition with a
+  // letterbox; the user can switch to "cover" (crop) or "stretch" (distort).
+  // Only shown when the chosen size has a different aspect ratio.
+  const [fit, setFit] = useState<ExportFit>("contain");
 
   const exportDims = useMemo(() => {
     if (selectedSize === "original") return { width: currentWidth, height: currentHeight };
@@ -78,6 +96,10 @@ export function SmartExportModal({
   const aspectOriginal = currentWidth / currentHeight;
   const aspectTarget = exportDims.width / exportDims.height;
   const aspectDiff = Math.abs(aspectOriginal - aspectTarget) / aspectOriginal;
+  // Aspect-preserving resize (same aspect ratio) never needs a fit choice;
+  // the design scales uniformly. Only expose the fit selector when a
+  // non-trivial aspect change actually forces one of the three strategies.
+  const aspectChanged = isResized && aspectDiff > ASPECT_DIFF_SIGNIFICANT;
 
   const groups = useMemo(() => {
     const map = new Map<string, SizePreset[]>();
@@ -222,16 +244,50 @@ export function SmartExportModal({
             </div>
           </div>
 
-          {/* Resize warning */}
+          {/* Adapt strategy — only when aspect ratio changes (otherwise
+              the design just scales uniformly and no choice is needed). */}
+          {aspectChanged && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Adapt design — aspect ratio changes
+              </div>
+              <div style={{ display: "flex", gap: 5 }}>
+                {([
+                  ["contain", "Fit",     "Preserve composition · letterbox"],
+                  ["cover",   "Fill",    "Preserve composition · crop edges"],
+                  ["stretch", "Stretch", "Ignore aspect · fill exactly"],
+                ] as const).map(([k, lbl, hint]) => (
+                  <button
+                    key={k}
+                    onClick={() => setFit(k)}
+                    title={hint}
+                    style={{
+                      flex: 1, padding: "8px 6px", borderRadius: 6, cursor: "pointer",
+                      border: fit === k ? "1px solid var(--accent, #4f8ef7)" : "1px solid var(--border, #444)",
+                      background: fit === k ? "rgba(79,142,247,0.12)" : "none",
+                      color: fit === k ? "var(--accent, #4f8ef7)" : "var(--text-secondary, #aaa)",
+                      fontSize: 12, fontWeight: 600, textAlign: "center",
+                    }}
+                  >
+                    <div>{lbl}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted, #666)", marginTop: 2, fontWeight: 500 }}>{hint}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Resize summary — always shown when the output differs so
+              the user sees the final pixel size they'll receive. */}
           {isResized && (
             <div style={{
               marginTop: 14, padding: "10px 12px", borderRadius: 8,
-              background: aspectDiff > 0.15 ? "rgba(255,180,60,0.10)" : "rgba(79,142,247,0.08)",
-              border: `1px solid ${aspectDiff > 0.15 ? "rgba(255,180,60,0.25)" : "rgba(79,142,247,0.15)"}`,
+              background: aspectChanged ? "rgba(255,180,60,0.10)" : "rgba(79,142,247,0.08)",
+              border: `1px solid ${aspectChanged ? "rgba(255,180,60,0.25)" : "rgba(79,142,247,0.15)"}`,
               fontSize: 12, color: "var(--text-secondary, #ccc)", lineHeight: 1.5,
             }}>
-              {aspectDiff > 0.15
-                ? "⚠ Aspect ratio differs significantly — elements will be scaled to fit. Some layout adjustments may be needed."
+              {aspectChanged
+                ? `⚠ Aspect ratio differs — using "${fit}" to adapt the design.`
                 : "Design will be proportionally scaled to the new dimensions."}
               <div style={{ marginTop: 4, fontSize: 11, color: "var(--text-muted)" }}>
                 Output: {exportDims.width * scale} × {exportDims.height * scale}px
@@ -256,7 +312,16 @@ export function SmartExportModal({
             Cancel
           </button>
           <button
-            onClick={() => onExport({ ...exportDims, format: exportFormat, scale })}
+            onClick={() => onExport({
+              ...exportDims,
+              format: exportFormat,
+              scale,
+              // When aspect is preserved (or size is unchanged), fit is
+              // irrelevant — send "stretch" because a uniform scale and
+              // a stretch with identical aspect produce the same pixels,
+              // and this keeps the exporter's fast path simple.
+              fit: aspectChanged ? fit : "stretch",
+            })}
             style={{
               padding: "8px 22px", borderRadius: 8,
               background: "var(--accent, #4f8ef7)", border: "none",

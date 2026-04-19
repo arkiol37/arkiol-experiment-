@@ -200,12 +200,17 @@ export function FullPageEditor() {
 }
 
 // ── Export trigger ──────────────────────────────────────────────────────────
+// Bridges the modal selection to the ArkiolEditor listener via a CustomEvent.
+// ArkiolEditor's `exportCanvas` reads `targetW`, `targetH`, `fit`, `scale` —
+// names used to be mismatched (width/height) and silently dropped, so the
+// size picker had no effect. Step 29 lines them up and forwards every field.
 
 interface ExportOptions {
-  width: number;
+  width:  number;
   height: number;
   format: "png" | "jpg" | "svg" | "pdf";
-  scale: number;
+  scale:  number;
+  fit:    "contain" | "cover" | "stretch";
 }
 
 function triggerExport(opts: ExportOptions) {
@@ -216,9 +221,16 @@ function triggerExport(opts: ExportOptions) {
     return;
   }
 
-  // For client-side export, dispatch a custom event that ArkiolEditor listens to
   window.dispatchEvent(new CustomEvent("arkiol:export", {
-    detail: { ...opts, fileName },
+    detail: {
+      format:  opts.format,
+      // Canonical names the ArkiolEditor listener expects.
+      targetW: opts.width,
+      targetH: opts.height,
+      fit:     opts.fit,
+      scale:   opts.scale,
+      fileName,
+    },
   }));
 }
 
