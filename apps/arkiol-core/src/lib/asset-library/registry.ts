@@ -10,6 +10,7 @@ import type {
   AssetCategory,
   AssetKind,
   AssetQuery,
+  AssetRealm,
 } from "./types";
 
 export const ASSET_CATEGORIES: readonly AssetCategory[] = Object.freeze([
@@ -22,21 +23,28 @@ export const ASSET_KINDS: readonly AssetKind[] = Object.freeze([
   "sticker", "badge", "ribbon", "frame", "divider",
 ]);
 
+// Step 35: real-world subject realms.
+export const ASSET_REALMS: readonly AssetRealm[] = Object.freeze([
+  "nature", "animal", "lifestyle", "object", "scene",
+]);
+
 // ── Lazy indexes ──────────────────────────────────────────────────────────────
 
 let idIndex:       Map<string, Asset> | null = null;
 let categoryIndex: Map<AssetCategory, Asset[]> | null = null;
 let kindIndex:     Map<AssetKind, Asset[]> | null = null;
+let realmIndex:    Map<AssetRealm, Asset[]> | null = null;
 
 function assetCategories(a: Asset): AssetCategory[] {
   return a.extraCategories ? [a.category, ...a.extraCategories] : [a.category];
 }
 
 function buildIndexes(): void {
-  if (idIndex && categoryIndex && kindIndex) return;
+  if (idIndex && categoryIndex && kindIndex && realmIndex) return;
   idIndex = new Map();
   categoryIndex = new Map();
   kindIndex = new Map();
+  realmIndex = new Map();
   for (const a of ASSETS) {
     idIndex.set(a.id, a);
     for (const c of assetCategories(a)) {
@@ -47,6 +55,11 @@ function buildIndexes(): void {
     const kb = kindIndex.get(a.kind) ?? [];
     kb.push(a);
     kindIndex.set(a.kind, kb);
+    if (a.realm) {
+      const rb = realmIndex.get(a.realm) ?? [];
+      rb.push(a);
+      realmIndex.set(a.realm, rb);
+    }
   }
 }
 
@@ -65,6 +78,13 @@ export function getAssetsByCategory(category: AssetCategory): Asset[] {
 export function getAssetsByKind(kind: AssetKind): Asset[] {
   buildIndexes();
   return (kindIndex!.get(kind) ?? []).slice();
+}
+
+// Step 35: realm-indexed lookup — all nature / animal / lifestyle /
+// object / scene assets in the library.
+export function getAssetsByRealm(realm: AssetRealm): Asset[] {
+  buildIndexes();
+  return (realmIndex!.get(realm) ?? []).slice();
 }
 
 export function getAllAssets(): readonly Asset[] {
@@ -95,6 +115,13 @@ export function queryAssets(q: AssetQuery = {}): Asset[] {
   // filtering on style doesn't silently drop ribbons / badges / etc.
   if (q.style) {
     pool = pool.filter(a => a.style === undefined || a.style === q.style);
+  }
+
+  // Step 35: realm filter is *exact match* (no pass-through for unset),
+  // because a realm query is the caller explicitly asking for real-world
+  // subjects — decorative / abstract assets should not surface.
+  if (q.realm) {
+    pool = pool.filter(a => a.realm === q.realm);
   }
 
   if (typeof q.limit === "number" && q.limit >= 0) {
@@ -152,11 +179,14 @@ export function libraryStats(): {
   total: number;
   byCategory: Record<AssetCategory, number>;
   byKind: Record<AssetKind, number>;
+  byRealm: Record<AssetRealm, number>;
 } {
   buildIndexes();
   const byCategory = {} as Record<AssetCategory, number>;
   for (const c of ASSET_CATEGORIES) byCategory[c] = (categoryIndex!.get(c) ?? []).length;
   const byKind = {} as Record<AssetKind, number>;
   for (const k of ASSET_KINDS) byKind[k] = (kindIndex!.get(k) ?? []).length;
-  return { total: ASSETS.length, byCategory, byKind };
+  const byRealm = {} as Record<AssetRealm, number>;
+  for (const r of ASSET_REALMS) byRealm[r] = (realmIndex!.get(r) ?? []).length;
+  return { total: ASSETS.length, byCategory, byKind, byRealm };
 }

@@ -8,6 +8,7 @@ export type {
   AssetCategory,
   AssetKind,
   AssetStyle,
+  AssetRealm,
   AssetPayload,
   AssetQuery,
 } from "./types";
@@ -15,9 +16,11 @@ export type {
 export {
   ASSET_CATEGORIES,
   ASSET_KINDS,
+  ASSET_REALMS,
   getAssetById,
   getAssetsByCategory,
   getAssetsByKind,
+  getAssetsByRealm,
   getAllAssets,
   queryAssets,
   pickAsset,

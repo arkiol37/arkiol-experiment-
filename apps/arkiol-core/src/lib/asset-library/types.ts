@@ -35,6 +35,27 @@ export type AssetCategory =
 // and don't need a style axis — this field is optional.
 export type AssetStyle = "outline" | "filled" | "duotone";
 
+// Real-world subject axis (Step 35). Orthogonal to AssetCategory: a
+// mountain photo has realm="nature" but extraCategories can place it
+// under wellness / travel / motivation so category-driven selection
+// surfaces it for the right briefs. Realms group photos / illustrations
+// by *what the asset depicts*, not *what context it serves*.
+//
+//   nature     mountains, rivers, plants, sky, sunsets, forests
+//   animal     dogs, cats, birds, wildlife
+//   lifestyle  staged everyday scenes (desk setups, cozy rooms)
+//   object     isolated everyday items (books, bottles, gym gear)
+//   scene      wider atmospheric views (landscapes, cityscapes, rooms)
+//
+// Abstract / decorative assets (ribbons, badges, icons, textures) leave
+// realm unset — they aren't "real-world" depictions.
+export type AssetRealm =
+  | "nature"
+  | "animal"
+  | "lifestyle"
+  | "object"
+  | "scene";
+
 // How the asset's visual payload is delivered to a renderer.
 export type AssetPayload =
   | { format: "svg";  markup: string }                                   // inline SVG
@@ -60,6 +81,11 @@ export interface Asset {
   // Visual weight of the asset — primarily used for icons (outline vs.
   // filled). Other kinds can leave it unset. See AssetStyle for values.
   style?:      AssetStyle;
+  // Step 35: real-world subject axis. Present on photos / illustrations
+  // that depict concrete real-world subjects (nature / animals /
+  // lifestyle scenes / everyday objects / wider scenes). Left unset on
+  // abstract / decorative assets.
+  realm?:      AssetRealm;
   payload:     AssetPayload;
 }
 
@@ -69,6 +95,7 @@ export interface AssetQuery {
   category?: AssetCategory;
   kind?:     AssetKind;
   style?:    AssetStyle;     // outline / filled / duotone — icon-focused
+  realm?:    AssetRealm;     // Step 35 — real-world subject filter
   tags?:     string[];       // match if the asset has ANY of these tags
   limit?:    number;
 }
