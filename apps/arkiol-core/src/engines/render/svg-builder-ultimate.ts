@@ -29,6 +29,7 @@ import { enforceStrictTypographyHierarchy, type TypographyItem } from "../hierar
 import { computeTextInset, refinedLineHeight } from "./text-rhythm";
 import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
+import { evaluateRejection } from "../evaluation/rejection-rules";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
 import { computeLearningBias, applyThemeBias } from "../memory/learning-signals";
 import { matchPatternToBrief, buildInspirationOverrides } from "../inspiration/pattern-matcher";
@@ -400,6 +401,16 @@ export async function buildUltimateSvgContent(
   if (qualityScore.total < 0.40) {
     violations.push(`quality:low_score(${qualityScore.total.toFixed(2)}) — below marketplace bar`);
   }
+
+  // ── Step 23: consolidated rejection gate ─────────────────────────────
+  // Every hard rule in the rejection catalog (too_empty, too_repetitive,
+  // gradient_heavy, asset_poor, visually_weak, weak_hierarchy,
+  // unreadable, unbalanced) becomes a build violation so the same weak
+  // outputs the gallery would filter are also flagged at build time.
+  // Soft rules are recorded separately for audit without blocking.
+  const rejection = evaluateRejection(theme, content);
+  for (const r of rejection.hardReasons) violations.push(`rejection:${r}`);
+  for (const r of rejection.softReasons) violations.push(`rejection_soft:${r}`);
 
   const buildResult: BuildResult = { content, violations };
   svgCacheSet(cacheKey, buildResult);

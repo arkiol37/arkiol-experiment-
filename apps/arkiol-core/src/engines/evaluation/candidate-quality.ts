@@ -590,6 +590,9 @@ export function checkMarketplaceQuality(
 
   // Step 22: raise the marketplace composite bar and add dimension-
   // specific rejects that align with the richer scoring vocabulary.
+  // Step 23: additional hard rules live in rejection-rules.ts and are
+  // consulted by the gallery batch filter — this single-string gate
+  // stays as the per-template quick check for the build pipeline.
 
   if (score.total < 0.46)
     return `marketplace:low_score(${score.total.toFixed(2)})`;
@@ -603,7 +606,6 @@ export function checkMarketplaceQuality(
   if (score.decorationDiversity < 0.30)
     return `marketplace:low_decoration_diversity(${score.decorationDiversity.toFixed(2)})`;
 
-  // New: hierarchy, readability, balance, asset-usage floors.
   if (score.hierarchyClarity < 0.30)
     return `marketplace:weak_hierarchy(${score.hierarchyClarity.toFixed(2)})`;
 

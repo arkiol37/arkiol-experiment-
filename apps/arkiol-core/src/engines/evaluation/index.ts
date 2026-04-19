@@ -14,6 +14,18 @@ export {
 } from "./candidate-quality";
 
 export {
+  REJECTION_RULES,
+  evaluateRejection,
+  filterCandidateBatch,
+  type RejectionRule,
+  type RejectionSeverity,
+  type RejectionVerdict,
+  type BatchFilterItem,
+  type BatchFilterOptions,
+  type BatchFilterResult,
+} from "./rejection-rules";
+
+export {
   assessDesignQuality,
   refineDesign,
   type DesignQualityReport,
