@@ -23,58 +23,94 @@ export interface ScenePalette {
   ink:     string;             // outlines / darkest details
 }
 
-// ── Built-in palettes (3 variants per category) ──────────────────────────────
-// Each category has three palette variants so the same category brief
-// can produce visually distinct gallery cards. A `variant` parameter
-// (derived from variationIdx) rotates through them deterministically
-// so a 6-candidate gallery lands on three different color schemes
-// without drifting off the category's mood.
+// ── Built-in palettes (6 variants per category) ──────────────────────────────
+// Each category has six palette variants so the default 6-candidate
+// gallery (Step 21) lands on a distinct palette per candidate — no
+// repeats. Variants span saturation, temperature, and lightness while
+// staying on the category's mood:
+//   slot 0  canonical  (the category's signature palette)
+//   slot 1  lighter / airier
+//   slot 2  deeper / grounded
+//   slot 3  cooler shift
+//   slot 4  warmer shift
+//   slot 5  adjacent-hue cousin
+//
+// Array length is unbounded — getScenePalette uses modulo, so we can
+// extend to 8 / 10 / N palettes per category without API changes if a
+// bigger gallery flow lands.
 
 export const SCENE_PALETTES: Record<string, ScenePalette[]> = {
   productivity: [
     { sky: ["#EFF6FF", "#DBEAFE"], ground: ["#BFDBFE", "#93C5FD"], subject: "#1D4ED8", accent: "#F97316", ink: "#0F172A" },
     { sky: ["#F0F9FF", "#E0F2FE"], ground: ["#BAE6FD", "#7DD3FC"], subject: "#0369A1", accent: "#FBBF24", ink: "#0C4A6E" },
     { sky: ["#EEF2FF", "#E0E7FF"], ground: ["#C7D2FE", "#A5B4FC"], subject: "#4338CA", accent: "#F97316", ink: "#1E1B4B" },
+    { sky: ["#F0FDFA", "#CCFBF1"], ground: ["#99F6E4", "#5EEAD4"], subject: "#0F766E", accent: "#F59E0B", ink: "#134E4A" },
+    { sky: ["#FAFAFA", "#F5F5F5"], ground: ["#E5E5E5", "#D4D4D4"], subject: "#262626", accent: "#2563EB", ink: "#171717" },
+    { sky: ["#F5F3FF", "#EDE9FE"], ground: ["#DDD6FE", "#C4B5FD"], subject: "#6D28D9", accent: "#F97316", ink: "#2E1065" },
   ],
   wellness: [
     { sky: ["#ECFDF5", "#D1FAE5"], ground: ["#A7F3D0", "#6EE7B7"], subject: "#059669", accent: "#F59E0B", ink: "#064E3B" },
     { sky: ["#F0FDF4", "#DCFCE7"], ground: ["#BBF7D0", "#86EFAC"], subject: "#15803D", accent: "#EAB308", ink: "#14532D" },
     { sky: ["#F7FEE7", "#ECFCCB"], ground: ["#D9F99D", "#BEF264"], subject: "#4D7C0F", accent: "#F59E0B", ink: "#365314" },
+    { sky: ["#F0FDFA", "#CCFBF1"], ground: ["#99F6E4", "#5EEAD4"], subject: "#115E59", accent: "#F59E0B", ink: "#134E4A" },
+    { sky: ["#FEFCE8", "#FEF9C3"], ground: ["#FEF08A", "#FDE047"], subject: "#65A30D", accent: "#F97316", ink: "#3F6212" },
+    { sky: ["#EFF6FF", "#DBEAFE"], ground: ["#BFDBFE", "#93C5FD"], subject: "#047857", accent: "#F59E0B", ink: "#064E3B" },
   ],
   education: [
     { sky: ["#FEF3C7", "#FDE68A"], ground: ["#FBBF24", "#F59E0B"], subject: "#7C2D12", accent: "#2563EB", ink: "#451A03" },
     { sky: ["#FFFBEB", "#FEF3C7"], ground: ["#FDE68A", "#FCD34D"], subject: "#B45309", accent: "#1D4ED8", ink: "#78350F" },
     { sky: ["#FFF7ED", "#FFEDD5"], ground: ["#FED7AA", "#FDBA74"], subject: "#9A3412", accent: "#0369A1", ink: "#7C2D12" },
+    { sky: ["#FFFBEB", "#FEF3C7"], ground: ["#FCD34D", "#FBBF24"], subject: "#854D0E", accent: "#15803D", ink: "#713F12" },
+    { sky: ["#FEF2F2", "#FEE2E2"], ground: ["#FECACA", "#FCA5A5"], subject: "#9A3412", accent: "#1D4ED8", ink: "#7F1D1D" },
+    { sky: ["#EFF6FF", "#DBEAFE"], ground: ["#BFDBFE", "#93C5FD"], subject: "#1E3A8A", accent: "#F59E0B", ink: "#172554" },
   ],
   business: [
     { sky: ["#F1F5F9", "#CBD5E1"], ground: ["#94A3B8", "#64748B"], subject: "#1E3A8A", accent: "#F59E0B", ink: "#0F172A" },
     { sky: ["#F8FAFC", "#E2E8F0"], ground: ["#CBD5E1", "#94A3B8"], subject: "#1E293B", accent: "#DC2626", ink: "#020617" },
     { sky: ["#FAFAF9", "#E7E5E4"], ground: ["#D6D3D1", "#A8A29E"], subject: "#44403C", accent: "#EAB308", ink: "#1C1917" },
+    { sky: ["#EFF6FF", "#DBEAFE"], ground: ["#BFDBFE", "#93C5FD"], subject: "#1E40AF", accent: "#F97316", ink: "#172554" },
+    { sky: ["#F0F9FF", "#E0F2FE"], ground: ["#BAE6FD", "#7DD3FC"], subject: "#075985", accent: "#EA580C", ink: "#082F49" },
+    { sky: ["#F8FAFC", "#F1F5F9"], ground: ["#E2E8F0", "#CBD5E1"], subject: "#0F172A", accent: "#10B981", ink: "#020617" },
   ],
   fitness: [
     { sky: ["#FEE2E2", "#FECACA"], ground: ["#FCA5A5", "#F87171"], subject: "#DC2626", accent: "#FBBF24", ink: "#7F1D1D" },
     { sky: ["#FFF1F2", "#FFE4E6"], ground: ["#FECDD3", "#FDA4AF"], subject: "#E11D48", accent: "#F97316", ink: "#881337" },
     { sky: ["#FEF2F2", "#FEE2E2"], ground: ["#FCA5A5", "#F87171"], subject: "#B91C1C", accent: "#16A34A", ink: "#7F1D1D" },
+    { sky: ["#FFF7ED", "#FFEDD5"], ground: ["#FED7AA", "#FDBA74"], subject: "#C2410C", accent: "#0369A1", ink: "#7C2D12" },
+    { sky: ["#FAFAFA", "#F5F5F5"], ground: ["#E5E5E5", "#D4D4D4"], subject: "#171717", accent: "#EF4444", ink: "#0A0A0A" },
+    { sky: ["#FEFCE8", "#FEF9C3"], ground: ["#FEF08A", "#FDE047"], subject: "#CA8A04", accent: "#DC2626", ink: "#713F12" },
   ],
   beauty: [
     { sky: ["#FCE7F3", "#FBCFE8"], ground: ["#F9A8D4", "#F472B6"], subject: "#DB2777", accent: "#FBBF24", ink: "#831843" },
     { sky: ["#FDF2F8", "#FCE7F3"], ground: ["#FBCFE8", "#F9A8D4"], subject: "#BE185D", accent: "#F59E0B", ink: "#500724" },
     { sky: ["#FAE8FF", "#F5D0FE"], ground: ["#F0ABFC", "#E879F9"], subject: "#A21CAF", accent: "#F59E0B", ink: "#4A044E" },
+    { sky: ["#FFF7ED", "#FFEDD5"], ground: ["#FED7AA", "#FDBA74"], subject: "#BE185D", accent: "#9A3412", ink: "#500724" },
+    { sky: ["#F5F3FF", "#EDE9FE"], ground: ["#DDD6FE", "#C4B5FD"], subject: "#7E22CE", accent: "#F472B6", ink: "#3B0764" },
+    { sky: ["#FDF2F8", "#FCE7F3"], ground: ["#F9A8D4", "#EC4899"], subject: "#831843", accent: "#FBBF24", ink: "#500724" },
   ],
   travel: [
     { sky: ["#DBEAFE", "#93C5FD"], ground: ["#60A5FA", "#3B82F6"], subject: "#1E40AF", accent: "#F97316", ink: "#172554" },
     { sky: ["#CFFAFE", "#A5F3FC"], ground: ["#67E8F9", "#22D3EE"], subject: "#0891B2", accent: "#F59E0B", ink: "#164E63" },
     { sky: ["#E0F2FE", "#BAE6FD"], ground: ["#7DD3FC", "#38BDF8"], subject: "#0284C7", accent: "#FB923C", ink: "#082F49" },
+    { sky: ["#F0FDFA", "#CCFBF1"], ground: ["#99F6E4", "#5EEAD4"], subject: "#0F766E", accent: "#F97316", ink: "#134E4A" },
+    { sky: ["#FEF3C7", "#FDE68A"], ground: ["#FBBF24", "#F59E0B"], subject: "#1E40AF", accent: "#DC2626", ink: "#451A03" },
+    { sky: ["#ECFEFF", "#CFFAFE"], ground: ["#A5F3FC", "#67E8F9"], subject: "#155E75", accent: "#F97316", ink: "#164E63" },
   ],
   marketing: [
     { sky: ["#FFF7ED", "#FED7AA"], ground: ["#FDBA74", "#FB923C"], subject: "#EA580C", accent: "#2563EB", ink: "#7C2D12" },
     { sky: ["#FEF2F2", "#FECACA"], ground: ["#FCA5A5", "#F87171"], subject: "#DC2626", accent: "#0369A1", ink: "#7F1D1D" },
     { sky: ["#FDF4FF", "#F5D0FE"], ground: ["#F0ABFC", "#E879F9"], subject: "#C026D3", accent: "#EAB308", ink: "#701A75" },
+    { sky: ["#FEFCE8", "#FEF9C3"], ground: ["#FEF08A", "#FDE047"], subject: "#CA8A04", accent: "#DB2777", ink: "#713F12" },
+    { sky: ["#ECFDF5", "#D1FAE5"], ground: ["#A7F3D0", "#6EE7B7"], subject: "#047857", accent: "#DC2626", ink: "#064E3B" },
+    { sky: ["#F0F9FF", "#E0F2FE"], ground: ["#BAE6FD", "#7DD3FC"], subject: "#0369A1", accent: "#F97316", ink: "#0C4A6E" },
   ],
   motivation: [
     { sky: ["#FDE68A", "#FBBF24"], ground: ["#F59E0B", "#D97706"], subject: "#1E3A8A", accent: "#EF4444", ink: "#78350F" },
     { sky: ["#FED7AA", "#FDBA74"], ground: ["#FB923C", "#F97316"], subject: "#7C2D12", accent: "#2563EB", ink: "#451A03" },
     { sky: ["#FEE2E2", "#FECACA"], ground: ["#F87171", "#EF4444"], subject: "#7F1D1D", accent: "#FBBF24", ink: "#450A0A" },
+    { sky: ["#DBEAFE", "#93C5FD"], ground: ["#60A5FA", "#3B82F6"], subject: "#1E3A8A", accent: "#F59E0B", ink: "#172554" },
+    { sky: ["#F5F3FF", "#EDE9FE"], ground: ["#C4B5FD", "#A78BFA"], subject: "#5B21B6", accent: "#FBBF24", ink: "#2E1065" },
+    { sky: ["#FFFBEB", "#FEF3C7"], ground: ["#FDE68A", "#FCD34D"], subject: "#B45309", accent: "#DC2626", ink: "#78350F" },
   ],
 };
 
