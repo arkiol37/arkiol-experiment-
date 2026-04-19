@@ -1,27 +1,69 @@
 // src/engines/index.ts
-// Arkiol Engine Registry — canonical barrel export for all engines
+// Arkiol Engine Registry — canonical barrel export for all engines.
 //
-// Module structure:
-//   intent/      — prompt analysis and brief extraction
-//   layout/      — zone geometry, density, adaptive layout
-//   style/       — visual style intelligence, category packs
-//   assets/      — composition planning, asset contracts
-//   render/      — SVG/PNG/GIF pipeline and content generation
-//   evaluation/  — quality scoring, refinement, candidate ranking, output polish, readiness
-//   memory/      — output history and cross-request dedup
-//   hierarchy/   — typographic rule enforcement
-//   exploration/ — genetic algorithm, learning-memory
-//   campaign/    — campaign planning, creative direction, narrative arcs, coherence
-//   brand/       — brand memory and learning
-//   platform/    — platform-specific intelligence
-//   queue/       — render job orchestration
-//   validation/  — stage validation
-//   agents/     — AI agent orchestration (creative director, designer, critic)
-//   cocreation/ — real-time co-creation (instruction parsing, design mutation)
-//   inspiration/ — web-scale pattern intelligence (pattern library, matching, overrides)
-//   personalization/ — Design DNA profiles and generation personalization
-//   multi-output/ — coordinated multi-format generation and variations
-//   intelligence/ — creative intelligence loop, adaptive strategy, self-improvement
+// ─── Core pipeline arc ─────────────────────────────────────────────────────
+//
+//   intent  →  layout  →  style  →  assets  →  render  →  evaluation  →  memory
+//     │         │          │         │          │            │             │
+//     │         │          │         │          │            │             └─ output history,
+//     │         │          │         │          │            │                generation ledger,
+//     │         │          │         │          │            │                learning signals
+//     │         │          │         │          │            └─ quality scoring,
+//     │         │          │         │          │               refinement, rejection,
+//     │         │          │         │          │               marketplace gate
+//     │         │          │         │          └─ SVG/PNG/GIF pipeline,
+//     │         │          │         │             self-healing, context threading
+//     │         │          │         └─ composition planning, asset placement,
+//     │         │          │            decorative components, backgrounds,
+//     │         │          │            depth, balance, contracts
+//     │         │          └─ style intelligence, category packs, typography,
+//     │         │             font pairing, template kits, layout profiles
+//     │         └─ zone geometry, density, adaptive layout, constraints,
+//     │            style enforcement, families, grid
+//     └─ prompt analysis, brief extraction (hierarchy rules live alongside
+//        as a support module consumed by layout / render)
+//
+// Every core stage has its own module directory with an index.ts that is
+// the authoritative public surface for that stage. Changing internal file
+// layout inside a module does not ripple through consumers as long as the
+// module's barrel stays stable.
+//
+// ─── Support modules ───────────────────────────────────────────────────────
+//
+//   hierarchy/       typographic hierarchy enforcement (used by render)
+//   exploration/     genetic algorithm over design genomes, learning memory
+//   campaign/        campaign planning, narrative arcs, coherence checks
+//   brand/           brand memory and learning
+//   platform/        platform-specific rule intelligence
+//   queue/           render job orchestration, retries, cost / compute safety
+//   validation/      cross-stage typed validation
+//   agents/          AI agent orchestration (director, designer, critic)
+//   cocreation/      instruction parsing + design mutation (real-time editing)
+//   inspiration/     pattern library + matching + style overrides
+//   personalization/ Design DNA profiles, feedback, bias application
+//   multi-output/    coordinated multi-format generation and variations
+//   intelligence/    creative loop, adaptive strategy, improvement reports
+//
+// ─── Re-export convention ──────────────────────────────────────────────────
+//
+//   • Core stages (intent, layout, style, assets, render, evaluation, memory,
+//     hierarchy) are re-exported as namespaces below so consumers can write
+//     `import { evaluation } from "@/engines"` and call
+//     `evaluation.scoreCandidateQuality(...)`. This avoids name collisions
+//     across stages (ZoneId, ValidationResult, etc.) and makes pipeline
+//     stage ownership explicit at the call site.
+//   • Support modules keep their existing flat re-exports below for
+//     backwards compatibility with call sites that imported pre-Step 30.
+
+// ── Core pipeline namespaces ───────────────────────────────────────────────
+export * as intent      from "./intent";
+export * as layout      from "./layout";
+export * as style       from "./style";
+export * as assets      from "./assets";
+export * as render      from "./render";
+export * as evaluation  from "./evaluation";
+export * as memory      from "./memory";
+export * as hierarchy   from "./hierarchy";
 
 // ── Co-Creation ────────────────────────────────────────────────────────────
 export {
