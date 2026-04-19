@@ -22,6 +22,7 @@ import {
   applyHeadlineProportion,
   type CategoryLayoutProfile,
 } from "../style/category-layout-profiles";
+import { snapZonesToGrid } from "./artboard-grid";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -213,6 +214,19 @@ export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResul
   zones = enforceMinimumGaps(zones, categoryDensity, adjustments) as Zone[];
 
   // ── Phase 5: Grid snapping ──────────────────────────────────────────────
+  // First, snap every zone to the artboard's column/baseline grid so edges
+  // land on shared tracks. Then fall back to the baseline row snap so any
+  // zones we didn't column-snap still stay on the rhythm.
+  {
+    const result = snapZonesToGrid(zones, formatCategory);
+    zones = result.zones;
+    if (result.moved > 0) {
+      adjustments.push(
+        `artboard_grid:${result.grid.columns}col snapped ${result.moved} zones ` +
+        `(gutter ${result.grid.gutter}% row ${result.grid.rowUnit}%)`,
+      );
+    }
+  }
   zones = snapAllToGrid(zones, adjustments) as Zone[];
 
   // ── Phase 6: Alignment normalization ────────────────────────────────────

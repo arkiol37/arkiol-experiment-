@@ -56,3 +56,13 @@ export {
   type SelectionContext,
   type LayoutSelection,
 } from "./families";
+
+export {
+  getArtboardGrid,
+  computeGridGeometry,
+  snapZoneToGrid,
+  snapZonesToGrid,
+  type ArtboardGrid,
+  type GridGeometry,
+  type GridSnapOptions,
+} from "./artboard-grid";
