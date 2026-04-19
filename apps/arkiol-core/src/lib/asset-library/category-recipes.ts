@@ -180,11 +180,17 @@ export interface SelectOptions {
   enforceStyleCoverage?: boolean;
 }
 
-// Step 36: preferred visual style fallback order. "3d" first because
-// Step 36 replaces the Unsplash real-world assets with 3D variants and
-// the project visual language is built around 3D.
+// Step 36 + 40: preferred visual style fallback order.
+//
+// "illustration" is first because Step 40 added a self-contained
+// inline-SVG illustration library (svg-scene-composer) that renders
+// offline with no CDN or AI dependency — always available, always
+// deterministic. "3d" ranks second: when ARKIOL_3D_ASSET_BASE is
+// populated with curated renders, 3D wins via per-asset scoring; when
+// it isn't, the Unsplash fallback is inconsistent and we'd rather fall
+// back to the inline illustrations. Everything after is legacy.
 const STYLE_PREFERENCE: readonly AssetVisualStyle[] = [
-  "3d", "illustration", "flat", "outline", "photo", "hand-drawn",
+  "illustration", "3d", "flat", "outline", "photo", "hand-drawn",
 ];
 
 /**

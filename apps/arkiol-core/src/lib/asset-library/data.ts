@@ -953,6 +953,204 @@ const REAL_WORLD_ASSETS: Asset[] = [
     payload: { format: "url", url: render3d("scene-urban-street", "3d isometric urban street morning", 1920, 1200), width: 1920, height: 1200 } },
 ];
 
+// ── Step 40: Inline-SVG illustration catalog ─────────────────────────────────
+// Self-contained scene illustrations composed via svg-scene-composer. No
+// external image service required — every asset renders offline from a
+// deterministic SVG string. Marked visualStyle="illustration" so they
+// slot in as the natural second-preference style when the 3D CDN isn't
+// populated (Step 36's STYLE_PREFERENCE is ["3d","illustration",...]).
+//
+// Each scene is palette-driven (category → ScenePalette mapping), so
+// one scene kind supports multiple category homes with the right colors.
+
+// Deferred import to avoid circular dep on the engines path.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { renderScene } = require("../../engines/assets/svg-scene-composer") as
+  typeof import("../../engines/assets/svg-scene-composer");
+
+const sceneAsset = (opts: {
+  id:       string;
+  sceneKind: import("../../engines/assets/svg-scene-composer").SceneKind;
+  category: Asset["category"];
+  extraCategories?: Asset["extraCategories"];
+  label:    string;
+  tags:     string[];
+}): Asset => ({
+  id:              opts.id,
+  kind:            "illustration",
+  category:        opts.category,
+  extraCategories: opts.extraCategories,
+  label:           opts.label,
+  tags:            [...opts.tags, "inline-svg", "scene", "illustration"],
+  aspectRatio:     1,
+  visualStyle:     "illustration",
+  payload:         { format: "svg", markup: renderScene(opts.sceneKind, opts.category) },
+});
+
+const INLINE_SCENE_ASSETS: Asset[] = [
+  // ── Motivation ──────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.motivation.mountain-sunrise", sceneKind: "mountain-sunrise",
+    category: "motivation", extraCategories: ["travel", "wellness"],
+    label: "Mountain sunrise scene",
+    tags: ["mountain", "sunrise", "peak", "aspire", "goal", "rise"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.trophy", sceneKind: "trophy-podium",
+    category: "motivation", extraCategories: ["fitness", "business"],
+    label: "Trophy podium scene",
+    tags: ["trophy", "win", "achievement", "success", "first"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.target-arrow", sceneKind: "target-arrow",
+    category: "motivation", extraCategories: ["productivity", "business"],
+    label: "Target with arrow",
+    tags: ["target", "goal", "aim", "focus", "arrow", "bullseye"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.cloudscape", sceneKind: "cloudscape",
+    category: "motivation", extraCategories: ["travel", "wellness"],
+    label: "Cloudscape with peaks",
+    tags: ["sky", "cloud", "horizon", "aspire", "rise"],
+  }),
+
+  // ── Wellness ────────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.wellness.plant", sceneKind: "plant-potted",
+    category: "wellness", extraCategories: ["productivity", "beauty"],
+    label: "Potted plant scene",
+    tags: ["plant", "pothos", "green", "calm", "nature", "indoor"],
+  }),
+  sceneAsset({
+    id: "scene.wellness.leaf", sceneKind: "leaf-scene",
+    category: "wellness", extraCategories: ["beauty", "motivation"],
+    label: "Leaf scene",
+    tags: ["leaf", "green", "growth", "nature", "organic"],
+  }),
+  sceneAsset({
+    id: "scene.wellness.heart", sceneKind: "heart-centered",
+    category: "wellness", extraCategories: ["beauty", "marketing"],
+    label: "Heart scene",
+    tags: ["heart", "health", "care", "love", "self-care"],
+  }),
+
+  // ── Productivity ────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.productivity.target", sceneKind: "target-arrow",
+    category: "productivity", extraCategories: ["business", "motivation"],
+    label: "Productivity target",
+    tags: ["target", "focus", "task", "goal", "done"],
+  }),
+  sceneAsset({
+    id: "scene.productivity.bulb", sceneKind: "idea-bulb",
+    category: "productivity", extraCategories: ["education", "business"],
+    label: "Idea lightbulb",
+    tags: ["idea", "lightbulb", "think", "plan", "insight"],
+  }),
+
+  // ── Education ───────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.education.books", sceneKind: "books-stack",
+    category: "education", extraCategories: ["productivity", "motivation"],
+    label: "Books stack scene",
+    tags: ["books", "learn", "read", "study", "knowledge"],
+  }),
+  sceneAsset({
+    id: "scene.education.bulb", sceneKind: "idea-bulb",
+    category: "education", extraCategories: ["business", "motivation"],
+    label: "Learning lightbulb",
+    tags: ["idea", "learn", "insight", "knowledge", "think"],
+  }),
+
+  // ── Fitness ─────────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.fitness.dumbbell", sceneKind: "dumbbell-rack",
+    category: "fitness", extraCategories: ["motivation"],
+    label: "Dumbbell scene",
+    tags: ["dumbbell", "weight", "gym", "strength", "train"],
+  }),
+  sceneAsset({
+    id: "scene.fitness.water", sceneKind: "water-bottle",
+    category: "fitness", extraCategories: ["wellness"],
+    label: "Water bottle scene",
+    tags: ["water", "hydrate", "bottle", "fitness", "fuel"],
+  }),
+  sceneAsset({
+    id: "scene.fitness.trophy", sceneKind: "trophy-podium",
+    category: "fitness", extraCategories: ["motivation"],
+    label: "Fitness trophy",
+    tags: ["trophy", "win", "achieve", "result", "fitness"],
+  }),
+
+  // ── Beauty ──────────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.beauty.heart", sceneKind: "heart-centered",
+    category: "beauty", extraCategories: ["wellness", "marketing"],
+    label: "Beauty heart",
+    tags: ["heart", "love", "care", "beauty", "self-care"],
+  }),
+  sceneAsset({
+    id: "scene.beauty.leaf", sceneKind: "leaf-scene",
+    category: "beauty", extraCategories: ["wellness"],
+    label: "Botanical leaf",
+    tags: ["leaf", "botanical", "natural", "clean", "fresh"],
+  }),
+
+  // ── Travel ──────────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.travel.paper-plane", sceneKind: "paper-plane",
+    category: "travel", extraCategories: ["motivation", "marketing"],
+    label: "Paper plane journey",
+    tags: ["plane", "travel", "journey", "explore", "paper"],
+  }),
+  sceneAsset({
+    id: "scene.travel.mountain", sceneKind: "mountain-sunrise",
+    category: "travel", extraCategories: ["wellness", "motivation"],
+    label: "Travel mountain sunrise",
+    tags: ["mountain", "horizon", "travel", "adventure", "nature"],
+  }),
+  sceneAsset({
+    id: "scene.travel.cloudscape", sceneKind: "cloudscape",
+    category: "travel", extraCategories: ["motivation"],
+    label: "Travel cloudscape",
+    tags: ["sky", "clouds", "horizon", "travel", "destination"],
+  }),
+
+  // ── Business ────────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.business.target", sceneKind: "target-arrow",
+    category: "business", extraCategories: ["productivity", "motivation"],
+    label: "Business target",
+    tags: ["target", "goal", "strategy", "growth", "aim"],
+  }),
+  sceneAsset({
+    id: "scene.business.trophy", sceneKind: "trophy-podium",
+    category: "business", extraCategories: ["motivation", "marketing"],
+    label: "Business achievement",
+    tags: ["trophy", "achieve", "win", "success", "result"],
+  }),
+  sceneAsset({
+    id: "scene.business.bulb", sceneKind: "idea-bulb",
+    category: "business", extraCategories: ["productivity", "education"],
+    label: "Business insight bulb",
+    tags: ["idea", "insight", "strategy", "innovation", "think"],
+  }),
+
+  // ── Marketing ───────────────────────────────────────────────────────
+  sceneAsset({
+    id: "scene.marketing.megaphone", sceneKind: "megaphone-launch",
+    category: "marketing", extraCategories: ["business"],
+    label: "Marketing megaphone",
+    tags: ["megaphone", "launch", "announce", "promo", "campaign"],
+  }),
+  sceneAsset({
+    id: "scene.marketing.paper-plane", sceneKind: "paper-plane",
+    category: "marketing", extraCategories: ["business", "travel"],
+    label: "Marketing launch plane",
+    tags: ["plane", "launch", "deliver", "message", "go"],
+  }),
+];
+
 // ── Public seed ───────────────────────────────────────────────────────────────
 
 export const ASSETS: readonly Asset[] = Object.freeze([
@@ -971,4 +1169,6 @@ export const ASSETS: readonly Asset[] = Object.freeze([
   ...MOTIVATION_ASSETS,
   // Step 35 additions
   ...REAL_WORLD_ASSETS,
+  // Step 40 — inline-SVG scene illustrations (no CDN / AI needed)
+  ...INLINE_SCENE_ASSETS,
 ]);
