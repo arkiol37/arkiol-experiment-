@@ -274,9 +274,19 @@ export interface VariationResult {
     result?: PipelineResult;
     error?: string;
     durationMs: number;
+    // Step 23 + 25 wiring: per-candidate gallery verdict so callers
+    // can distinguish approved from rejected without re-running the
+    // gate. Populated after the batch filter sweeps the renders.
+    galleryVerdict?: "approved" | "rejected" | "errored";
+    rejectionReasons?: string[];
   }>;
   totalDurationMs: number;
   bestIndex: number;
+  // Step 23 wiring: indexes of renders that cleared the gallery
+  // batch filter. Callers that present a shortlist should iterate
+  // approvedIndexes rather than renders to avoid surfacing rejects.
+  approvedIndexes: number[];
+  rejectedIndexes: number[];
 }
 
 export async function generateVariations(
@@ -293,6 +303,17 @@ export async function generateVariations(
   let bestScore = -1;
   let bestIndex = 0;
 
+  // Step 39 wiring: the multi-output coordinator captures a pack-style
+  // snapshot from the first successful candidate and uses it to tag
+  // subsequent renders. The PipelineInput doesn't currently carry a
+  // PackAnchor override (that would require theme-selection plumbing
+  // — follow-up work), but we surface the snapshot on VariationResult
+  // for the gallery / editor to read so variants render with coherent
+  // palette + typography signals passed as brand hints.
+  let packAnchorCaptured:
+    | NonNullable<PipelineResult["packStyleSnapshot"]>
+    | null = null;
+
   for (let i = 0; i < count; i++) {
     const renderStart = Date.now();
     const input: PipelineInput = {
@@ -302,7 +323,19 @@ export async function generateVariations(
       variationIdx: i * 7919 + 1,
       campaignId: `variation_${Date.now()}`,
       brief,
-      brand: request.brand,
+      // When we have a pack anchor, pass it as brand hints so the
+      // theme selector in the pipeline biases toward the same palette
+      // and typography. Keeps per-variation composition free while
+      // the visual language stays locked across the gallery.
+      brand: packAnchorCaptured
+        ? {
+            ...(request.brand ?? {} as any),
+            primaryColor:   packAnchorCaptured.primary,
+            secondaryColor: packAnchorCaptured.accent,
+            fontDisplay:    packAnchorCaptured.fontDisplay,
+            fontBody:       packAnchorCaptured.fontBody,
+          }
+        : request.brand,
       outputFormat,
       personalization: request.personalization,
       assetEngine: request.assetEngine,
@@ -310,6 +343,9 @@ export async function generateVariations(
 
     try {
       const result = await renderFn(input);
+      if (!packAnchorCaptured && result.packStyleSnapshot) {
+        packAnchorCaptured = result.packStyleSnapshot;
+      }
       const score = result.productionReadiness?.overallScore ?? result.evaluationSignals?.qualityScore ?? 0;
       if (score > bestScore) {
         bestScore = score;
@@ -321,11 +357,62 @@ export async function generateVariations(
     }
   }
 
+  // Step 23 wiring: gallery batch filter. Templates that hit a
+  // marketplace_gate:REJECTED violation or a rejection:<hard-rule>
+  // annotation are dropped from the approved set. The unfiltered
+  // renders list is preserved so the UI / worker audit can still
+  // see every attempt.
+  const approvedIndexes: number[] = [];
+  const rejectedIndexes: number[] = [];
+
+  for (let i = 0; i < renders.length; i++) {
+    const r = renders[i];
+    if (r.error) {
+      r.galleryVerdict = "errored";
+      r.rejectionReasons = [r.error];
+      rejectedIndexes.push(i);
+      continue;
+    }
+    const violations = r.result?.violations ?? [];
+    const hardFailures = violations.filter(v =>
+      v.startsWith("marketplace_gate:REJECTED") ||
+      v.startsWith("rejection:") ||
+      v.startsWith("asset_presence:") && v.includes("[error]") ||
+      v.startsWith("hero_composition:") && v.includes("[error]"),
+    );
+    if (hardFailures.length > 0) {
+      r.galleryVerdict = "rejected";
+      r.rejectionReasons = hardFailures.slice(0, 3);
+      rejectedIndexes.push(i);
+    } else {
+      r.galleryVerdict = "approved";
+      approvedIndexes.push(i);
+    }
+  }
+
+  // Floor-fill: if the approved set is empty, fall back to the
+  // highest-scoring rejected render so the gallery never ships
+  // without any candidate. Matches the filterCandidateBatch
+  // minAccepted pattern from Step 23.
+  if (approvedIndexes.length === 0 && renders.length > 0) {
+    approvedIndexes.push(bestIndex);
+    const idx = rejectedIndexes.indexOf(bestIndex);
+    if (idx !== -1) rejectedIndexes.splice(idx, 1);
+    renders[bestIndex].galleryVerdict = "approved";
+  }
+
+  // Re-point bestIndex into the approved set if possible.
+  if (!approvedIndexes.includes(bestIndex) && approvedIndexes.length > 0) {
+    bestIndex = approvedIndexes[0];
+  }
+
   return {
     format: request.format,
     renders,
     totalDurationMs: Date.now() - startTime,
     bestIndex,
+    approvedIndexes,
+    rejectedIndexes,
   };
 }
 

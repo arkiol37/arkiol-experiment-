@@ -66,6 +66,11 @@ import {
 } from "./self-healing";
 import { recordGeneration } from "../memory/generation-ledger";
 import { extractEvaluationSignals } from "../memory/learning-signals";
+import {
+  recordSuccessfulPattern,
+  type VisualPatternSignature,
+} from "../memory/visual-patterns";
+import { inferCategoryFromText } from "../../lib/asset-library";
 import { recordQualitySignal } from "../intelligence/creative-loop";
 import {
   orchestrateDesignAgents,
@@ -241,6 +246,22 @@ export interface PipelineResult {
     qualityScore: number;
     designQualityScore: number;
     themeId: string;
+  };
+
+  // Step 39 wiring: optional pack-style snapshot so the multi-output
+  // coordinator (generateVariations) can extract a PackAnchor from the
+  // first successful candidate and apply it to subsequent variations.
+  // Minimal subset of DesignTheme — just what extractPackAnchor reads.
+  packStyleSnapshot?: {
+    primary:   string;
+    accent:    string;
+    surface:   string;
+    ink:       string;
+    fontDisplay: string;
+    fontBody:    string;
+    cornerRadius: number;
+    ctaShadow:   boolean;
+    firstTone?:  string;
   };
 
   // Production readiness — overall quality verdict
@@ -1161,6 +1182,50 @@ async function renderAssetInner(
     // Non-fatal — skip readiness assessment
   }
 
+  // Step 33 wiring: build the visual-pattern signature + category id so
+  // the ledger entry carries the richer signals the learning layer
+  // needs. Inferred category = content bucket the brief landed in;
+  // signature = decorationKinds + primary palette + tone bucket so
+  // future generations can mine what worked for this category.
+  const inferredCategoryPackId = (() => {
+    try {
+      const text = [input.brief.intent, input.brief.headline, ...(input.brief.keywords ?? [])]
+        .filter(Boolean).join(" ");
+      return inferCategoryFromText(text) ?? undefined;
+    } catch { return undefined; }
+  })();
+
+  const patternSignature: VisualPatternSignature | undefined = (() => {
+    const theme = (buildResult.content as SvgContent)._selectedTheme;
+    if (!theme) return undefined;
+    const decorationKinds = Array.from(new Set((theme.decorations ?? []).map(d => d.kind))).sort();
+    // Score the theme on demand — keeps this block independent of
+    // wherever the upstream quality-gate stage stashed its score.
+    let assetUsage = 0;
+    try {
+      const { scoreThemeQuality } = require("../evaluation/candidate-quality") as
+        typeof import("../evaluation/candidate-quality");
+      assetUsage = scoreThemeQuality(theme).assetUsage;
+    } catch { /* fall through with default 0 */ }
+    const assetUsageBand: VisualPatternSignature["assetUsageBand"] =
+      assetUsage >= 0.60 ? "high"
+      : assetUsage >= 0.30 ? "mid"
+      : "low";
+    return {
+      categoryPackId:   inferredCategoryPackId,
+      layoutFamily:     spec.family.id,
+      themeId,
+      backgroundTreatment: (theme.background as any)?.kind,
+      palette: {
+        primary:    theme.palette?.primary,
+        accent:     theme.palette?.secondary,
+        background: theme.palette?.background,
+      },
+      decorationKinds,
+      assetUsageBand,
+    };
+  })();
+
   recordGeneration({
     assetId,
     timestamp: Date.now(),
@@ -1175,7 +1240,19 @@ async function renderAssetInner(
     hierarchyValid: hierarchyResult.valid,
     violationCount: violations.length,
     recoveryCount: recoveryLog.length,
+    categoryPackId: inferredCategoryPackId,
+    patternSignature,
   });
+
+  // Step 33 wiring: auto-record the pattern when the generation
+  // crossed the quality floor. Selection / positive-feedback signals
+  // upgrade the weight later through separate entry points. Guarded
+  // because recordSuccessfulPattern is best-effort — a throw here
+  // shouldn't fail the pipeline.
+  if (patternSignature) {
+    try { recordSuccessfulPattern(patternSignature, finalQualityScore, "quality"); }
+    catch { /* non-fatal */ }
+  }
 
   // Feed the creative intelligence loop with quality signal
   try { recordQualitySignal(input.format, finalQualityScore); } catch { /* non-fatal */ }
@@ -1217,6 +1294,21 @@ async function renderAssetInner(
       designQualityScore: finalDesignQualityScore,
       themeId,
     },
+    // Step 39: pack-style snapshot so the multi-output coordinator can
+    // extract a PackAnchor and lock sibling variations to the same look.
+    ...(buildResult.content._selectedTheme ? {
+      packStyleSnapshot: {
+        primary:      buildResult.content._selectedTheme.palette.primary,
+        accent:       buildResult.content._selectedTheme.palette.secondary,
+        surface:      buildResult.content._selectedTheme.palette.background,
+        ink:          buildResult.content._selectedTheme.palette.text,
+        fontDisplay:  buildResult.content._selectedTheme.typography.display,
+        fontBody:     buildResult.content._selectedTheme.typography.body,
+        cornerRadius: buildResult.content._selectedTheme.ctaStyle.borderRadius,
+        ctaShadow:    buildResult.content._selectedTheme.ctaStyle.shadow === true,
+        firstTone:    buildResult.content._selectedTheme.tones?.[0],
+      },
+    } : {}),
     // Agent orchestration metadata — design decisions from the thinking layer
     ...(agentResult ? {
       agentOrchestration: {
