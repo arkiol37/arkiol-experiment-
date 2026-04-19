@@ -318,6 +318,134 @@ function pruneOverlaps(entries: Array<{ role: SectionRole; rect: Rect }>): Array
   return kept;
 }
 
+// ── Minimum section count per format ────────────────────────────────────────
+//
+// A template should read as a composed layout with multiple regions, not as a
+// single block of text on a background. Each format has a target minimum
+// number of visually distinct sections.
+
+const MIN_SECTIONS_BY_FORMAT: Record<string, number> = {
+  instagram_post:     2,
+  instagram_story:    2,
+  youtube_thumbnail:  2,
+  flyer:              3,
+  poster:             3,
+  presentation_slide: 3,
+  business_card:      2,
+  resume:             3,
+  logo:               1,
+  facebook_post:      2,
+  twitter_post:       2,
+  display_banner:     2,
+  linkedin_post:      2,
+  tiktok_video:       2,
+};
+
+function minSectionsFor(format: string): number {
+  return MIN_SECTIONS_BY_FORMAT[format] ?? 2;
+}
+
+// ── Synthesizing fill-in frames ─────────────────────────────────────────────
+//
+// When the active zones produce fewer distinct regions than the format
+// requires, synthesize structural frames from otherwise-unused canvas bands.
+// Preference order: top band → bottom band → side band → inner split.
+
+function coveredFraction(r: Rect, occupied: Rect[]): number {
+  const area = r.w * r.h;
+  if (area <= 0) return 1;
+  const overlap = occupied.reduce((sum, o) => sum + intersectionArea(r, o), 0);
+  return Math.min(1, overlap / area);
+}
+
+function synthesizeSectionFrames(
+  existing: Array<{ role: SectionRole; rect: Rect }>,
+  missingCount: number,
+  usedRoles: Set<SectionRole>,
+  W: number,
+  H: number,
+): Array<{ role: SectionRole; rect: Rect }> {
+  if (missingCount <= 0) return [];
+  const occupied = existing.map(e => e.rect);
+  const unit = Math.min(W, H) / 100;
+  const sidePad = Math.max(24, unit * 4);
+  const synthesized: Array<{ role: SectionRole; rect: Rect }> = [];
+
+  // Find a vertical band of `bandRatio*H` at top/bottom that is mostly unused.
+  const tryBand = (top: boolean, role: SectionRole, bandRatio: number): Rect | null => {
+    const h = bandRatio * H;
+    const y = top ? sidePad * 0.5 : H - h - sidePad * 0.5;
+    const x = sidePad;
+    const w = W - sidePad * 2;
+    if (w < 40 || h < 24) return null;
+    const rect = { x, y, w, h };
+    if (coveredFraction(rect, occupied) > 0.25) return null;
+    if (usedRoles.has(role)) return null;
+    return rect;
+  };
+
+  // 1. Header band at top if no header role exists
+  if (synthesized.length < missingCount) {
+    const headerRect = tryBand(true, "header", 0.11);
+    if (headerRect) {
+      synthesized.push({ role: "header", rect: headerRect });
+      usedRoles.add("header");
+      occupied.push(headerRect);
+    }
+  }
+
+  // 2. CTA band at bottom if no cta role exists
+  if (synthesized.length < missingCount) {
+    const ctaRect = tryBand(false, "cta", 0.09);
+    if (ctaRect) {
+      synthesized.push({ role: "cta", rect: ctaRect });
+      usedRoles.add("cta");
+      occupied.push(ctaRect);
+    }
+  }
+
+  // 3. If we still need more, try an accent list rail on the left
+  if (synthesized.length < missingCount && !usedRoles.has("list")) {
+    const w = W * 0.22;
+    const h = H * 0.45;
+    const x = sidePad;
+    const y = (H - h) / 2;
+    const rect = { x, y, w, h };
+    if (coveredFraction(rect, occupied) < 0.25) {
+      synthesized.push({ role: "list", rect });
+      usedRoles.add("list");
+      occupied.push(rect);
+    }
+  }
+
+  // 4. If still short, try a visual region in whichever half is most empty
+  if (synthesized.length < missingCount && !usedRoles.has("visual")) {
+    const halfW = W * 0.5;
+    const topHalf  = { x: 0, y: 0,     w: W, h: H * 0.5 };
+    const botHalf  = { x: 0, y: H*0.5, w: W, h: H * 0.5 };
+    const leftHalf = { x: 0,     y: 0, w: halfW, h: H };
+    const rightHalf= { x: halfW, y: 0, w: halfW, h: H };
+    const candidates: Rect[] = [topHalf, botHalf, leftHalf, rightHalf];
+    let best: Rect | null = null;
+    let bestEmpty = 0.5;
+    for (const c of candidates) {
+      const empty = 1 - coveredFraction(c, occupied);
+      if (empty > bestEmpty) { bestEmpty = empty; best = c; }
+    }
+    if (best) {
+      const inset = sidePad;
+      const rect = expandRect(best, -inset, -inset, W, H);
+      if (rect.w > 40 && rect.h > 40) {
+        synthesized.push({ role: "visual", rect });
+        usedRoles.add("visual");
+        occupied.push(rect);
+      }
+    }
+  }
+
+  return synthesized;
+}
+
 // ── Public API ──────────────────────────────────────────────────────────────
 
 export interface SectionFramesOptions {
@@ -326,6 +454,11 @@ export interface SectionFramesOptions {
    * frame is suppressed so it doesn't double-outline the photo.
    */
   suppressVisualFullBleed?: boolean;
+  /**
+   * Override the minimum number of distinct sections the template should
+   * render. Defaults to the per-format value in MIN_SECTIONS_BY_FORMAT.
+   */
+  minSections?: number;
 }
 
 export function buildSectionFrames(
@@ -356,6 +489,23 @@ export function buildSectionFrames(
   }
 
   const kept = pruneOverlaps(entries);
+
+  // Enforce minimum section count — synthesize additional structural frames
+  // from unused canvas regions when the active zones don't produce enough
+  // distinct sections on their own.
+  const minSections = opts.minSections ?? minSectionsFor(format);
+  const usedRoles = new Set<SectionRole>(kept.map(k => k.role));
+  if (kept.length < minSections) {
+    const extras = synthesizeSectionFrames(
+      kept,
+      minSections - kept.length,
+      usedRoles,
+      W,
+      H,
+    );
+    kept.push(...extras);
+  }
+
   if (!kept.length) return "";
 
   // Render in priority order so the content card sits above the visual frame
