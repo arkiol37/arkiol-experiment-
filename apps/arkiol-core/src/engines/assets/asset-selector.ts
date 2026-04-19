@@ -25,6 +25,15 @@ import {
   type AssetCategory,
   type AssetKind,
 } from "../../lib/asset-library";
+import {
+  KIND_PLACEMENT_RULES,
+  roleForKind,
+  resolveAnchorForKind,
+  clampScaleForKind,
+  resolveLayerForKind,
+  maxInstancesPerLayout,
+  describePlacement,
+} from "./asset-placement";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
 
@@ -195,18 +204,22 @@ export function buildCompositionPlan(
   if (category) {
     const seed = `${brief.headline ?? ""}::${brief.tone}::${category}`;
     const libraryAssets = selectAssetsForCategory(category, { seed, limit: 4 });
-    const usedZones = new Set<ZoneId>(elements.map(e => e.zone));
-    const usedTypes = new Set<AssetElementType>(elements.map(e => e.type));
-    const usedRoles = new Set<AssetRole>(elements.map(e => e.role));
+    const usedZones   = new Set<ZoneId>(elements.map(e => e.zone));
+    const usedTypes   = new Set<AssetElementType>(elements.map(e => e.type));
+    const usedRoles   = new Set<AssetRole>(elements.map(e => e.role));
+    const usedKinds   = new Map<AssetKind, number>();
+    const usedAnchors = new Set<Anchor>(elements.map(e => e.anchor));
 
     for (const asset of libraryAssets) {
       const placement = libraryAssetToPlacement(
-        asset, activeZoneIds, usedZones, usedTypes, usedRoles, forGif,
+        asset, activeZoneIds, usedZones, usedTypes, usedRoles, usedKinds, usedAnchors, forGif,
       );
       if (placement) {
         elements.push(placement);
         usedTypes.add(placement.type);
         usedRoles.add(placement.role);
+        usedKinds.set(asset.kind, (usedKinds.get(asset.kind) ?? 0) + 1);
+        usedAnchors.add(placement.anchor);
         reasoning.push(
           `category:${category}: ${asset.kind} "${asset.label}" → role=${placement.role}, zone=${placement.zone}, anchor=${placement.anchor}`
         );
@@ -347,36 +360,70 @@ function resolveCategory(brief: BriefAnalysis): AssetCategory | null {
 // Map an asset library kind onto an AssetElementType that has a valid
 // zone in the current layout. Returns null when there's no clean fit so
 // we don't push placements the contract will later reject.
+// Per-kind maximum-count enforcement is layered on top of the role caps.
+// A ribbon + a divider are both `role=divider`, but the placement rules
+// table allows 1 ribbon + 2 dividers in the same layout — so we track
+// kind usage separately.
 function libraryAssetToPlacement(
   asset:       Asset,
   activeZones: readonly ZoneId[],
   usedZones:   Set<ZoneId>,
   usedTypes:   Set<AssetElementType>,
   usedRoles:   Set<AssetRole>,
+  usedKinds:   Map<AssetKind, number>,
+  usedAnchors: Set<Anchor>,
   forGif:      boolean,
 ): ElementPlacement | null {
+  // 1. Per-kind cap straight from the placement rule table.
+  const kindCount = usedKinds.get(asset.kind) ?? 0;
+  if (kindCount >= maxInstancesPerLayout(asset.kind)) return null;
+
+  // 2. Resolve the AssetElementType compatible with the active zones.
   const type = mapKindToElementType(asset.kind, activeZones, usedTypes);
   if (!type) return null;
 
   const contract = ASSET_CONTRACTS[type];
-  const role = roleForLibraryKind(asset.kind);
-  // Keep one of each decorative role per composition to avoid clutter.
-  if (role !== "background" && role !== "support" && usedRoles.has(role)) return null;
+
+  // 3. The placement module is the authoritative source for role / scale /
+  //    layer / anchor. The only role-based composition cap we still enforce
+  //    here is "one accent per layout" — fine-grained per-kind caps above
+  //    take care of the rest.
+  const role = roleForKind(asset.kind);
+  if (role === "accent" && usedRoles.has("accent")) return null;
 
   const zone = pickZoneForRole(type, role, activeZones, usedZones);
   if (!zone) return null;
 
   if (forGif && !contract.motionCompatible) return null;
 
-  return decorate({
+  // 4. Consult the placement rule for scale/coverage, anchor, and layer.
+  const rule     = KIND_PLACEMENT_RULES[asset.kind];
+  const scale    = clampScaleForKind(asset.kind);
+  const anchor   = resolveAnchorForKind(asset.kind, usedAnchors);
+  const coverage = Math.min(
+    contract.maxAreaCoverage,
+    Math.max(contract.minAreaCoverage, rule.scale.default),
+  );
+
+  const placement = decorate({
     type,
     zone,
-    prompt:       `${asset.label} (${asset.category} library asset)`,
+    prompt:       `${asset.label} (${asset.category} library asset — ${describePlacement(asset.kind)})`,
     motion:       forGif && contract.motionCompatible,
     weight:       contract.hierarchyWeight,
-    coverageHint: defaultCoverageForType(type),
+    coverageHint: coverage,
     url:          assetToImageSrc(asset),
-  }, role);
+  }, role, {
+    anchor,
+    scale,
+    alignment: rule.alignment,
+  });
+
+  // Override the role-derived layer with the kind-specific layer so a badge
+  // always sits above a ribbon, a ribbon above a divider, etc., regardless
+  // of the role band they nominally share.
+  placement.layer = resolveLayerForKind(asset.kind, contract.hierarchyWeight);
+  return placement;
 }
 
 function mapKindToElementType(
@@ -464,34 +511,8 @@ function pickZoneForRole(
       ?? null;
 }
 
-function defaultCoverageForType(type: AssetElementType): number {
-  switch (type) {
-    case "texture": return 0.6;
-    case "icon":    return 0.03;
-    case "badge":   return 0.08;
-    case "object":  return 0.7;
-    default:        return 0.3;
-  }
-}
-
-// Map a library asset kind to the role it should play in a composition.
-// Shapes surface as dividers (ribbons/bursts/arrows between blocks); icons
-// become an icon-group beside text; textures sit behind everything; photos
-// and illustrations play the supporting hero role.
-function roleForLibraryKind(kind: AssetKind): AssetRole {
-  switch (kind) {
-    case "texture":      return "background";
-    case "illustration": return "support";
-    case "photo":        return "support";
-    case "icon":         return "icon-group";
-    case "shape":        return "divider";
-    case "sticker":      return "accent";
-    case "badge":        return "accent";
-    case "ribbon":       return "divider";
-    case "frame":        return "support";
-    case "divider":      return "divider";
-  }
-}
+// Role assignment and coverage defaults for library assets are centralized
+// in asset-placement.ts (KIND_PLACEMENT_RULES / roleForKind).
 
 // Fill in role-derived composition fields (anchor, scale, alignment, layer)
 // and clamp coverage into the role's allowed range. Every placement in the
@@ -657,19 +678,23 @@ export function enrichForPresence(
       seed:  `${brief.headline ?? ""}::${category}::heal`,
       limit: 4,
     });
-    const usedZones = new Set<ZoneId>(plan.elements.map(e => e.zone));
-    const usedTypes = new Set<AssetElementType>(plan.elements.map(e => e.type));
-    const usedRoles = new Set<AssetRole>(plan.elements.map(e => e.role));
+    const usedZones   = new Set<ZoneId>(plan.elements.map(e => e.zone));
+    const usedTypes   = new Set<AssetElementType>(plan.elements.map(e => e.type));
+    const usedRoles   = new Set<AssetRole>(plan.elements.map(e => e.role));
+    const usedKinds   = new Map<AssetKind, number>();
+    const usedAnchors = new Set<Anchor>(plan.elements.map(e => e.anchor));
 
     for (const asset of picks) {
       if (validateAssetPresence(plan).every(v => v.severity !== "error")) break;
       const placement = libraryAssetToPlacement(
-        asset, activeZones, usedZones, usedTypes, usedRoles, forGif,
+        asset, activeZones, usedZones, usedTypes, usedRoles, usedKinds, usedAnchors, forGif,
       );
       if (placement) {
         plan.elements.push(placement);
         usedTypes.add(placement.type);
         usedRoles.add(placement.role);
+        usedKinds.set(asset.kind, (usedKinds.get(asset.kind) ?? 0) + 1);
+        usedAnchors.add(placement.anchor);
         added.push(`${category}:${asset.kind}:${asset.label}`);
       }
     }
