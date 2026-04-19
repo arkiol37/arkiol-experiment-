@@ -39,6 +39,15 @@ import {
   resolveBackgroundTreatment,
   type BackgroundTreatment,
 } from "./background-treatments";
+import {
+  type DepthTier,
+  type ShadowSpec,
+  tierForRole,
+  tierForKind,
+  shadowForTier,
+  buildDepthSeparationLayer,
+  summarizeDepthStack,
+} from "./depth-layering";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
 
@@ -73,6 +82,13 @@ export interface ElementPlacement {
   scale:        number;              // 0.5–1.5 multiplier applied to the role's base coverage
   alignment:    "left" | "center" | "right";
   layer:        number;              // final render z-order (lower → behind)
+  // ── Depth & layering (Step 19) ───────────────────────────────────────
+  // Semantic depth band. The renderer reads this to decide drop shadow
+  // strength, parallax hints, and foreground/background separation.
+  // Optional so older callers / consumers without depth awareness keep
+  // working unchanged.
+  depthTier?:   DepthTier;
+  shadow?:      ShadowSpec | null;
 }
 
 // Role-driven composition rules. Each role has a clear visual purpose, a
@@ -166,6 +182,37 @@ export function buildCompositionPlan(
     );
   }
   reasoning.push(`background: treatment=${treatment.kind} — ${treatment.description}`);
+
+  // ── 1b. Depth-separation vignette ───────────────────────────────────────
+  // Step 19: a soft radial dim sits between the background treatment and
+  // the content plane so the foreground reads as foreground without every
+  // mid-tier element having to fight for contrast on its own. Image-wash
+  // treatments use the stronger flavor because dim photos need extra
+  // separation; dark color moods invert to a lifted-edge highlight so the
+  // vignette doesn't crush already-dark surfaces.
+  const isDarkMood   = brief.colorMood === "dark" || brief.colorMood === "luxury";
+  const sepFlavor    = treatment.kind === "subtle-image-wash" ? "strong" : "subtle";
+  const sepColor     = isDarkMood ? "#FFFFFF" : "#000000";
+  const sepLayer     = buildDepthSeparationLayer(sepFlavor, sepColor);
+  elements.push({
+    ...decorate({
+      type:         "overlay",
+      zone:         "background",
+      prompt:       `depth-separation vignette (${sepFlavor})`,
+      motion:       false,
+      weight:       1,
+      coverageHint: sepLayer.coverageHint,
+      url:          sepLayer.url,
+    }, "background"),
+    // Override depth: the vignette sits at "ground" tier between surface
+    // background layers and the mid content plane.
+    depthTier: "ground",
+    shadow:    null,
+    // Boost paint order slightly so the vignette stacks just above the
+    // background treatment layers but well below content.
+    layer:     ROLE_RULES.background.layer + 8,
+  });
+  reasoning.push(`depth: ${sepLayer.note} between background and content plane`);
 
   // ── 2. Main image element (human or object) ─────────────────────────────
   if (hasImageZone) {
@@ -415,6 +462,10 @@ function libraryAssetToPlacement(
   // always sits above a ribbon, a ribbon above a divider, etc., regardless
   // of the role band they nominally share.
   placement.layer = resolveLayerForKind(asset.kind, contract.hierarchyWeight);
+  // Step 19: kind-aware depth override — frames go to "raised", stickers /
+  // badges to "floating", textures to "ground", etc., regardless of the
+  // role-derived default applied by decorate().
+  applyKindDepth(placement, asset.kind);
   return placement;
 }
 
@@ -528,7 +579,22 @@ function decorate(
     // within the same role sit above back-of-role peers without reordering.
     layer:     rule.layer + base.weight,
     coverageHint: clampedCoverage,
+    // Depth: default to the role's tier and matching shadow preset. Callers
+    // (e.g. libraryAssetToPlacement) override via decorateDepth() when an
+    // asset kind is known and warrants a kind-specific tier.
+    depthTier: tierForRole(role),
+    shadow:    shadowForTier(tierForRole(role)),
   };
+}
+
+// Apply a kind-specific depth override to an existing placement. Used by
+// libraryAssetToPlacement so a frame lands at "raised" rather than the
+// generic "support → mid" tier role-based decoration produces.
+function applyKindDepth(p: ElementPlacement, kind: AssetKind): ElementPlacement {
+  const tier = tierForKind(kind);
+  p.depthTier = tier;
+  p.shadow    = shadowForTier(tier);
+  return p;
 }
 
 // Stable sort: lower layer renders first (behind), higher layer renders last.
@@ -817,11 +883,20 @@ export function compositionToPromptFragment(plan: CompositionPlan): string {
   for (const el of sortByLayer(plan.elements)) {
     if (el.type === "overlay") continue; // handled separately in renderer
     const coveragePct = Math.round(el.coverageHint * 100);
+    const tier   = el.depthTier ? ` tier=${el.depthTier}` : "";
+    const shadow = el.shadow
+      ? ` shadow=y${el.shadow.offsetY.toFixed(3)}b${el.shadow.blur.toFixed(3)}o${el.shadow.opacity.toFixed(2)}`
+      : "";
     lines.push(
       `  • [${el.type.toUpperCase()} role=${el.role} zone=${el.zone} anchor=${el.anchor} ` +
-      `coverage≈${coveragePct}% align=${el.alignment} layer=${el.layer}] ${el.prompt}`
+      `coverage≈${coveragePct}% align=${el.alignment} layer=${el.layer}${tier}${shadow}] ${el.prompt}`
     );
   }
+
+  // Step 19: surface the composed depth ramp so the renderer (or a human
+  // reading the reasoning log) can verify the template has visible depth
+  // separation rather than a flat stack.
+  lines.push(`  Depth stack (back→front): ${summarizeDepthStack(plan.elements)}`);
 
   if (plan.isGifCompatible) {
     lines.push("  Motion: This composition supports GIF animation.");
