@@ -6,7 +6,7 @@
 import React, {
   useState, useRef, useCallback, useEffect, useLayoutEffect, useReducer, useMemo,
 } from "react";
-import { fitZoom, zoomStepUp, zoomStepDown, clampZoom, ZOOM_MIN, ZOOM_MAX } from "./CanvasViewport";
+import { fitZoom, zoomStepUp, zoomStepDown, clampZoom, ZOOM_MIN, ZOOM_MAX, CANVAS_VIEWPORT_CHROME } from "./CanvasViewport";
 import { ExportSizeDialog, computeFitRect, type ExportFit, type ExportFormat } from "./ExportSizeDialog";
 
 export type ElementType = "text" | "image" | "rect" | "ellipse" | "line";
@@ -409,20 +409,42 @@ export function ArkiolEditor({
   const[zoom,setZoom]=useState(()=>fitZoom(canvasWidth,canvasHeight));
   const initialFitDone=useRef(false);
 
-  // Fit artboard to actual container size on first mount
+  // Step 26: fit the artboard to the *actual* workspace container size on
+  // first mount so different template sizes + different screen sizes all
+  // open already centered and fully visible. Key robustness points:
+  //   1. Measure after layout via useLayoutEffect (not a window guess).
+  //   2. If the container hasn't been sized yet (flex layout not settled,
+  //      parent still laying out), retry on the next animation frame
+  //      instead of silently giving up — this was the main miss before.
+  //   3. Re-run only when canvas dimensions change so user zooming after
+  //      the initial fit is preserved.
   useLayoutEffect(()=>{
-    if(initialFitDone.current)return;
-    const el=containerRef.current;
-    if(!el)return;
-    initialFitDone.current=true;
-    // Measure actual container (subtract toolbar height ~44px and padding 80px)
-    const rect=el.getBoundingClientRect();
-    const availW=rect.width-80;
-    const availH=rect.height-80;
-    if(availW>0&&availH>0){
+    initialFitDone.current=false;
+    let rafId:number|null=null;
+    let attempts=0;
+    const tryFit=()=>{
+      if(initialFitDone.current)return;
+      const el=containerRef.current;
+      if(!el){
+        if(attempts++<5){rafId=requestAnimationFrame(tryFit);}
+        return;
+      }
+      const rect=el.getBoundingClientRect();
+      const availW=rect.width-CANVAS_VIEWPORT_CHROME;
+      const availH=rect.height-CANVAS_VIEWPORT_CHROME;
+      if(availW<=0||availH<=0){
+        // Layout hasn't settled — try again next frame.
+        if(attempts++<10){rafId=requestAnimationFrame(tryFit);}
+        return;
+      }
+      initialFitDone.current=true;
       setZoom(fitZoom(canvasWidth,canvasHeight,availW,availH));
-    }
-  });
+    };
+    tryFit();
+    return()=>{if(rafId!==null)cancelAnimationFrame(rafId);};
+  // Re-fit when the artboard size changes (e.g. format switch).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[canvasWidth,canvasHeight]);
   const[editingId,setEditingId]=useState<string|null>(null);
   const[dragging,setDragging]=useState<{id:string;startX:number;startY:number;elX:number;elY:number;origins:{id:string;ox:number;oy:number}[]}|null>(null);
   const[resizing,setResizing]=useState<{id:string;handle:HandlePos;startX:number;startY:number;origX:number;origY:number;origW:number;origH:number}|null>(null);

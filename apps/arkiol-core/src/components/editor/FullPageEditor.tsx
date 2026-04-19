@@ -6,11 +6,11 @@
 //   • Smart export modal for size selection
 //   • Canvas viewport that scales any template proportionally
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { SmartExportModal } from "./SmartExportModal";
-import { CanvasViewport, fitZoom, zoomStepUp, zoomStepDown } from "./CanvasViewport";
+import { CanvasViewport, fitZoom, zoomStepUp, zoomStepDown, CANVAS_VIEWPORT_CHROME } from "./CanvasViewport";
 import { FORMAT_DIMS, CATEGORY_LABELS, type ArkiolCategory } from "../../lib/types";
 
 const ArkiolEditor = dynamic(
@@ -49,6 +49,39 @@ export function FullPageEditor() {
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [zoom, setZoom] = useState(() => fitZoom(dims.width, dims.height));
+
+  // Step 26: fit the artboard to the *actual* canvas-area container size on
+  // first mount. The initial useState fallback uses window dimensions which
+  // undercount the top bar and any parent chrome; after layout we have a
+  // real rect to measure. Retries on rAF if the container isn't sized yet
+  // (flex layout not settled) instead of silently missing the fit. Re-runs
+  // when the artboard dimensions change (format / size switch).
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    let rafId: number | null = null;
+    let fitted = false;
+    let attempts = 0;
+    const tryFit = () => {
+      if (fitted) return;
+      const el = canvasAreaRef.current;
+      if (!el) {
+        if (attempts++ < 5) rafId = requestAnimationFrame(tryFit);
+        return;
+      }
+      const rect = el.getBoundingClientRect();
+      const availW = rect.width  - CANVAS_VIEWPORT_CHROME;
+      const availH = rect.height - CANVAS_VIEWPORT_CHROME;
+      if (availW <= 0 || availH <= 0) {
+        if (attempts++ < 10) rafId = requestAnimationFrame(tryFit);
+        return;
+      }
+      fitted = true;
+      setZoom(fitZoom(dims.width, dims.height, availW, availH));
+    };
+    tryFit();
+    return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dims.width, dims.height]);
 
   const title = format ? CATEGORY_LABELS[format] ?? format : `${dims.width}×${dims.height}`;
 
@@ -129,7 +162,7 @@ export function FullPageEditor() {
       </div>
 
       {/* ── Canvas area ──────────────────────────────────────── */}
-      <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
+      <div ref={canvasAreaRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
         <CanvasViewport
           canvasWidth={dims.width}
           canvasHeight={dims.height}

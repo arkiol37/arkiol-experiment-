@@ -37,17 +37,30 @@ export function clampZoom(z: number): number {
 
 // ── Fit zoom calculation ───────────────────────────────────────────────────
 
+// Padding reserved around the canvas inside the CanvasViewport:
+//   - 40px margin on each side of the artboard (see the inner wrapper below)
+//   - plus a few pixels for the drop shadow so it doesn't get cropped
+// Exposed so callers that measure the viewport themselves (FullPageEditor,
+// ArkiolEditor) subtract the exact same amount when computing initial fit.
+export const CANVAS_VIEWPORT_CHROME = 96;
+
 export function fitZoom(
   canvasWidth: number,
   canvasHeight: number,
   viewportWidth?: number,
   viewportHeight?: number,
 ): number {
-  const vw = viewportWidth ?? (typeof window !== "undefined" ? window.innerWidth - 80 : 1200);
-  const vh = viewportHeight ?? (typeof window !== "undefined" ? window.innerHeight - 140 : 700);
-  if (vw <= 0 || vh <= 0) return 0.35;
+  // Window fallbacks are a *last resort*. Callers should measure the actual
+  // viewport container after mount and pass real dimensions — the window
+  // guess undercounts top bars / sidebars / other chrome and was the root
+  // cause of first-load fit misses.
+  const vw = viewportWidth  ?? (typeof window !== "undefined" ? Math.max(0, window.innerWidth  - CANVAS_VIEWPORT_CHROME) : 1200);
+  const vh = viewportHeight ?? (typeof window !== "undefined" ? Math.max(0, window.innerHeight - CANVAS_VIEWPORT_CHROME - 60) : 700);
+  if (vw <= 0 || vh <= 0 || canvasWidth <= 0 || canvasHeight <= 0) return 0.35;
   const scaleX = vw / canvasWidth;
   const scaleY = vh / canvasHeight;
+  // Never zoom *in* past 100% during initial fit — at 100% the artboard
+  // is already at native size and upscaling past that would look fuzzy.
   return clampZoom(Math.min(scaleX, scaleY, 1.0));
 }
 
