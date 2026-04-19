@@ -48,6 +48,11 @@ import {
   buildDepthSeparationLayer,
   summarizeDepthStack,
 } from "./depth-layering";
+import {
+  planRebalance,
+  BALANCE_MIN_RATIO,
+  BALANCE_MAX_RATIO,
+} from "./composition-balance";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
 
@@ -335,6 +340,52 @@ export function buildCompositionPlan(
     : valid;
 
   // ── Balance & ordering ──────────────────────────────────────────────────
+  // Step 20: before the upper cap runs, run the text/visual *balance*
+  // analyzer. When the plan reads as text-heavy (not enough visual support
+  // for the text load), inject targeted decorative components — framed
+  // cards around body copy, label chips near CTAs, dividers between
+  // stacked sections — so the relationship between text and visuals is
+  // restored. The upper cap then trims over-decoration as before.
+  const preBalanceInput = {
+    elements:    gifFiltered.map(e => ({
+      role:         e.role,
+      coverageHint: e.coverageHint,
+      url:          e.url,
+      prompt:       e.prompt,
+    })),
+    activeZones: activeZoneIds,
+    brief,
+  };
+  const rebalance = planRebalance(preBalanceInput, {
+    seed: `${brief.headline ?? ""}::${brief.tone}::rebalance`,
+    maxAdditions: 2,
+  });
+  reasoning.push(
+    `balance: ${rebalance.report.band} ratio=${rebalance.report.ratio.toFixed(2)} ` +
+    `(text=${rebalance.report.textScore.toFixed(1)}, visual=${rebalance.report.visualScore.toFixed(1)}, ` +
+    `min=${BALANCE_MIN_RATIO}, max=${BALANCE_MAX_RATIO})`,
+  );
+  if (rebalance.action === "add-components") {
+    const usedZonesR   = new Set<ZoneId>(gifFiltered.map(e => e.zone));
+    const usedTypesR   = new Set<AssetElementType>(gifFiltered.map(e => e.type));
+    const usedRolesR   = new Set<AssetRole>(gifFiltered.map(e => e.role));
+    const usedKindsR   = new Map<AssetKind, number>();
+    const usedAnchorsR = new Set<Anchor>(gifFiltered.map(e => e.anchor));
+    for (const sug of rebalance.suggestions) {
+      const placement = libraryAssetToPlacement(
+        sug.asset, activeZoneIds, usedZonesR, usedTypesR, usedRolesR, usedKindsR, usedAnchorsR, forGif,
+      );
+      if (placement) {
+        gifFiltered.push(placement);
+        usedTypesR.add(placement.type);
+        usedRolesR.add(placement.role);
+        usedKindsR.set(sug.asset.kind, (usedKindsR.get(sug.asset.kind) ?? 0) + 1);
+        usedAnchorsR.add(placement.anchor);
+        reasoning.push(`balance: added ${sug.asset.kind} "${sug.asset.label}" — ${sug.rationale}`);
+      }
+    }
+  }
+
   // Cap decorative visuals relative to text zones so templates don't feel
   // cluttered, then stable-sort by role layer (back → front) so downstream
   // rendering receives elements in the correct paint order.
