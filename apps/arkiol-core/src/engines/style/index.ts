@@ -26,3 +26,16 @@ export {
   mergeKitDecorations,
   type CategoryTemplateKit,
 } from "./category-template-kits";
+
+export {
+  getCategoryLayoutProfile,
+  selectCategoryVariationIndex,
+  applyCategoryZoneOverrides,
+  applyCategoryAlignment,
+  applyHeadlineProportion,
+  type CategoryLayoutProfile,
+  type CompositionApproach,
+  type RhythmProfile,
+  type AlignmentRhythm,
+  type FormatZoneOverrides,
+} from "./category-layout-profiles";

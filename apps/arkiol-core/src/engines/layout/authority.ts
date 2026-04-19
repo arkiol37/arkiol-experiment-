@@ -6,6 +6,10 @@ import {
   Zone, ZoneId, LayoutFamily, LayoutVariation,
   LAYOUT_FAMILIES, FAMILIES_BY_FORMAT,
 } from "./families";
+import {
+  getCategoryLayoutProfile,
+  selectCategoryVariationIndex,
+} from "../style/category-layout-profiles";
 
 export type FormatCategory =
   | "instagram"      // 1:1
@@ -73,6 +77,12 @@ export interface AuthorityContext {
   variationIdx: number;
   campaignId:   string;
   briefLength?: "short" | "medium" | "long";
+  /**
+   * Detected content category (productivity, wellness, education, business,
+   * fitness, beauty, travel, marketing, motivation). When present, biases
+   * the variation selection toward the category's preferred composition.
+   */
+  categoryId?:  string;
 }
 
 export function resolveLayoutSpec(ctx: AuthorityContext): LayoutSpec {
@@ -96,9 +106,23 @@ export function resolveLayoutSpec(ctx: AuthorityContext): LayoutSpec {
     variationIndex = 0;
   } else {
     const fIdx     = parseInt(seed.slice(0, 8),  16) % families.length;
-    const vIdx     = parseInt(seed.slice(8, 16), 16) % families[fIdx].variations.length;
+    const hashVIdx = parseInt(seed.slice(8, 16), 16) % families[fIdx].variations.length;
     family         = families[fIdx];
-    variation      = families[fIdx].variations[vIdx];
+
+    // Bias variation selection toward the category's preferred composition
+    // approach when a profile exists for the detected category. Keeps hash
+    // determinism when no category is detected or the category has no
+    // matching preference in this family.
+    const profile  = getCategoryLayoutProfile(ctx.categoryId);
+    const vIdx     = profile
+      ? selectCategoryVariationIndex(
+          family.variations.map(v => v.id),
+          profile,
+          hashVIdx,
+        )
+      : hashVIdx;
+
+    variation      = family.variations[vIdx];
     variationIndex = vIdx;
   }
 

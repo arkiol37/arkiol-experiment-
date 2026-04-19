@@ -27,6 +27,7 @@ import { randomUUID }              from "crypto";
 import sharp                       from "sharp";
 import { resolveLayoutSpec, AuthorityContext } from "../layout/authority";
 import { adaptLayout }             from "../layout/adaptive-layout";
+import { detectCategoryPack }      from "../style/category-style-packs";
 import { analyzeDensity }          from "../layout/density";
 import { enforceStyle }            from "../layout/style-enforcer";
 import { enforceHierarchy, TextContent } from "../hierarchy/enforcer";
@@ -376,12 +377,14 @@ async function renderAssetInner(
   }
 
   // ── Stage 1: Layout Authority ──────────────────────────────────────────
+  const detectedCategoryId = detectCategoryPack(input.brief)?.id;
   const authCtx: AuthorityContext = {
     format:       input.format,
     stylePreset:  input.stylePreset,
     variationIdx: input.variationIdx,
     campaignId:   input.campaignId,
     briefLength:  getBriefLength(input.brief),
+    categoryId:   detectedCategoryId,
   };
   const rawSpec = resolveLayoutSpec(authCtx);
 
@@ -395,6 +398,7 @@ async function renderAssetInner(
     formatCategory: rawSpec.formatCategory,
     density:        rawSpec.density,
     activeZoneIds:  rawSpec.activeZoneIds,
+    categoryId:     detectedCategoryId,
   });
   // Heal zone geometry — clamp negative dimensions, out-of-bounds positions
   const canvasDims = FORMAT_DIMS[input.format] ?? { width: 1080, height: 1080 };

@@ -15,6 +15,13 @@
 import type { Zone, ZoneId } from "./families";
 import type { BriefAnalysis }  from "../ai/brief-analyzer";
 import type { DensityProfile, FormatCategory } from "./authority";
+import {
+  getCategoryLayoutProfile,
+  applyCategoryZoneOverrides,
+  applyCategoryAlignment,
+  applyHeadlineProportion,
+  type CategoryLayoutProfile,
+} from "../style/category-layout-profiles";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -147,6 +154,8 @@ export interface AdaptiveLayoutOptions {
   formatCategory: FormatCategory;
   density: DensityProfile;
   activeZoneIds: ZoneId[];
+  /** Detected content category — drives section structure and visual rhythm */
+  categoryId?: string;
 }
 
 export interface AdaptiveLayoutResult {
@@ -159,9 +168,11 @@ export interface AdaptiveLayoutResult {
  * Non-destructive: returns new zone array without mutating input.
  */
 export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResult {
-  const { brief, formatCategory, density, activeZoneIds } = options;
+  const { brief, formatCategory, density, activeZoneIds, categoryId } = options;
   const metrics = extractContentMetrics(brief);
-  const safe = SAFE_ZONES[formatCategory] ?? SAFE_ZONES.default;
+  const profile = getCategoryLayoutProfile(categoryId);
+  const safe = categoryAdjustedSafeZone(formatCategory, profile);
+  const categoryDensity = categoryAdjustedDensity(density, profile);
   const adjustments: string[] = [];
 
   // Deep-copy zones so we don't mutate the Authority's output
@@ -179,11 +190,27 @@ export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResul
   // ── Phase 2: Content-adaptive resizing ──────────────────────────────────
   zones = adaptZoneSizes(zones, metrics, density, adjustments) as Zone[];
 
+  // ── Phase 2.5: Category section structure + rhythm ──────────────────────
+  // Apply the category's structural signature (zone overrides, alignment,
+  // headline proportion) before safe-zone/gap enforcement so the downstream
+  // phases clean up anything that pushed out of bounds.
+  if (profile) {
+    const beforeSig = structuralSignature(zones);
+    zones = applyCategoryZoneOverrides(zones, profile, formatCategory);
+    zones = applyCategoryAlignment(zones, profile);
+    zones = applyHeadlineProportion(zones, profile);
+    if (structuralSignature(zones) !== beforeSig) {
+      adjustments.push(
+        `category_profile:${profile.categoryId} applied ${profile.approach} composition`,
+      );
+    }
+  }
+
   // ── Phase 3: Safe zone enforcement ──────────────────────────────────────
   zones = enforceSafeZones(zones, safe, adjustments) as Zone[];
 
   // ── Phase 4: Minimum gap enforcement ────────────────────────────────────
-  zones = enforceMinimumGaps(zones, density, adjustments) as Zone[];
+  zones = enforceMinimumGaps(zones, categoryDensity, adjustments) as Zone[];
 
   // ── Phase 5: Grid snapping ──────────────────────────────────────────────
   zones = snapAllToGrid(zones, adjustments) as Zone[];
@@ -192,6 +219,43 @@ export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResul
   zones = normalizeAlignment(zones, adjustments) as Zone[];
 
   return { zones, adjustments };
+}
+
+// ── Category rhythm helpers ──────────────────────────────────────────────────
+
+function categoryAdjustedSafeZone(
+  formatCategory: FormatCategory,
+  profile:        CategoryLayoutProfile | null,
+): { top: number; right: number; bottom: number; left: number } {
+  const base = SAFE_ZONES[formatCategory] ?? SAFE_ZONES.default;
+  if (!profile) return base;
+  const boost = profile.rhythm.paddingBoost;
+  // Clamp so padding never eats more than 22% of a side
+  return {
+    top:    clamp(base.top    + boost, 0, 22),
+    right:  clamp(base.right  + boost, 0, 22),
+    bottom: clamp(base.bottom + boost, 0, 22),
+    left:   clamp(base.left   + boost, 0, 22),
+  };
+}
+
+function categoryAdjustedDensity(
+  density: DensityProfile,
+  profile: CategoryLayoutProfile | null,
+): DensityProfile {
+  if (!profile) return density;
+  const boost = profile.rhythm.gapBoost;
+  if (boost === 0) return density;
+  return {
+    ...density,
+    minZonePadding: Math.max(0.5, density.minZonePadding + boost),
+  };
+}
+
+function structuralSignature(zones: Zone[]): string {
+  return zones
+    .map(z => `${z.id}:${z.x.toFixed(1)},${z.y.toFixed(1)},${z.width.toFixed(1)},${z.height.toFixed(1)},${z.alignH}`)
+    .join("|");
 }
 
 // ── Phase 1: Collapse absent content zones ────────────────────────────────────
