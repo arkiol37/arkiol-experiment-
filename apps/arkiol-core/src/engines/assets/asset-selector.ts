@@ -34,6 +34,7 @@ import {
   maxInstancesPerLayout,
   describePlacement,
 } from "./asset-placement";
+import { composeDecorativeRoster } from "./decorative-components";
 
 // ── Composition plan ──────────────────────────────────────────────────────────
 
@@ -222,6 +223,34 @@ export function buildCompositionPlan(
         usedAnchors.add(placement.anchor);
         reasoning.push(
           `category:${category}: ${asset.kind} "${asset.label}" → role=${placement.role}, zone=${placement.zone}, anchor=${placement.anchor}`
+        );
+      }
+    }
+
+    // ── 7. Decorative components ────────────────────────────────────────────
+    // Step 16: pull a small curated roster of composed components
+    // (ribbons, badges, stickers, checklist blocks, framed info cards,
+    // dividers, label chips, accent groups) on top of the raw library
+    // picks. Components flow through the same placement pipeline because
+    // each one produces an Asset-shaped output; their placement is governed
+    // by asset-placement.ts via the component's `placementAs` library kind.
+    const componentRoster = composeDecorativeRoster({
+      category,
+      seed:  `${seed}::components`,
+      limit: 3,
+    });
+    for (const asset of componentRoster) {
+      const placement = libraryAssetToPlacement(
+        asset, activeZoneIds, usedZones, usedTypes, usedRoles, usedKinds, usedAnchors, forGif,
+      );
+      if (placement) {
+        elements.push(placement);
+        usedTypes.add(placement.type);
+        usedRoles.add(placement.role);
+        usedKinds.set(asset.kind, (usedKinds.get(asset.kind) ?? 0) + 1);
+        usedAnchors.add(placement.anchor);
+        reasoning.push(
+          `component: ${asset.kind} "${asset.label}" → role=${placement.role}, zone=${placement.zone}, anchor=${placement.anchor}`
         );
       }
     }
