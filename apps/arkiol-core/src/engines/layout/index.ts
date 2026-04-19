@@ -75,3 +75,13 @@ export {
   type ContentResponseInput,
   type ContentResponseResult,
 } from "./content-response";
+
+export {
+  evaluateConstraints,
+  resolveOverlaps,
+  LayoutConstraintError,
+  type ConstraintCategory,
+  type ConstraintViolation,
+  type ConstraintReport,
+  type EvaluateConstraintsResult,
+} from "./layout-constraints";

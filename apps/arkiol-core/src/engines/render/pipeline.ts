@@ -27,6 +27,7 @@ import { randomUUID }              from "crypto";
 import sharp                       from "sharp";
 import { resolveLayoutSpec, AuthorityContext } from "../layout/authority";
 import { adaptLayout }             from "../layout/adaptive-layout";
+import { LayoutConstraintError }   from "../layout/layout-constraints";
 import { detectCategoryPack }      from "../style/category-style-packs";
 import { analyzeDensity }          from "../layout/density";
 import { enforceStyle }            from "../layout/style-enforcer";
@@ -317,7 +318,8 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
   } catch (err: any) {
     if (err?.name === "KillSwitchError" ||
         err?.name === "SpendGuardError" ||
-        err?.name === "AssetPresenceError") throw err;
+        err?.name === "AssetPresenceError" ||
+        err?.name === "LayoutConstraintError") throw err;
 
     const durationMs = Date.now() - startMs;
     logger.error(
@@ -413,6 +415,19 @@ async function renderAssetInner(
   ctx.layout = { rawSpec, adapted, spec };
   if (adapted.adjustments.length > 0) {
     violations.push(...adapted.adjustments.map(a => `adaptive_layout:${a}`));
+  }
+
+  // ── Strict constraint gate ──────────────────────────────────────────────
+  // Reject templates that would reach the gallery with critical layout
+  // violations (margins/safe zones, spacing, alignment, balance, mechanical
+  // placement). Phase 7 inside adaptLayout auto-resolved what it could; any
+  // remaining `blocking` report means the layout is unsafe to ship.
+  if (adapted.constraintReport?.blocking) {
+    throw new LayoutConstraintError(
+      input.format,
+      adapted.constraintReport.violations,
+      adapted.constraintReport.score,
+    );
   }
 
   // ── Stage 2: Density analysis ──────────────────────────────────────────

@@ -24,6 +24,10 @@ import {
 } from "../style/category-layout-profiles";
 import { snapZonesToGrid } from "./artboard-grid";
 import { applyContentResponse } from "./content-response";
+import {
+  evaluateConstraints,
+  type ConstraintReport,
+} from "./layout-constraints";
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -163,6 +167,8 @@ export interface AdaptiveLayoutOptions {
 export interface AdaptiveLayoutResult {
   zones: Zone[];
   adjustments: string[];
+  /** Strict constraint report — populated after Phase 7. */
+  constraintReport?: ConstraintReport;
 }
 
 /**
@@ -243,7 +249,32 @@ export function adaptLayout(options: AdaptiveLayoutOptions): AdaptiveLayoutResul
   // ── Phase 6: Alignment normalization ────────────────────────────────────
   zones = normalizeAlignment(zones, adjustments) as Zone[];
 
-  return { zones, adjustments };
+  // ── Phase 7: Strict constraint gate ─────────────────────────────────────
+  // Auto-resolve any remaining overlaps, then evaluate strict rules (margins,
+  // spacing, alignment coherence, visual balance, mechanical uniformity).
+  // The caller inspects `constraintReport.blocking` to decide whether to
+  // reject the template before it reaches the gallery.
+  const evaluation = evaluateConstraints(zones, formatCategory, density, {
+    autoResolveOverlaps: true,
+  });
+  zones = evaluation.zones;
+  if (evaluation.resolvedCount > 0) {
+    adjustments.push(`constraint_gate:resolved ${evaluation.resolvedCount} overlapping pair(s)`);
+  }
+  for (const v of evaluation.violations) {
+    adjustments.push(`constraint_gate:${v.severity}:${v.category} ${v.message}`);
+  }
+  adjustments.push(`constraint_gate:score=${evaluation.score.toFixed(2)} blocking=${evaluation.blocking}`);
+
+  return {
+    zones,
+    adjustments,
+    constraintReport: {
+      violations: evaluation.violations,
+      score:      evaluation.score,
+      blocking:   evaluation.blocking,
+    },
+  };
 }
 
 // ── Category rhythm helpers ──────────────────────────────────────────────────
