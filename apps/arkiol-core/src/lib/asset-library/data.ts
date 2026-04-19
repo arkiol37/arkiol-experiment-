@@ -1149,6 +1149,56 @@ const INLINE_SCENE_ASSETS: Asset[] = [
     label: "Marketing launch plane",
     tags: ["plane", "launch", "deliver", "message", "go"],
   }),
+
+  // ── Step 41: Richer scene compositions ──────────────────────────────
+  sceneAsset({
+    id: "scene.travel.polaroid-mountain", sceneKind: "polaroid-mountain",
+    category: "travel", extraCategories: ["motivation", "marketing"],
+    label: "Polaroid mountain memory",
+    tags: ["polaroid", "photo", "mountain", "memory", "travel", "vintage"],
+  }),
+  sceneAsset({
+    id: "scene.beauty.floral-wreath", sceneKind: "floral-wreath",
+    category: "beauty", extraCategories: ["wellness", "motivation"],
+    label: "Floral wreath",
+    tags: ["floral", "wreath", "bloom", "flowers", "elegant", "botanical"],
+  }),
+  sceneAsset({
+    id: "scene.wellness.floral-wreath", sceneKind: "floral-wreath",
+    category: "wellness", extraCategories: ["beauty"],
+    label: "Wellness floral wreath",
+    tags: ["floral", "calm", "nature", "wellness", "botanical"],
+  }),
+  sceneAsset({
+    id: "scene.fitness.workout", sceneKind: "workout-scene",
+    category: "fitness", extraCategories: ["motivation"],
+    label: "Workout bench scene",
+    tags: ["workout", "bench", "weights", "gym", "train", "fitness"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.script-banner", sceneKind: "script-banner",
+    category: "motivation", extraCategories: ["beauty", "marketing"],
+    label: "Script motivation banner",
+    tags: ["motivation", "quote", "script", "typography", "banner"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.confidence-spark", sceneKind: "confidence-spark",
+    category: "motivation", extraCategories: ["fitness"],
+    label: "Confidence spark",
+    tags: ["confidence", "bolt", "energy", "power", "spark"],
+  }),
+  sceneAsset({
+    id: "scene.wellness.diet-plate", sceneKind: "diet-plate",
+    category: "wellness", extraCategories: ["fitness", "education"],
+    label: "Healthy diet plate",
+    tags: ["food", "diet", "healthy", "plate", "nutrition", "eat"],
+  }),
+  sceneAsset({
+    id: "scene.education.diet-plate", sceneKind: "diet-plate",
+    category: "education", extraCategories: ["wellness"],
+    label: "Nutrition education plate",
+    tags: ["food", "nutrition", "learn", "education", "healthy"],
+  }),
 ];
 
 // ── Public seed ───────────────────────────────────────────────────────────────

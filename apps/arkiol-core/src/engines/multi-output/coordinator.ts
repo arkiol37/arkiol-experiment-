@@ -303,57 +303,63 @@ export async function generateVariations(
   let bestScore = -1;
   let bestIndex = 0;
 
-  // Step 39 wiring: the multi-output coordinator captures a pack-style
-  // snapshot from the first successful candidate and uses it to tag
-  // subsequent renders. The PipelineInput doesn't currently carry a
-  // PackAnchor override (that would require theme-selection plumbing
-  // — follow-up work), but we surface the snapshot on VariationResult
-  // for the gallery / editor to read so variants render with coherent
-  // palette + typography signals passed as brand hints.
+  // Step 41: parallel candidate generation. Previously the loop ran
+  // renders sequentially (N × single-render latency). All variations
+  // share the same brief and format — the only thing that varies is
+  // variationIdx — so we can fire them in parallel and collect as
+  // they resolve. For a 6-candidate gallery this drops wall-clock
+  // time from ~N×t to ~1×t + overhead.
+  //
+  // Pack anchor: the first variation renders without an anchor (it
+  // IS the anchor source). Remaining variations run with the anchor
+  // threaded in via brand hints. To keep parallelism, we still fire
+  // all N at once — subsequent renders just don't see the anchor
+  // this round. The anchor is surfaced on VariationResult so the
+  // gallery + editor can enforce consistency at render-time instead.
   let packAnchorCaptured:
     | NonNullable<PipelineResult["packStyleSnapshot"]>
     | null = null;
 
-  for (let i = 0; i < count; i++) {
-    const renderStart = Date.now();
-    const input: PipelineInput = {
-      jobId: `var_${request.format}_${i}`,
-      format: request.format,
-      stylePreset: "auto",
-      variationIdx: i * 7919 + 1,
-      campaignId: `variation_${Date.now()}`,
-      brief,
-      // When we have a pack anchor, pass it as brand hints so the
-      // theme selector in the pipeline biases toward the same palette
-      // and typography. Keeps per-variation composition free while
-      // the visual language stays locked across the gallery.
-      brand: packAnchorCaptured
-        ? {
-            ...(request.brand ?? {} as any),
-            primaryColor:   packAnchorCaptured.primary,
-            secondaryColor: packAnchorCaptured.accent,
-            fontDisplay:    packAnchorCaptured.fontDisplay,
-            fontBody:       packAnchorCaptured.fontBody,
-          }
-        : request.brand,
-      outputFormat,
-      personalization: request.personalization,
-      assetEngine: request.assetEngine,
-    };
+  const buildInput = (i: number): PipelineInput => ({
+    jobId: `var_${request.format}_${i}`,
+    format: request.format,
+    stylePreset: "auto",
+    variationIdx: i * 7919 + 1,
+    campaignId: `variation_${Date.now()}`,
+    brief,
+    brand: request.brand,
+    outputFormat,
+    personalization: request.personalization,
+    assetEngine: request.assetEngine,
+  });
 
-    try {
-      const result = await renderFn(input);
-      if (!packAnchorCaptured && result.packStyleSnapshot) {
-        packAnchorCaptured = result.packStyleSnapshot;
+  const renderPromises = Array.from({ length: count }, (_, i) => {
+    const renderStart = Date.now();
+    const input = buildInput(i);
+    return renderFn(input).then(
+      result => ({ kind: "ok" as const, i, input, result, durationMs: Date.now() - renderStart }),
+      err    => ({ kind: "err" as const, i, input, error: (err as any)?.message ?? "unknown", durationMs: Date.now() - renderStart }),
+    );
+  });
+
+  const settled = await Promise.all(renderPromises);
+
+  // Post-parallel pass: sort into deterministic variationIndex order
+  // and populate the renders array + pack anchor + bestIndex.
+  settled.sort((a, b) => a.i - b.i);
+  for (const s of settled) {
+    if (s.kind === "ok") {
+      if (!packAnchorCaptured && s.result.packStyleSnapshot) {
+        packAnchorCaptured = s.result.packStyleSnapshot;
       }
-      const score = result.productionReadiness?.overallScore ?? result.evaluationSignals?.qualityScore ?? 0;
+      const score = s.result.productionReadiness?.overallScore ?? s.result.evaluationSignals?.qualityScore ?? 0;
       if (score > bestScore) {
         bestScore = score;
-        bestIndex = i;
+        bestIndex = s.i;
       }
-      renders.push({ variationIndex: i, pipelineInput: input, result, durationMs: Date.now() - renderStart });
-    } catch (err: any) {
-      renders.push({ variationIndex: i, pipelineInput: input, error: err.message, durationMs: Date.now() - renderStart });
+      renders.push({ variationIndex: s.i, pipelineInput: s.input, result: s.result, durationMs: s.durationMs });
+    } else {
+      renders.push({ variationIndex: s.i, pipelineInput: s.input, error: s.error, durationMs: s.durationMs });
     }
   }
 

@@ -23,24 +23,64 @@ export interface ScenePalette {
   ink:     string;             // outlines / darkest details
 }
 
-// ── Built-in palettes (one per category) ─────────────────────────────────────
-// Chosen to match category-profile moods (Step 14) so illustrations
-// lock into the right aesthetic even without brand overrides.
+// ── Built-in palettes (3 variants per category) ──────────────────────────────
+// Each category has three palette variants so the same category brief
+// can produce visually distinct gallery cards. A `variant` parameter
+// (derived from variationIdx) rotates through them deterministically
+// so a 6-candidate gallery lands on three different color schemes
+// without drifting off the category's mood.
 
-export const SCENE_PALETTES: Record<string, ScenePalette> = {
-  productivity: { sky: ["#EFF6FF", "#DBEAFE"], ground: ["#BFDBFE", "#93C5FD"], subject: "#1D4ED8", accent: "#F97316", ink: "#0F172A" },
-  wellness:     { sky: ["#ECFDF5", "#D1FAE5"], ground: ["#A7F3D0", "#6EE7B7"], subject: "#059669", accent: "#F59E0B", ink: "#064E3B" },
-  education:    { sky: ["#FEF3C7", "#FDE68A"], ground: ["#FBBF24", "#F59E0B"], subject: "#7C2D12", accent: "#2563EB", ink: "#451A03" },
-  business:     { sky: ["#F1F5F9", "#CBD5E1"], ground: ["#94A3B8", "#64748B"], subject: "#1E3A8A", accent: "#F59E0B", ink: "#0F172A" },
-  fitness:      { sky: ["#FEE2E2", "#FECACA"], ground: ["#FCA5A5", "#F87171"], subject: "#DC2626", accent: "#FBBF24", ink: "#7F1D1D" },
-  beauty:       { sky: ["#FCE7F3", "#FBCFE8"], ground: ["#F9A8D4", "#F472B6"], subject: "#DB2777", accent: "#FBBF24", ink: "#831843" },
-  travel:       { sky: ["#DBEAFE", "#93C5FD"], ground: ["#60A5FA", "#3B82F6"], subject: "#1E40AF", accent: "#F97316", ink: "#172554" },
-  marketing:    { sky: ["#FFF7ED", "#FED7AA"], ground: ["#FDBA74", "#FB923C"], subject: "#EA580C", accent: "#2563EB", ink: "#7C2D12" },
-  motivation:   { sky: ["#FDE68A", "#FBBF24"], ground: ["#F59E0B", "#D97706"], subject: "#1E3A8A", accent: "#EF4444", ink: "#78350F" },
+export const SCENE_PALETTES: Record<string, ScenePalette[]> = {
+  productivity: [
+    { sky: ["#EFF6FF", "#DBEAFE"], ground: ["#BFDBFE", "#93C5FD"], subject: "#1D4ED8", accent: "#F97316", ink: "#0F172A" },
+    { sky: ["#F0F9FF", "#E0F2FE"], ground: ["#BAE6FD", "#7DD3FC"], subject: "#0369A1", accent: "#FBBF24", ink: "#0C4A6E" },
+    { sky: ["#EEF2FF", "#E0E7FF"], ground: ["#C7D2FE", "#A5B4FC"], subject: "#4338CA", accent: "#F97316", ink: "#1E1B4B" },
+  ],
+  wellness: [
+    { sky: ["#ECFDF5", "#D1FAE5"], ground: ["#A7F3D0", "#6EE7B7"], subject: "#059669", accent: "#F59E0B", ink: "#064E3B" },
+    { sky: ["#F0FDF4", "#DCFCE7"], ground: ["#BBF7D0", "#86EFAC"], subject: "#15803D", accent: "#EAB308", ink: "#14532D" },
+    { sky: ["#F7FEE7", "#ECFCCB"], ground: ["#D9F99D", "#BEF264"], subject: "#4D7C0F", accent: "#F59E0B", ink: "#365314" },
+  ],
+  education: [
+    { sky: ["#FEF3C7", "#FDE68A"], ground: ["#FBBF24", "#F59E0B"], subject: "#7C2D12", accent: "#2563EB", ink: "#451A03" },
+    { sky: ["#FFFBEB", "#FEF3C7"], ground: ["#FDE68A", "#FCD34D"], subject: "#B45309", accent: "#1D4ED8", ink: "#78350F" },
+    { sky: ["#FFF7ED", "#FFEDD5"], ground: ["#FED7AA", "#FDBA74"], subject: "#9A3412", accent: "#0369A1", ink: "#7C2D12" },
+  ],
+  business: [
+    { sky: ["#F1F5F9", "#CBD5E1"], ground: ["#94A3B8", "#64748B"], subject: "#1E3A8A", accent: "#F59E0B", ink: "#0F172A" },
+    { sky: ["#F8FAFC", "#E2E8F0"], ground: ["#CBD5E1", "#94A3B8"], subject: "#1E293B", accent: "#DC2626", ink: "#020617" },
+    { sky: ["#FAFAF9", "#E7E5E4"], ground: ["#D6D3D1", "#A8A29E"], subject: "#44403C", accent: "#EAB308", ink: "#1C1917" },
+  ],
+  fitness: [
+    { sky: ["#FEE2E2", "#FECACA"], ground: ["#FCA5A5", "#F87171"], subject: "#DC2626", accent: "#FBBF24", ink: "#7F1D1D" },
+    { sky: ["#FFF1F2", "#FFE4E6"], ground: ["#FECDD3", "#FDA4AF"], subject: "#E11D48", accent: "#F97316", ink: "#881337" },
+    { sky: ["#FEF2F2", "#FEE2E2"], ground: ["#FCA5A5", "#F87171"], subject: "#B91C1C", accent: "#16A34A", ink: "#7F1D1D" },
+  ],
+  beauty: [
+    { sky: ["#FCE7F3", "#FBCFE8"], ground: ["#F9A8D4", "#F472B6"], subject: "#DB2777", accent: "#FBBF24", ink: "#831843" },
+    { sky: ["#FDF2F8", "#FCE7F3"], ground: ["#FBCFE8", "#F9A8D4"], subject: "#BE185D", accent: "#F59E0B", ink: "#500724" },
+    { sky: ["#FAE8FF", "#F5D0FE"], ground: ["#F0ABFC", "#E879F9"], subject: "#A21CAF", accent: "#F59E0B", ink: "#4A044E" },
+  ],
+  travel: [
+    { sky: ["#DBEAFE", "#93C5FD"], ground: ["#60A5FA", "#3B82F6"], subject: "#1E40AF", accent: "#F97316", ink: "#172554" },
+    { sky: ["#CFFAFE", "#A5F3FC"], ground: ["#67E8F9", "#22D3EE"], subject: "#0891B2", accent: "#F59E0B", ink: "#164E63" },
+    { sky: ["#E0F2FE", "#BAE6FD"], ground: ["#7DD3FC", "#38BDF8"], subject: "#0284C7", accent: "#FB923C", ink: "#082F49" },
+  ],
+  marketing: [
+    { sky: ["#FFF7ED", "#FED7AA"], ground: ["#FDBA74", "#FB923C"], subject: "#EA580C", accent: "#2563EB", ink: "#7C2D12" },
+    { sky: ["#FEF2F2", "#FECACA"], ground: ["#FCA5A5", "#F87171"], subject: "#DC2626", accent: "#0369A1", ink: "#7F1D1D" },
+    { sky: ["#FDF4FF", "#F5D0FE"], ground: ["#F0ABFC", "#E879F9"], subject: "#C026D3", accent: "#EAB308", ink: "#701A75" },
+  ],
+  motivation: [
+    { sky: ["#FDE68A", "#FBBF24"], ground: ["#F59E0B", "#D97706"], subject: "#1E3A8A", accent: "#EF4444", ink: "#78350F" },
+    { sky: ["#FED7AA", "#FDBA74"], ground: ["#FB923C", "#F97316"], subject: "#7C2D12", accent: "#2563EB", ink: "#451A03" },
+    { sky: ["#FEE2E2", "#FECACA"], ground: ["#F87171", "#EF4444"], subject: "#7F1D1D", accent: "#FBBF24", ink: "#450A0A" },
+  ],
 };
 
-export function getScenePalette(category: string): ScenePalette {
-  return SCENE_PALETTES[category] ?? SCENE_PALETTES.productivity;
+export function getScenePalette(category: string, variant: number = 0): ScenePalette {
+  const group = SCENE_PALETTES[category] ?? SCENE_PALETTES.productivity;
+  return group[Math.abs(variant) % group.length];
 }
 
 // ── Part builders ───────────────────────────────────────────────────────────
@@ -223,6 +263,127 @@ function sparkles(p: ScenePalette): string {
   return s(60, 90, 10, p.accent) + s(340, 140, 8, p.accent) + s(350, 50, 12, p.subject) + s(50, 320, 9, p.subject);
 }
 
+// Polaroid-framed mountain (travel) ────────────────────────────────────────
+function polaroidMountain(p: ScenePalette, id: string): string {
+  return (
+    // Polaroid card
+    `<g transform="rotate(-4 200 200)">` +
+      `<rect x="70" y="70" width="260" height="280" fill="#FFFFFF" stroke="${p.ink}" stroke-width="2" opacity="0.98"/>` +
+      // Picture window
+      `<rect x="90" y="90" width="220" height="180" fill="url(%23sky-${id})"/>` +
+      // Mini mountains inside the frame
+      `<polygon points="90,270 170,160 250,270" fill="${p.subject}"/>` +
+      `<polygon points="170,160 190,180 205,175 225,200 200,230 170,190" fill="#FFFFFF" opacity="0.8"/>` +
+      `<polygon points="200,270 280,180 310,270" fill="${p.subject}" opacity="0.8"/>` +
+      `<circle cx="260" cy="120" r="22" fill="${p.accent}" opacity="0.95"/>` +
+      // Caption
+      `<text x="200" y="320" text-anchor="middle" font-family="Caveat, Georgia, serif" font-size="24" fill="${p.ink}" font-style="italic">~ memories ~</text>` +
+    `</g>`
+  );
+}
+
+// Floral wreath (beauty / wellness) ────────────────────────────────────────
+function floralWreath(p: ScenePalette): string {
+  const flower = (cx: number, cy: number, r: number, color: string) =>
+    Array.from({ length: 5 }, (_, i) => {
+      const a = (i / 5) * Math.PI * 2;
+      const px = cx + Math.cos(a) * r * 0.6;
+      const py = cy + Math.sin(a) * r * 0.6;
+      return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r * 0.5}" fill="${color}" opacity="0.9"/>`;
+    }).join("") +
+    `<circle cx="${cx}" cy="${cy}" r="${r * 0.35}" fill="#FFF8E1"/>`;
+
+  const leaf = (cx: number, cy: number, angle: number) =>
+    `<ellipse cx="${cx}" cy="${cy}" rx="14" ry="28" fill="${p.ground[0]}" transform="rotate(${angle} ${cx} ${cy})" opacity="0.85"/>`;
+
+  return (
+    `<circle cx="200" cy="200" r="110" fill="none" stroke="${p.ground[1]}" stroke-width="2" opacity="0.4"/>` +
+    flower(100, 200, 28, p.subject) +
+    flower(300, 200, 28, p.accent) +
+    flower(200, 95,  28, p.subject) +
+    flower(200, 305, 28, p.accent) +
+    flower(128, 128, 22, p.accent) +
+    flower(272, 128, 22, p.subject) +
+    flower(128, 272, 22, p.accent) +
+    flower(272, 272, 22, p.subject) +
+    leaf(160, 105, -30) + leaf(240, 105, 30) +
+    leaf(105, 160, -60) + leaf(295, 160,  60) +
+    leaf(105, 240, -120) + leaf(295, 240, 120) +
+    leaf(160, 295, -150) + leaf(240, 295, 150)
+  );
+}
+
+// Workout scene — bench + weights + foliage backdrop (fitness) ────────────
+function workoutScene(p: ScenePalette): string {
+  return (
+    // Background foliage
+    `<ellipse cx="60"  cy="240" rx="60" ry="90" fill="${p.ground[1]}" opacity="0.7"/>` +
+    `<ellipse cx="340" cy="240" rx="60" ry="90" fill="${p.ground[1]}" opacity="0.7"/>` +
+    // Bench
+    `<rect x="100" y="250" width="200" height="20" rx="4" fill="${p.subject}"/>` +
+    `<rect x="110" y="270" width="14" height="40" fill="${p.ink}"/>` +
+    `<rect x="276" y="270" width="14" height="40" fill="${p.ink}"/>` +
+    // Barbell
+    `<rect x="80" y="210" width="240" height="8" rx="2" fill="${p.ink}"/>` +
+    // Weight plates
+    `<circle cx="80"  cy="214" r="28" fill="${p.accent}" stroke="${p.ink}" stroke-width="2"/>` +
+    `<circle cx="80"  cy="214" r="10" fill="${p.ink}"/>` +
+    `<circle cx="320" cy="214" r="28" fill="${p.accent}" stroke="${p.ink}" stroke-width="2"/>` +
+    `<circle cx="320" cy="214" r="10" fill="${p.ink}"/>` +
+    // Decorative dumbbell in corner
+    `<rect x="30" y="340" width="60" height="8" rx="2" fill="${p.ink}"/>` +
+    `<rect x="20" y="332" width="16" height="24" rx="3" fill="${p.subject}"/>` +
+    `<rect x="84" y="332" width="16" height="24" rx="3" fill="${p.subject}"/>` +
+    sparkles(p)
+  );
+}
+
+// Script banner — cursive "Motivation" text over a decorative underline ──
+function scriptBanner(p: ScenePalette): string {
+  return (
+    `<rect x="40" y="140" width="320" height="120" rx="12" fill="${p.ground[0]}" opacity="0.3"/>` +
+    `<text x="200" y="210" text-anchor="middle" font-family="'Great Vibes', 'Brush Script MT', cursive" ` +
+      `font-size="72" fill="${p.subject}">Motivation</text>` +
+    `<path d="M90 235 Q200 250 310 235" stroke="${p.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+    `<path d="M180 320 q 10 -25 20 0 q 10 -25 20 0" stroke="${p.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+    sparkles(p)
+  );
+}
+
+// Confidence spark — bolt + gradient glow (motivation) ────────────────────
+function confidenceSpark(p: ScenePalette): string {
+  return (
+    // Glow
+    `<circle cx="200" cy="200" r="140" fill="${p.accent}" opacity="0.15"/>` +
+    `<circle cx="200" cy="200" r="100" fill="${p.accent}" opacity="0.25"/>` +
+    // Lightning bolt
+    `<polygon points="215,80 145,215 195,215 170,320 260,175 205,175 230,80" ` +
+      `fill="${p.accent}" stroke="${p.ink}" stroke-width="3" stroke-linejoin="round"/>` +
+    sparkles(p)
+  );
+}
+
+// Diet plate — healthy food arranged on a plate (wellness / education) ───
+function dietPlate(p: ScenePalette): string {
+  return (
+    // Plate
+    `<circle cx="200" cy="220" r="130" fill="#FFFFFF" stroke="${p.ink}" stroke-width="3"/>` +
+    `<circle cx="200" cy="220" r="110" fill="${p.sky[0]}"/>` +
+    // Food items (abstract polychrome shapes)
+    `<circle cx="150" cy="180" r="28" fill="#DC2626"/>` +         // tomato
+    `<circle cx="150" cy="180" r="10" fill="#FBBF24"/>` +         // tomato highlight
+    `<ellipse cx="250" cy="175" rx="34" ry="22" fill="${p.ground[0]}"/>` + // leafy
+    `<path d="M250 150 Q258 170 252 195" stroke="${p.ink}" stroke-width="2" fill="none"/>` +
+    `<path d="M130 240 Q200 230 270 240 L265 280 Q200 295 135 280 Z" fill="${p.accent}"/>` + // crescent bread
+    `<circle cx="200" cy="270" r="16" fill="${p.subject}"/>` +    // protein
+    `<circle cx="200" cy="270" r="7"  fill="${p.accent}"/>` +
+    // Fork
+    `<rect x="40" y="180" width="6" height="80" fill="${p.ink}"/>` +
+    `<path d="M30 160 L30 200 M40 160 L40 200 M50 160 L50 200" stroke="${p.ink}" stroke-width="3"/>` +
+    sparkles(p)
+  );
+}
+
 // ── Scene catalog ───────────────────────────────────────────────────────────
 // Each scene is a named composition that takes a palette and returns the
 // inner SVG body (no <svg> wrapper — wrapping happens in render()).
@@ -240,7 +401,14 @@ export type SceneKind =
   | "target-arrow"
   | "megaphone-launch"
   | "leaf-scene"
-  | "cloudscape";
+  | "cloudscape"
+  // Step 41: richer compositions
+  | "polaroid-mountain"
+  | "floral-wreath"
+  | "workout-scene"
+  | "script-banner"
+  | "confidence-spark"
+  | "diet-plate";
 
 interface SceneBuilder {
   build(p: ScenePalette, id: string): string;
@@ -331,6 +499,44 @@ const SCENES: Record<SceneKind, SceneBuilder> = {
       return defsGradients(p, id) + skyWithClouds(p, id) + groundHills(p, id) + peaks(p);
     },
   },
+  "polaroid-mountain": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) +
+        `<rect width="400" height="400" fill="${p.ground[0]}"/>` +
+        polaroidMountain(p, id) + sparkles(p);
+    },
+  },
+  "floral-wreath": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + floralWreath(p);
+    },
+  },
+  "workout-scene": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + workoutScene(p);
+    },
+  },
+  "script-banner": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + scriptBanner(p);
+    },
+  },
+  "confidence-spark": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + confidenceSpark(p);
+    },
+  },
+  "diet-plate": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + dietPlate(p);
+    },
+  },
 };
 
 // ── Public render ────────────────────────────────────────────────────────────
@@ -339,19 +545,48 @@ const SCENES: Record<SceneKind, SceneBuilder> = {
  * Render a scene to a complete inline SVG string.
  *
  *   renderScene("mountain-sunrise", "motivation")
+ *   renderScene("mountain-sunrise", "motivation", 2) // palette variant 2
  *
  * The returned string is a self-contained <svg>…</svg> ready to drop
  * into an Asset payload with format="svg". No external dependencies,
  * no URL fetches — deterministic and offline-safe.
+ *
+ * Step 41: results are memoized by (kind, category, variant). For a
+ * gallery batch that reuses the same hero scene across multiple
+ * candidates, the second+ calls return the cached string immediately
+ * — composition is deterministic so the output is identical anyway.
  */
-export function renderScene(kind: SceneKind, category: string): string {
+const _sceneCache = new Map<string, string>();
+
+export function renderScene(
+  kind:     SceneKind,
+  category: string,
+  variant:  number = 0,
+): string {
+  const cacheKey = `${kind}|${category}|${variant}`;
+  const cached = _sceneCache.get(cacheKey);
+  if (cached) return cached;
+
   const builder = SCENES[kind];
-  const palette = getScenePalette(category);
-  // Per-call gradient id so multiple scenes in the same render don't
-  // clash on <defs> identifiers.
-  const id = `${kind}_${category}_${Math.abs(hashCode(`${kind}:${category}`))}`;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">${builder.build(palette, id)}</svg>`;
+  const palette = getScenePalette(category, variant);
+  const id = `${kind}_${category}_${variant}_${Math.abs(hashCode(cacheKey))}`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">${builder.build(palette, id)}</svg>`;
+
+  // Bounded cache — scene combinations are small (19 kinds × 9
+  // categories × 3 variants ≈ 500 entries max). Drop oldest when we
+  // hit a safety ceiling to prevent runaway growth in pathological
+  // cases (e.g. unknown categories each creating a new palette).
+  if (_sceneCache.size > 1024) {
+    const firstKey = _sceneCache.keys().next().value;
+    if (firstKey !== undefined) _sceneCache.delete(firstKey);
+  }
+  _sceneCache.set(cacheKey, svg);
+  return svg;
 }
+
+// Test / debug helper — lets callers verify cache warmth.
+export function getSceneCacheSize(): number { return _sceneCache.size; }
+export function clearSceneCache():  void   { _sceneCache.clear(); }
 
 export function getSceneAspectRatio(kind: SceneKind): number {
   return SCENES[kind].aspectRatio;
