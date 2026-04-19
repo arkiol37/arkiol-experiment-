@@ -138,6 +138,19 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "ribbon",       count: 1, tags: ["tag", "sale", "banner"]                  },
     ],
   },
+
+  // Step 34: motivation — aspirational / achievement content.
+  motivation: {
+    category: "motivation",
+    summary:  "Aspirational and bold. Mountain / sunrise illustrations, achievement badges, streak icons.",
+    entries: [
+      { kind: "illustration", count: 1, required: true                                   },
+      { kind: "icon",         count: 2, tags: ["trophy", "peak", "flame", "arrow", "star"] },
+      { kind: "badge",        count: 1, tags: ["achievement", "trophy", "verified"]      },
+      { kind: "shape",        count: 1, tags: ["burst", "arrow", "star", "sparkle"]      },
+      { kind: "texture",      count: 1, tags: ["grain", "lines", "confetti"]             },
+    ],
+  },
 };
 
 // ── Selection ─────────────────────────────────────────────────────────────────
@@ -254,6 +267,9 @@ const CATEGORY_KEYWORDS: Record<AssetCategory, string[]> = {
   beauty:       ["beauty", "skincare", "makeup", "cosmetic", "glow", "serum", "spa", "salon", "hair", "nail"],
   travel:       ["travel", "vacation", "destination", "adventure", "flight", "hotel", "beach", "tourism"],
   marketing:    ["marketing", "sale", "promo", "discount", "launch", "campaign", "announcement", "offer", "shop"],
+  motivation:   ["motivation", "inspire", "inspiration", "goal", "goals", "mindset", "aspire", "achieve",
+                 "success", "dream", "quote", "affirmation", "hustle", "rise", "grind", "win",
+                 "empower", "courage", "growth"],
 };
 
 /**

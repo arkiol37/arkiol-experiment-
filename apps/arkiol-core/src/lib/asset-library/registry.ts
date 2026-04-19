@@ -14,7 +14,7 @@ import type {
 
 export const ASSET_CATEGORIES: readonly AssetCategory[] = Object.freeze([
   "productivity", "wellness", "education", "business",
-  "fitness", "beauty", "travel", "marketing",
+  "fitness", "beauty", "travel", "marketing", "motivation",
 ]);
 
 export const ASSET_KINDS: readonly AssetKind[] = Object.freeze([
@@ -88,6 +88,13 @@ export function queryAssets(q: AssetQuery = {}): Asset[] {
   if (q.tags && q.tags.length > 0) {
     const wanted = new Set(q.tags.map(t => t.toLowerCase()));
     pool = pool.filter(a => a.tags.some(t => wanted.has(t.toLowerCase())));
+  }
+
+  // Step 34: style axis for icons (outline / filled / duotone). Assets
+  // without a `style` are style-agnostic and pass unconditionally — so
+  // filtering on style doesn't silently drop ribbons / badges / etc.
+  if (q.style) {
+    pool = pool.filter(a => a.style === undefined || a.style === q.style);
   }
 
   if (typeof q.limit === "number" && q.limit >= 0) {

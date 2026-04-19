@@ -7,6 +7,7 @@ export type {
   Asset,
   AssetCategory,
   AssetKind,
+  AssetStyle,
   AssetPayload,
   AssetQuery,
 } from "./types";

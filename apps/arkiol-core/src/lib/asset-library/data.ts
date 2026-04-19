@@ -570,6 +570,170 @@ const DIVIDERS: Asset[] = [
       '<line x1="60" y1="25" x2="440" y2="25" stroke="#6B7280" stroke-width="1"/>') } },
 ];
 
+// ── Step 34: Filled icon counterparts ─────────────────────────────────────────
+// The original ICONS array above uses a stroke-only outline style. Step 34
+// adds a parallel set of *filled* icons for the most commonly used concepts
+// so templates can pick a style that matches their visual weight (e.g.
+// bold_lifestyle → filled, modern_minimal → outline). Filtering is handled
+// by the `style` axis in AssetQuery.
+
+const filled = (viewBox: string, body: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="currentColor">${body}</svg>`;
+
+const FILLED_ICONS: Asset[] = [
+  { id: "icon.productivity.check.filled", kind: "icon", category: "productivity", label: "Check (filled)",
+    tags: ["done", "complete", "task", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<circle cx="12" cy="12" r="11"/><path d="M7 12l3 3 7-7" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>') } },
+  { id: "icon.wellness.heart.filled", kind: "icon", category: "wellness", label: "Heart (filled)",
+    tags: ["love", "care", "health", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M12 21s-7-4.5-7-11a4 4 0 017-2.6A4 4 0 0119 10c0 6.5-7 11-7 11z"/>') } },
+  { id: "icon.education.book.filled", kind: "icon", category: "education", label: "Book (filled)",
+    tags: ["learn", "read", "study", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M4 5a1 1 0 011-1h5a3 3 0 013 3v14a2 2 0 00-2-2H4V5zM20 5a1 1 0 00-1-1h-5a3 3 0 00-3 3v14a2 2 0 012-2h7V5z"/>') } },
+  { id: "icon.business.chart.filled", kind: "icon", category: "business", label: "Growth chart (filled)",
+    tags: ["growth", "data", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<rect x="3" y="15" width="4" height="6" rx="1"/><rect x="9" y="10" width="4" height="11" rx="1"/><rect x="15" y="5" width="4" height="16" rx="1"/>') } },
+  { id: "icon.fitness.bolt.filled", kind: "icon", category: "fitness", label: "Bolt (filled)",
+    tags: ["energy", "power", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M13 2L4 14h7l-2 8 10-13h-7l1-7z"/>') } },
+  { id: "icon.beauty.sparkle.filled", kind: "icon", category: "beauty", label: "Sparkle (filled)",
+    tags: ["glow", "shine", "magic", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M12 2l2.5 7L22 11.5 14.5 14 12 22l-2.5-8L2 11.5 9.5 9z"/>') } },
+  { id: "icon.travel.pin.filled", kind: "icon", category: "travel", label: "Location pin (filled)",
+    tags: ["map", "place", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M12 22s7-7 7-12a7 7 0 10-14 0c0 5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5" fill="#fff"/>') } },
+  { id: "icon.marketing.star.filled", kind: "icon", category: "marketing", label: "Star (filled)",
+    tags: ["star", "rating", "favorite", "filled"], style: "filled", extraCategories: ["beauty", "motivation"],
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M12 3l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/>') } },
+];
+
+// ── Step 34: Motivation category — full asset set ─────────────────────────────
+// Distinct aesthetic: mountain peaks / sunrise / achievement / streak fire.
+// Every kind represented so the recipe can assemble a complete roster
+// without falling back to other categories.
+
+const MOTIVATION_ASSETS: Asset[] = [
+  // Icons — outline + filled variants for core concepts.
+  { id: "icon.motivation.trophy",        kind: "icon", category: "motivation", label: "Trophy",
+    tags: ["trophy", "win", "achievement", "success"], style: "outline",
+    payload: { format: "svg", markup: icon("0 0 24 24",
+      '<path d="M8 4h8v4a4 4 0 01-8 0V4zM6 4H4v2a2 2 0 002 2M18 4h2v2a2 2 0 01-2 2M10 13v3M14 13v3M8 18h8v2H8z"/>') } },
+  { id: "icon.motivation.trophy.filled", kind: "icon", category: "motivation", label: "Trophy (filled)",
+    tags: ["trophy", "win", "achievement", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M8 4h8v4a4 4 0 01-8 0V4zM10 13h4v4h-4zM7 19h10v2H7z"/>') } },
+  { id: "icon.motivation.peak",          kind: "icon", category: "motivation", label: "Mountain peak",
+    tags: ["peak", "mountain", "climb", "aspire", "goal"], style: "outline",
+    payload: { format: "svg", markup: icon("0 0 24 24",
+      '<path d="M3 20l6-12 4 7 3-4 5 9H3zM9 8l-1.5 3M13 15l1-1.5"/>') } },
+  { id: "icon.motivation.flame",         kind: "icon", category: "motivation", label: "Streak flame",
+    tags: ["flame", "streak", "hot", "fire", "habit"], style: "outline",
+    payload: { format: "svg", markup: icon("0 0 24 24",
+      '<path d="M12 2c3 4 5 6 5 10a5 5 0 11-10 0c0-2 1-3 2-4 0 3 1 4 2 4-1-3 0-6 1-10z"/>') } },
+  { id: "icon.motivation.flame.filled",  kind: "icon", category: "motivation", label: "Streak flame (filled)",
+    tags: ["flame", "streak", "hot", "fire", "habit", "filled"], style: "filled",
+    payload: { format: "svg", markup: filled("0 0 24 24",
+      '<path d="M12 2c3 4 5 6 5 10a5 5 0 11-10 0c0-2 1-3 2-4 0 3 1 4 2 4-1-3 0-6 1-10z"/>') } },
+  { id: "icon.motivation.rise",          kind: "icon", category: "motivation", label: "Rising arrow",
+    tags: ["rise", "grow", "up", "arrow", "progress"], style: "outline",
+    payload: { format: "svg", markup: icon("0 0 24 24",
+      '<path d="M4 20L14 10l3 3 4-4M17 6h4v4"/>') } },
+  { id: "icon.motivation.target",        kind: "icon", category: "motivation", label: "Target / goal",
+    tags: ["goal", "target", "focus", "aim"], style: "outline", extraCategories: ["productivity"],
+    payload: { format: "svg", markup: icon("0 0 24 24",
+      '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5"/>') } },
+
+  // Illustrations.
+  { id: "illus.motivation.sunrise",      kind: "illustration", category: "motivation", label: "Sunrise over peaks",
+    tags: ["sunrise", "mountain", "horizon", "aspire"], aspectRatio: 2,
+    payload: { format: "svg", markup: illus("0 0 400 200",
+      '<defs><linearGradient id="msky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FDE68A"/><stop offset="1" stop-color="#FED7AA"/></linearGradient></defs>' +
+      '<rect width="400" height="200" fill="url(%23msky)"/>' +
+      '<circle cx="200" cy="140" r="40" fill="#F97316"/>' +
+      '<path d="M0 180 L90 100 L160 150 L230 80 L310 140 L400 110 V200 H0Z" fill="#7C2D12" opacity="0.92"/>' +
+      '<path d="M0 200 L120 140 L220 180 L320 150 L400 190 V200 H0Z" fill="#9A3412"/>') } },
+  { id: "illus.motivation.step-ladder",  kind: "illustration", category: "motivation", label: "Ascending steps",
+    tags: ["steps", "progress", "rise", "goal"], aspectRatio: 1.5,
+    payload: { format: "svg", markup: illus("0 0 300 200",
+      '<rect x="20" y="150" width="50" height="40" fill="#1E40AF"/>' +
+      '<rect x="75" y="120" width="50" height="70" fill="#2563EB"/>' +
+      '<rect x="130" y="90"  width="50" height="100" fill="#3B82F6"/>' +
+      '<rect x="185" y="60"  width="50" height="130" fill="#60A5FA"/>' +
+      '<rect x="240" y="30"  width="50" height="160" fill="#93C5FD"/>' +
+      '<path d="M40 170 L260 40 M260 40l-20 4 M260 40l-4 20" stroke="#F97316" stroke-width="4" fill="none" stroke-linecap="round"/>') } },
+
+  // Photos (stable Unsplash source).
+  { id: "photo.motivation.mountain",     kind: "photo", category: "motivation", label: "Mountain horizon (photo)",
+    tags: ["mountain", "peak", "nature", "aspire"], aspectRatio: 1.6,
+    payload: { format: "url", url: photo("mountain peak sunrise"), width: 1920, height: 1200 } },
+  { id: "photo.motivation.runner",       kind: "photo", category: "motivation", label: "Runner at dawn (photo)",
+    tags: ["run", "dawn", "effort", "rise"], aspectRatio: 1.6, extraCategories: ["fitness"],
+    payload: { format: "url", url: photo("runner at dawn silhouette"), width: 1920, height: 1200 } },
+
+  // Shapes.
+  { id: "shape.motivation.arrow-up",     kind: "shape", category: "motivation", label: "Upward chevron",
+    extraCategories: ["business"], tags: ["arrow", "up", "progress"], preferredColor: "#F97316",
+    payload: { format: "svg", markup: shape("0 0 120 200",
+      '<polygon fill="currentColor" points="60,10 110,90 80,90 80,190 40,190 40,90 10,90"/>') } },
+  { id: "shape.motivation.starburst-lg", kind: "shape", category: "motivation", label: "Achievement starburst",
+    extraCategories: ["marketing"], tags: ["burst", "star", "sparkle", "achievement"], preferredColor: "#F59E0B",
+    payload: { format: "svg", markup: shape("0 0 200 200",
+      '<polygon fill="currentColor" points="100,5 118,62 178,62 130,100 150,165 100,128 50,165 70,100 22,62 82,62"/>') } },
+
+  // Textures — unique motivation grain: diagonal stripes w/ low opacity.
+  { id: "texture.motivation.rise-lines", kind: "texture", category: "motivation", label: "Rise lines",
+    tags: ["lines", "rise", "motion"],
+    payload: { format: "pattern", tileSize: 28,
+      svg: tile(28,
+        '<path d="M-2 30 L30 -2" stroke="currentColor" stroke-opacity="0.25" stroke-width="1.2"/>' +
+        '<path d="M14 30 L30 14" stroke="currentColor" stroke-opacity="0.15" stroke-width="1.2"/>') } },
+
+  // Stickers.
+  { id: "sticker.motivation.fire",       kind: "sticker", category: "motivation", label: "On fire sticker",
+    tags: ["fire", "streak", "hot", "achievement"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="88" fill="#FDE68A" stroke="#DC2626" stroke-width="4"/>' +
+      '<path d="M100 50c10 18 18 28 18 44a18 18 0 11-36 0c0-8 3-12 6-16 0 10 4 14 8 14-3-10 0-22 4-42z" fill="#EA580C"/>' +
+      '<text x="100" y="170" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="22" font-weight="800" fill="#7C2D12">STREAK</text>') } },
+
+  // Badges.
+  { id: "badge.motivation.achievement",  kind: "badge", category: "motivation", label: "Achievement badge",
+    tags: ["achievement", "goal", "verified"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="92" fill="#1E3A8A" stroke="#FDE68A" stroke-width="4"/>' +
+      '<circle cx="100" cy="100" r="76" fill="none" stroke="#FDE68A" stroke-width="1" stroke-dasharray="3 6"/>' +
+      '<text x="100" y="95" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="18" font-weight="700" fill="#FDE68A" letter-spacing="2">GOAL</text>' +
+      '<text x="100" y="128" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="32" font-weight="800" fill="#FDE68A">ACHIEVED</text>') } },
+
+  // Ribbon.
+  { id: "ribbon.motivation.quote",       kind: "ribbon", category: "motivation", label: "Quote ribbon",
+    tags: ["quote", "banner", "title", "inspire"], aspectRatio: 6,
+    payload: { format: "svg", markup: art("0 0 600 100",
+      '<path fill="#1E3A8A" d="M10 25h580l-25 25 25 25H10l25-25z"/>' +
+      '<text x="300" y="62" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="30" font-weight="800" fill="#FDE68A" letter-spacing="4">INSPIRE</text>') } },
+
+  // Frame / divider.
+  { id: "frame.motivation.inset",        kind: "frame", category: "motivation", label: "Double-rule inspiration frame",
+    tags: ["frame", "inspire", "quote"], aspectRatio: 1.4,
+    payload: { format: "svg", markup: art("0 0 560 400",
+      '<rect width="560" height="400" fill="#FFFBEB"/>' +
+      '<rect x="20" y="20" width="520" height="360" fill="none" stroke="#1E3A8A" stroke-width="2"/>' +
+      '<rect x="30" y="30" width="500" height="340" fill="none" stroke="#F59E0B" stroke-width="1"/>') } },
+  { id: "divider.motivation.arrow-line", kind: "divider", category: "motivation", label: "Arrow-line divider",
+    tags: ["divider", "arrow", "progress"], aspectRatio: 10,
+    payload: { format: "svg", markup: art("0 0 500 50",
+      '<line x1="30" y1="25" x2="450" y2="25" stroke="#1E3A8A" stroke-width="2"/>' +
+      '<polygon points="450,15 470,25 450,35" fill="#F59E0B"/>') } },
+];
+
 // ── Public seed ───────────────────────────────────────────────────────────────
 
 export const ASSETS: readonly Asset[] = Object.freeze([
@@ -583,4 +747,7 @@ export const ASSETS: readonly Asset[] = Object.freeze([
   ...RIBBONS,
   ...FRAMES,
   ...DIVIDERS,
+  // Step 34 additions
+  ...FILLED_ICONS,
+  ...MOTIVATION_ASSETS,
 ]);

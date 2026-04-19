@@ -25,7 +25,15 @@ export type AssetCategory =
   | "fitness"
   | "beauty"
   | "travel"
-  | "marketing";
+  | "marketing"
+  | "motivation";  // Step 34: 9th bucket — motivational / inspirational quotes,
+                   // achievement, mindset, goal-setting content.
+
+// Icon style axis (Step 34). Primary icons now come in outline + filled
+// pairs so templates can choose a rendering that matches their visual
+// weight. Stickers / badges / ribbons / etc. stay stylistically unitary
+// and don't need a style axis — this field is optional.
+export type AssetStyle = "outline" | "filled" | "duotone";
 
 // How the asset's visual payload is delivered to a renderer.
 export type AssetPayload =
@@ -49,6 +57,9 @@ export interface Asset {
   aspectRatio?: number;
   // Preferred fill/tint color when the renderer is free to choose. Optional.
   preferredColor?: string;
+  // Visual weight of the asset — primarily used for icons (outline vs.
+  // filled). Other kinds can leave it unset. See AssetStyle for values.
+  style?:      AssetStyle;
   payload:     AssetPayload;
 }
 
@@ -57,6 +68,7 @@ export interface Asset {
 export interface AssetQuery {
   category?: AssetCategory;
   kind?:     AssetKind;
+  style?:    AssetStyle;     // outline / filled / duotone — icon-focused
   tags?:     string[];       // match if the asset has ANY of these tags
   limit?:    number;
 }

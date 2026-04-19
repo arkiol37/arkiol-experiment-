@@ -188,6 +188,27 @@ export const CATEGORY_PROFILES: Record<AssetCategory, CategoryProfile> = {
       icon: 1.1, texture: 1.0, divider: 1.0, frame: 1.0, photo: 1.0,
     },
   },
+
+  // Step 34: motivation — inspirational quotes, goals, mindset,
+  // achievement. Distinct from marketing (transactional) and wellness
+  // (calm). Bold typography + aspirational imagery + achievement badges.
+  motivation: {
+    category:      "motivation",
+    mood:          "Aspirational, bold, uplifting. Mountain peaks, sunrise, trophies, streak flames. Strong headline-first type.",
+    preferredTags: [
+      "motivation", "goal", "aspire", "mindset", "success", "achieve",
+      "trophy", "peak", "mountain", "sunrise", "streak", "flame",
+      "arrow", "bolt", "star", "quote", "win", "rise", "grow",
+    ],
+    avoidTags: [
+      "corporate", "briefcase", "sale", "discount", "floral", "bow",
+      "passport", "checker",
+    ],
+    kindBias: {
+      illustration: 1.4, badge: 1.3, icon: 1.2, ribbon: 1.1,
+      shape: 1.1, sticker: 1.1, texture: 1.0, frame: 1.0, divider: 1.0, photo: 1.1,
+    },
+  },
 };
 
 // ── Scoring ──────────────────────────────────────────────────────────────────
