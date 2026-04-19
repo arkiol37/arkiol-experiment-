@@ -193,9 +193,11 @@ export function buildCompositionPlan(
   // the content plane so the foreground reads as foreground without every
   // mid-tier element having to fight for contrast on its own. Image-wash
   // treatments use the stronger flavor because dim photos need extra
-  // separation; dark color moods invert to a lifted-edge highlight so the
-  // vignette doesn't crush already-dark surfaces.
-  const isDarkMood   = brief.colorMood === "dark" || brief.colorMood === "luxury";
+  // separation; dark surfaces invert to a lifted-edge highlight so the
+  // vignette doesn't crush already-dark designs. "Dark" lives on the
+  // colorMood axis; "luxury" lives on the tone axis — both signal a
+  // surface that should be lifted with white rather than dimmed further.
+  const isDarkMood   = brief.colorMood === "dark" || brief.tone === "luxury";
   const sepFlavor    = treatment.kind === "subtle-image-wash" ? "strong" : "subtle";
   const sepColor     = isDarkMood ? "#FFFFFF" : "#000000";
   const sepLayer     = buildDepthSeparationLayer(sepFlavor, sepColor);
