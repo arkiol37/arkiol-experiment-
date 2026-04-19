@@ -410,6 +410,25 @@ function mapKindToElementType(
       if (!activeZones.includes("image")) return null;
       if (usedTypes.has("human") || usedTypes.has("object")) return null;
       return "object";
+    case "sticker":
+    case "badge":
+      // Stickers and badges are labeled marker assets — always land in the
+      // badge zone when one is available.
+      return activeZones.includes("badge") && !usedTypes.has("badge")
+        ? "badge"
+        : null;
+    case "ribbon":
+    case "divider":
+      // Ribbons and dividers are header/section accents. Prefer an accent-
+      // style zone (badge / logo) to sit at the top or between blocks.
+      if (activeZones.includes("badge") && !usedTypes.has("badge")) return "badge";
+      if (activeZones.includes("logo")  && !usedTypes.has("logo"))  return "logo";
+      return null;
+    case "frame":
+      // Framed cards wrap content and live behind text blocks — treat like
+      // a soft atmospheric overlay when no image zone is available.
+      if (activeZones.includes("image") && !usedTypes.has("human") && !usedTypes.has("object")) return "object";
+      return !usedTypes.has("atmospheric") ? "atmospheric" : null;
     default:
       return null;
   }
@@ -466,6 +485,11 @@ function roleForLibraryKind(kind: AssetKind): AssetRole {
     case "photo":        return "support";
     case "icon":         return "icon-group";
     case "shape":        return "divider";
+    case "sticker":      return "accent";
+    case "badge":        return "accent";
+    case "ribbon":       return "divider";
+    case "frame":        return "support";
+    case "divider":      return "divider";
   }
 }
 

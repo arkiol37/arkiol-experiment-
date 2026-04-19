@@ -9,8 +9,13 @@ export type AssetKind =
   | "icon"          // Small single-color or two-tone pictogram
   | "illustration"  // Multi-element decorative vector artwork
   | "photo"         // Raster photographic reference (URL)
-  | "shape"         // Decorative vector shape (blob, burst, ribbon, etc.)
-  | "texture";      // Repeatable background pattern / surface
+  | "shape"         // Decorative vector shape (blob, burst, freeform accent)
+  | "texture"       // Repeatable background pattern / surface
+  | "sticker"       // Playful polychrome mini-graphic with its own palette
+  | "badge"         // Emblem / seal — a labeled marker (NEW, SALE, circle tag)
+  | "ribbon"        // Title ribbon / banner — for headers and callouts
+  | "frame"         // Framed container — artwork that wraps a content block
+  | "divider";      // Between-section ornamental separator
 
 export type AssetCategory =
   | "productivity"

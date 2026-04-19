@@ -22,6 +22,11 @@ const illus = (viewBox: string, body: string): string =>
 const shape = (viewBox: string, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${body}</svg>`;
 
+// Stickers/badges/ribbons/frames/dividers use full-color SVG (not currentColor)
+// so they remain recognizable when dropped into any surrounding design.
+const art = (viewBox: string, body: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}">${body}</svg>`;
+
 const tile = (size: number, body: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${body}</svg>`;
 
@@ -96,6 +101,16 @@ const ICONS: Asset[] = [
     payload: { format: "svg", markup: icon("0 0 24 24", '<path d="M3 12V4h8l10 10-8 8-10-10z"/><circle cx="8" cy="8" r="1.5"/>') } },
   { id: "icon.marketing.spark",      kind: "icon", category: "marketing", label: "New spark",        tags: ["new", "launch", "idea"],
     payload: { format: "svg", markup: icon("0 0 24 24", '<path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3"/>') } },
+
+  // universal / multi-category
+  { id: "icon.common.star",          kind: "icon", category: "marketing", extraCategories: ["beauty", "fitness"], label: "Star",         tags: ["star", "rating", "favorite"],
+    payload: { format: "svg", markup: icon("0 0 24 24", '<path d="M12 3l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z"/>') } },
+  { id: "icon.common.arrow",         kind: "icon", category: "business", extraCategories: ["productivity", "marketing"], label: "Arrow right", tags: ["arrow", "direction", "cta"],
+    payload: { format: "svg", markup: icon("0 0 24 24", '<path d="M4 12h15M14 6l6 6-6 6"/>') } },
+  { id: "icon.common.location",      kind: "icon", category: "travel", extraCategories: ["business"], label: "Globe",   tags: ["globe", "world", "explore"],
+    payload: { format: "svg", markup: icon("0 0 24 24", '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>') } },
+  { id: "icon.common.calendar",      kind: "icon", category: "productivity", extraCategories: ["business", "education"], label: "Calendar", tags: ["calendar", "event", "schedule"],
+    payload: { format: "svg", markup: icon("0 0 24 24", '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>') } },
 ];
 
 // ── Illustrations ─────────────────────────────────────────────────────────────
@@ -286,6 +301,275 @@ const TEXTURES: Asset[] = [
         '<rect x="26" y="28" width="3" height="8" fill="#34D399" transform="rotate(-20 27 32)"/>') } },
 ];
 
+// ── Stickers ──────────────────────────────────────────────────────────────────
+// Polychrome, full-color mini-graphics that read like laptop stickers. Always
+// drop-in ready — own palette, own outline, no currentColor dependency.
+
+const STICKERS: Asset[] = [
+  { id: "sticker.productivity.done",     kind: "sticker", category: "productivity", label: "Done! sticker",
+    tags: ["done", "complete", "celebrate"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="86" fill="#22C55E" stroke="#14532D" stroke-width="4"/>' +
+      '<path d="M60 102 L92 132 L146 74" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>') } },
+
+  { id: "sticker.wellness.balance",      kind: "sticker", category: "wellness", label: "Balance stones",
+    tags: ["calm", "zen", "balance"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<ellipse cx="100" cy="160" rx="70" ry="12" fill="#1F2937" opacity="0.15"/>' +
+      '<ellipse cx="100" cy="150" rx="60" ry="14" fill="#475569"/>' +
+      '<ellipse cx="100" cy="122" rx="44" ry="12" fill="#64748B"/>' +
+      '<ellipse cx="100" cy="98"  rx="32" ry="10" fill="#94A3B8"/>' +
+      '<ellipse cx="100" cy="78"  rx="22" ry="8"  fill="#CBD5E1"/>') } },
+
+  { id: "sticker.education.bookworm",    kind: "sticker", category: "education", label: "Bookworm",
+    tags: ["book", "learn", "fun"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<rect x="30" y="60" width="140" height="90" rx="8" fill="#F59E0B" stroke="#78350F" stroke-width="4"/>' +
+      '<rect x="40" y="60" width="4"   height="90" fill="#78350F"/>' +
+      '<rect x="156" y="60" width="4"  height="90" fill="#78350F"/>' +
+      '<circle cx="100" cy="50" r="24" fill="#34D399" stroke="#065F46" stroke-width="4"/>' +
+      '<circle cx="93"  cy="45" r="3"  fill="#065F46"/>' +
+      '<circle cx="108" cy="45" r="3"  fill="#065F46"/>' +
+      '<path d="M90 55 Q100 62 110 55" stroke="#065F46" stroke-width="3" fill="none" stroke-linecap="round"/>') } },
+
+  { id: "sticker.business.trophy",       kind: "sticker", category: "business", label: "Trophy",
+    tags: ["win", "award", "success"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<path d="M60 40h80v40a40 40 0 01-80 0z" fill="#FACC15" stroke="#78350F" stroke-width="4"/>' +
+      '<path d="M60 55c-18 0-22-10-22-22h22M140 55c18 0 22-10 22-22h-22" fill="none" stroke="#78350F" stroke-width="4"/>' +
+      '<rect x="84" y="120" width="32" height="20" fill="#FACC15" stroke="#78350F" stroke-width="4"/>' +
+      '<rect x="60" y="140" width="80" height="16" rx="4" fill="#78350F"/>') } },
+
+  { id: "sticker.fitness.flame",         kind: "sticker", category: "fitness", label: "Fire flame",
+    tags: ["energy", "hot", "streak"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<path d="M100 20 C150 70 160 110 130 150 C120 165 80 165 70 150 C40 110 60 80 100 20Z" fill="#EF4444" stroke="#7F1D1D" stroke-width="4"/>' +
+      '<path d="M100 70 C120 100 125 125 110 145 C105 152 95 152 90 145 C78 125 88 100 100 70Z" fill="#FBBF24"/>') } },
+
+  { id: "sticker.beauty.kiss",           kind: "sticker", category: "beauty", label: "Lips",
+    tags: ["lips", "glam", "beauty"], aspectRatio: 1.4,
+    payload: { format: "svg", markup: art("0 0 280 200",
+      '<path d="M20 100 C50 40 110 40 140 90 C170 40 230 40 260 100 C230 170 170 180 140 140 C110 180 50 170 20 100Z" fill="#EC4899" stroke="#831843" stroke-width="4"/>' +
+      '<path d="M140 90 V140" stroke="#831843" stroke-width="3"/>') } },
+
+  { id: "sticker.travel.passport",       kind: "sticker", category: "travel", label: "Passport stamp",
+    tags: ["stamp", "travel", "explore"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="82" fill="none" stroke="#2563EB" stroke-width="6"/>' +
+      '<circle cx="100" cy="100" r="66" fill="none" stroke="#2563EB" stroke-width="2" stroke-dasharray="4 4"/>' +
+      '<text x="100" y="90"  text-anchor="middle" font-family="Impact, sans-serif" font-size="24" fill="#2563EB">EXPLORE</text>' +
+      '<path d="M40 110 L160 110" stroke="#2563EB" stroke-width="2"/>' +
+      '<text x="100" y="135" text-anchor="middle" font-family="Impact, sans-serif" font-size="16" fill="#2563EB">GLOBAL · 2026</text>') } },
+
+  { id: "sticker.marketing.bang",        kind: "sticker", category: "marketing", label: "Comic bang",
+    tags: ["bang", "pop", "promo"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<polygon fill="#F59E0B" stroke="#7C2D12" stroke-width="4" points="100,10 118,55 168,40 138,82 190,95 138,118 168,160 118,145 100,190 82,145 32,160 62,118 10,105 62,82 32,40 82,55"/>' +
+      '<text x="100" y="115" text-anchor="middle" font-family="Impact, sans-serif" font-size="38" fill="#FFFFFF" stroke="#7C2D12" stroke-width="2">WOW!</text>') } },
+];
+
+// ── Badges ────────────────────────────────────────────────────────────────────
+// Scalable emblems / seals. Each reads as a labeled marker.
+
+const BADGES: Asset[] = [
+  { id: "badge.marketing.new",           kind: "badge", category: "marketing", label: "NEW badge",
+    tags: ["new", "launch", "emphasis"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="88" fill="#EF4444"/>' +
+      '<circle cx="100" cy="100" r="72" fill="none" stroke="#FFFFFF" stroke-width="3"/>' +
+      '<text x="100" y="118" text-anchor="middle" font-family="Impact, sans-serif" font-size="60" fill="#FFFFFF">NEW</text>') } },
+
+  { id: "badge.marketing.sale",          kind: "badge", category: "marketing", label: "SALE starburst",
+    tags: ["sale", "offer", "discount", "burst"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<polygon fill="#F97316" points="100,4 114,40 152,24 144,64 184,72 152,98 184,128 144,136 152,176 114,160 100,196 86,160 48,176 56,136 16,128 48,98 16,72 56,64 48,24 86,40"/>' +
+      '<text x="100" y="118" text-anchor="middle" font-family="Impact, sans-serif" font-size="48" fill="#FFFFFF">SALE</text>') } },
+
+  { id: "badge.marketing.percent",       kind: "badge", category: "marketing", label: "-50% off",
+    tags: ["discount", "percent", "offer"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="88" fill="#111827"/>' +
+      '<text x="100" y="92"  text-anchor="middle" font-family="Inter, sans-serif" font-size="24" font-weight="700" fill="#F59E0B">SAVE</text>' +
+      '<text x="100" y="142" text-anchor="middle" font-family="Impact, sans-serif" font-size="64" fill="#FFFFFF">50%</text>') } },
+
+  { id: "badge.business.verified",       kind: "badge", category: "business", label: "Verified seal",
+    tags: ["verified", "trust", "seal"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<polygon fill="#2563EB" points="100,10 128,32 164,28 172,64 196,90 180,122 190,158 156,168 140,198 100,186 60,198 44,168 10,158 20,122 4,90 28,64 36,28 72,32"/>' +
+      '<path d="M60 102 L90 132 L146 76" fill="none" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>') } },
+
+  { id: "badge.business.premium",        kind: "badge", category: "business", label: "Premium",
+    tags: ["premium", "gold", "quality"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<circle cx="100" cy="100" r="88" fill="#111827" stroke="#F59E0B" stroke-width="4"/>' +
+      '<circle cx="100" cy="100" r="72" fill="none" stroke="#F59E0B" stroke-width="2"/>' +
+      '<path d="M64 92 L100 68 L136 92 L122 132 H78z" fill="#F59E0B"/>' +
+      '<text x="100" y="156" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="#F59E0B" letter-spacing="2">PREMIUM</text>') } },
+
+  { id: "badge.fitness.level",           kind: "badge", category: "fitness", label: "Level up",
+    tags: ["level", "achievement", "gym"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<polygon fill="#DC2626" points="100,8 184,60 184,140 100,192 16,140 16,60"/>' +
+      '<polygon fill="#FBBF24" points="100,28 166,70 166,130 100,172 34,130 34,70"/>' +
+      '<path d="M70 120 L100 60 L130 120 L100 100Z" fill="#7F1D1D"/>') } },
+
+  { id: "badge.beauty.award",            kind: "badge", category: "beauty", label: "Beauty award",
+    tags: ["award", "winner", "quality"], aspectRatio: 0.9,
+    payload: { format: "svg", markup: art("0 0 180 200",
+      '<path d="M90 10 L170 50 L150 130 L90 190 L30 130 L10 50Z" fill="#DB2777"/>' +
+      '<circle cx="90" cy="80" r="46" fill="#FCE7F3" stroke="#831843" stroke-width="3"/>' +
+      '<text x="90"  y="86"  text-anchor="middle" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="#831843">BEST</text>' +
+      '<text x="90"  y="104" text-anchor="middle" font-family="Inter, sans-serif" font-size="10" fill="#831843">2026</text>' +
+      '<path d="M60 130 L40 190 L90 170 L140 190 L120 130Z" fill="#F472B6" stroke="#831843" stroke-width="2"/>') } },
+
+  { id: "badge.travel.stamp",            kind: "badge", category: "travel", label: "Destination stamp",
+    tags: ["stamp", "passport", "arrived"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<polygon fill="none" stroke="#059669" stroke-width="5" points="30,30 170,30 170,170 30,170" transform="rotate(-6 100 100)"/>' +
+      '<text x="100" y="94"  text-anchor="middle" font-family="Impact, sans-serif" font-size="24" fill="#059669" transform="rotate(-6 100 100)">ARRIVED</text>' +
+      '<text x="100" y="126" text-anchor="middle" font-family="Impact, sans-serif" font-size="16" fill="#059669" transform="rotate(-6 100 100)">AT THE TOP</text>') } },
+];
+
+// ── Ribbons ───────────────────────────────────────────────────────────────────
+// Title ribbons and banner streamers for section headers and callouts.
+
+const RIBBONS: Asset[] = [
+  { id: "ribbon.classic.flat",           kind: "ribbon", category: "business", extraCategories: ["education", "marketing"],
+    label: "Flat banner ribbon", tags: ["banner", "title", "ribbon"], aspectRatio: 4,
+    payload: { format: "svg", markup: art("0 0 400 100",
+      '<path fill="#2563EB" d="M40 20 H360 L340 50 L360 80 H40 L60 50Z"/>' +
+      '<path fill="#1E40AF" d="M0 30 L40 20 L60 50 L40 80 L0 70Z"/>' +
+      '<path fill="#1E40AF" d="M400 30 L360 20 L340 50 L360 80 L400 70Z"/>') } },
+
+  { id: "ribbon.pennant.twin",           kind: "ribbon", category: "marketing", extraCategories: ["fitness"],
+    label: "Twin pennant", tags: ["pennant", "flag", "celebrate"], aspectRatio: 4,
+    payload: { format: "svg", markup: art("0 0 400 100",
+      '<path fill="#F97316" d="M20 20 H200 L180 50 L200 80 H20 L40 50Z"/>' +
+      '<path fill="#EA580C" d="M0 30 L20 20 L40 50 L20 80 L0 70Z"/>' +
+      '<path fill="#FACC15" d="M220 20 H380 L400 50 L380 80 H220 L240 50Z"/>' +
+      '<path fill="#EAB308" d="M220 20 L200 50 L220 80 L240 50Z"/>') } },
+
+  { id: "ribbon.vintage.scroll",         kind: "ribbon", category: "education", extraCategories: ["beauty"],
+    label: "Vintage scroll", tags: ["scroll", "vintage", "award"], aspectRatio: 4,
+    payload: { format: "svg", markup: art("0 0 400 100",
+      '<path fill="#92400E" d="M40 30 Q200 10 360 30 L360 70 Q200 90 40 70Z"/>' +
+      '<path fill="#B45309" d="M40 30 Q200 14 360 30 L360 38 Q200 22 40 38Z"/>' +
+      '<path fill="#78350F" d="M0 30 L40 30 L50 50 L40 70 L0 70 L15 50Z"/>' +
+      '<path fill="#78350F" d="M400 30 L360 30 L350 50 L360 70 L400 70 L385 50Z"/>') } },
+
+  { id: "ribbon.celebrate.award",        kind: "ribbon", category: "marketing", extraCategories: ["business"],
+    label: "Award streamer", tags: ["award", "winner", "best"], aspectRatio: 2,
+    payload: { format: "svg", markup: art("0 0 300 150",
+      '<circle cx="150" cy="60" r="46" fill="#F59E0B" stroke="#78350F" stroke-width="3"/>' +
+      '<circle cx="150" cy="60" r="34" fill="none" stroke="#FFFFFF" stroke-width="2"/>' +
+      '<text x="150" y="66" text-anchor="middle" font-family="Inter, sans-serif" font-weight="700" font-size="14" fill="#FFFFFF">BEST</text>' +
+      '<path d="M120 100 L100 150 L140 130 L150 145 L160 130 L200 150 L180 100Z" fill="#DC2626"/>') } },
+
+  { id: "ribbon.bow.tied",               kind: "ribbon", category: "beauty", extraCategories: ["marketing"],
+    label: "Tied bow", tags: ["bow", "gift", "wrapped"], aspectRatio: 2,
+    payload: { format: "svg", markup: art("0 0 200 100",
+      '<path d="M100 50 Q60 20 30 30 Q20 50 30 70 Q60 80 100 50Z" fill="#EC4899"/>' +
+      '<path d="M100 50 Q140 20 170 30 Q180 50 170 70 Q140 80 100 50Z" fill="#EC4899"/>' +
+      '<rect x="90" y="40" width="20" height="30" rx="4" fill="#BE185D"/>') } },
+
+  { id: "ribbon.tag.sale",               kind: "ribbon", category: "marketing", extraCategories: ["fitness"],
+    label: "Sale price tag", tags: ["sale", "tag", "offer"], aspectRatio: 2.5,
+    payload: { format: "svg", markup: art("0 0 250 100",
+      '<path fill="#EF4444" d="M40 10 H230 L240 50 L230 90 H40 L20 50Z"/>' +
+      '<circle cx="40" cy="50" r="8" fill="#FFFFFF"/>' +
+      '<text x="140" y="60" text-anchor="middle" font-family="Impact, sans-serif" font-size="36" fill="#FFFFFF">SALE</text>') } },
+];
+
+// ── Frames ────────────────────────────────────────────────────────────────────
+// Framed container artwork — artworks that wrap a content block. Designed to
+// sit behind text/image blocks with a transparent interior so content shows.
+
+const FRAMES: Asset[] = [
+  { id: "frame.card.rounded",            kind: "frame", category: "productivity", extraCategories: ["business", "education"],
+    label: "Rounded card", tags: ["card", "container", "clean"], aspectRatio: 1.5,
+    payload: { format: "svg", markup: art("0 0 300 200",
+      '<rect x="8" y="12" width="284" height="184" rx="18" fill="#000000" opacity="0.08"/>' +
+      '<rect x="4" y="4"  width="284" height="184" rx="18" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="2"/>') } },
+
+  { id: "frame.card.accent-bar",         kind: "frame", category: "business", extraCategories: ["marketing"],
+    label: "Accent-bar card", tags: ["card", "accent", "bar"], aspectRatio: 1.5,
+    payload: { format: "svg", markup: art("0 0 300 200",
+      '<rect x="0" y="0" width="300" height="200" rx="12" fill="#FFFFFF" stroke="#1F2937" stroke-width="2"/>' +
+      '<rect x="0" y="0" width="12" height="200" fill="#2563EB"/>') } },
+
+  { id: "frame.polaroid",                kind: "frame", category: "travel", extraCategories: ["beauty"],
+    label: "Polaroid frame", tags: ["polaroid", "photo", "memory"], aspectRatio: 0.9,
+    payload: { format: "svg", markup: art("0 0 200 220",
+      '<rect x="6" y="10" width="188" height="200" fill="#000000" opacity="0.1"/>' +
+      '<rect x="0" y="0"  width="188" height="200" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="2"/>' +
+      '<rect x="14" y="14" width="160" height="140" fill="#DBEAFE"/>') } },
+
+  { id: "frame.ornate.double",           kind: "frame", category: "beauty", extraCategories: ["education"],
+    label: "Ornate double frame", tags: ["ornate", "elegant", "frame"], aspectRatio: 1.4,
+    payload: { format: "svg", markup: art("0 0 280 200",
+      '<rect x="10" y="10" width="260" height="180" fill="none" stroke="#B45309" stroke-width="5"/>' +
+      '<rect x="22" y="22" width="236" height="156" fill="none" stroke="#B45309" stroke-width="2"/>' +
+      '<circle cx="22" cy="22" r="4" fill="#B45309"/>' +
+      '<circle cx="258" cy="22" r="4" fill="#B45309"/>' +
+      '<circle cx="22" cy="178" r="4" fill="#B45309"/>' +
+      '<circle cx="258" cy="178" r="4" fill="#B45309"/>') } },
+
+  { id: "frame.tape.casual",             kind: "frame", category: "education", extraCategories: ["productivity", "beauty"],
+    label: "Taped note", tags: ["tape", "note", "casual"], aspectRatio: 1,
+    payload: { format: "svg", markup: art("0 0 200 200",
+      '<rect x="10" y="10" width="180" height="180" fill="#FEF3C7" stroke="#D97706" stroke-opacity="0.2" stroke-width="1"/>' +
+      '<rect x="70" y="-6" width="60" height="20" fill="#FDE68A" opacity="0.8" transform="rotate(-6 100 0)"/>') } },
+
+  { id: "frame.cinematic.bars",          kind: "frame", category: "marketing", extraCategories: ["travel"],
+    label: "Cinematic bars", tags: ["cinematic", "widescreen", "film"], aspectRatio: 2.2,
+    payload: { format: "svg", markup: art("0 0 440 200",
+      '<rect x="0" y="0"    width="440" height="30"  fill="#111827"/>' +
+      '<rect x="0" y="170"  width="440" height="30"  fill="#111827"/>') } },
+];
+
+// ── Dividers ──────────────────────────────────────────────────────────────────
+// Ornamental separators that sit between content sections.
+
+const DIVIDERS: Asset[] = [
+  { id: "divider.dots.spaced",           kind: "divider", category: "productivity", extraCategories: ["business"],
+    label: "Spaced dots", tags: ["dots", "minimal", "divider"], aspectRatio: 8,
+    payload: { format: "svg", markup: art("0 0 400 50",
+      '<circle cx="160" cy="25" r="3" fill="#9CA3AF"/>' +
+      '<circle cx="200" cy="25" r="3" fill="#9CA3AF"/>' +
+      '<circle cx="240" cy="25" r="3" fill="#9CA3AF"/>') } },
+
+  { id: "divider.wave.flow",             kind: "divider", category: "wellness", extraCategories: ["travel"],
+    label: "Flowing wave", tags: ["wave", "soft", "divider"], aspectRatio: 8,
+    payload: { format: "svg", markup: art("0 0 400 50",
+      '<path d="M0 25 Q50 5 100 25 T200 25 T300 25 T400 25" fill="none" stroke="#60A5FA" stroke-width="2.5"/>') } },
+
+  { id: "divider.ornate.floral",         kind: "divider", category: "beauty", extraCategories: ["education"],
+    label: "Ornate floral", tags: ["ornate", "floral", "elegant"], aspectRatio: 6,
+    payload: { format: "svg", markup: art("0 0 300 50",
+      '<path d="M20 25 H130" stroke="#B45309" stroke-width="1.5"/>' +
+      '<path d="M170 25 H280" stroke="#B45309" stroke-width="1.5"/>' +
+      '<path d="M150 10 C140 18 140 32 150 40 C160 32 160 18 150 10Z" fill="#B45309"/>' +
+      '<circle cx="130" cy="25" r="2" fill="#B45309"/>' +
+      '<circle cx="170" cy="25" r="2" fill="#B45309"/>') } },
+
+  { id: "divider.arrow.section",         kind: "divider", category: "marketing", extraCategories: ["business"],
+    label: "Arrow section break", tags: ["arrow", "cta", "break"], aspectRatio: 8,
+    payload: { format: "svg", markup: art("0 0 400 50",
+      '<line x1="20"  y1="25" x2="180" y2="25" stroke="#111827" stroke-width="2"/>' +
+      '<line x1="220" y1="25" x2="380" y2="25" stroke="#111827" stroke-width="2"/>' +
+      '<polygon points="190,15 210,25 190,35" fill="#F97316"/>') } },
+
+  { id: "divider.zigzag.fun",            kind: "divider", category: "fitness", extraCategories: ["marketing"],
+    label: "Zigzag line", tags: ["zigzag", "energy", "playful"], aspectRatio: 8,
+    payload: { format: "svg", markup: art("0 0 400 50",
+      '<polyline fill="none" stroke="#DC2626" stroke-width="3" stroke-linejoin="round" points="20,30 60,20 100,30 140,20 180,30 220,20 260,30 300,20 340,30 380,20"/>') } },
+
+  { id: "divider.line.minimal",          kind: "divider", category: "business", extraCategories: ["productivity", "education"],
+    label: "Minimal hairline", tags: ["line", "minimal", "hairline"], aspectRatio: 10,
+    payload: { format: "svg", markup: art("0 0 500 50",
+      '<line x1="60" y1="25" x2="440" y2="25" stroke="#6B7280" stroke-width="1"/>') } },
+];
+
 // ── Public seed ───────────────────────────────────────────────────────────────
 
 export const ASSETS: readonly Asset[] = Object.freeze([
@@ -294,4 +578,9 @@ export const ASSETS: readonly Asset[] = Object.freeze([
   ...PHOTOS,
   ...SHAPES,
   ...TEXTURES,
+  ...STICKERS,
+  ...BADGES,
+  ...RIBBONS,
+  ...FRAMES,
+  ...DIVIDERS,
 ]);

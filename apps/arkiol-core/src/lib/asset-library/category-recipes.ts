@@ -42,6 +42,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["task", "done", "list", "time", "plan"]   },
       { kind: "shape",        count: 1, tags: ["arrow", "dot", "minimal", "cta"]         },
       { kind: "texture",      count: 1, tags: ["dots", "grid", "minimal"]                },
+      { kind: "frame",        count: 1, tags: ["card", "container", "clean"]             },
+      { kind: "divider",      count: 1, tags: ["minimal", "dots", "hairline"]            },
     ],
   },
 
@@ -53,6 +55,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["calm", "nature", "mindful", "health"]    },
       { kind: "shape",        count: 1, tags: ["blob", "organic", "wave", "soft"]        },
       { kind: "texture",      count: 1, tags: ["grain", "paper", "soft", "waves"]        },
+      { kind: "sticker",      count: 1, tags: ["calm", "zen", "balance"]                 },
+      { kind: "divider",      count: 1, tags: ["wave", "soft", "flow"]                   },
     ],
   },
 
@@ -64,6 +68,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["learn", "read", "study", "idea"]         },
       { kind: "shape",        count: 1, tags: ["ribbon", "banner", "title"]              },
       { kind: "texture",      count: 1, tags: ["grain", "dots", "paper"]                 },
+      { kind: "ribbon",       count: 1, tags: ["scroll", "banner", "title"]              },
+      { kind: "frame",        count: 1, tags: ["note", "tape", "casual", "card"]         },
     ],
   },
 
@@ -75,6 +81,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["growth", "data", "deal", "work"]         },
       { kind: "shape",        count: 1, tags: ["arrow", "ribbon", "cta"]                 },
       { kind: "texture",      count: 1, tags: ["lines", "structure", "formal"]           },
+      { kind: "badge",        count: 1, tags: ["verified", "premium", "seal"]            },
+      { kind: "frame",        count: 1, tags: ["card", "accent", "bar"]                  },
     ],
   },
 
@@ -86,6 +94,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["energy", "power", "gym", "run", "fast"]  },
       { kind: "shape",        count: 1, tags: ["burst", "attention", "pennant"]          },
       { kind: "texture",      count: 1, tags: ["checker", "retro", "playful"]            },
+      { kind: "sticker",      count: 1, tags: ["energy", "hot", "streak"]                },
+      { kind: "badge",        count: 1, tags: ["level", "achievement"]                   },
     ],
   },
 
@@ -97,6 +107,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["glow", "floral", "skincare", "soft"]     },
       { kind: "shape",        count: 1, tags: ["sparkle", "shine", "soft", "blob"]       },
       { kind: "texture",      count: 1, tags: ["confetti", "grain", "soft"]              },
+      { kind: "ribbon",       count: 1, tags: ["bow", "gift", "elegant"]                 },
+      { kind: "frame",        count: 1, tags: ["ornate", "elegant", "polaroid"]          },
     ],
   },
 
@@ -108,6 +120,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["explore", "journey", "map", "adventure"] },
       { kind: "shape",        count: 1, tags: ["pennant", "wave", "divider"]             },
       { kind: "texture",      count: 1, tags: ["waves", "flow", "grain"]                 },
+      { kind: "sticker",      count: 1, tags: ["stamp", "passport", "explore"]           },
+      { kind: "frame",        count: 1, tags: ["polaroid", "memory", "photo"]            },
     ],
   },
 
@@ -119,6 +133,8 @@ export const CATEGORY_RECIPES: Record<AssetCategory, CategoryRecipe> = {
       { kind: "icon",         count: 2, tags: ["announce", "launch", "sale", "new"]      },
       { kind: "shape",        count: 1, tags: ["burst", "attention", "arrow", "cta"]     },
       { kind: "texture",      count: 1, tags: ["confetti", "checker", "dots"]            },
+      { kind: "badge",        count: 1, tags: ["new", "sale", "offer", "burst"]          },
+      { kind: "ribbon",       count: 1, tags: ["tag", "sale", "banner"]                  },
     ],
   },
 };

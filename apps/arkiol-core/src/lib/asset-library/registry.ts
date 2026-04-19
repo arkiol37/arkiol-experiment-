@@ -19,6 +19,7 @@ export const ASSET_CATEGORIES: readonly AssetCategory[] = Object.freeze([
 
 export const ASSET_KINDS: readonly AssetKind[] = Object.freeze([
   "icon", "illustration", "photo", "shape", "texture",
+  "sticker", "badge", "ribbon", "frame", "divider",
 ]);
 
 // ── Lazy indexes ──────────────────────────────────────────────────────────────
