@@ -8,3 +8,11 @@ export {
   type HierarchyViolation,
   type HierarchyResult,
 } from "./enforcer";
+
+export {
+  enforceStrictTypographyHierarchy,
+  getZoneTier,
+  type TypographyItem,
+  type HierarchyAdjustment,
+  type StrictHierarchyResult,
+} from "./strict-typography";

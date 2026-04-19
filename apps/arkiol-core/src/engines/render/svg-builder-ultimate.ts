@@ -23,6 +23,7 @@ import { detectCategoryPack, type CategoryStylePack } from "../style/category-st
 import { getCategoryKit, mergeKitDecorations } from "../style/category-template-kits";
 import { renderDecorations, buildBackgroundDefs, renderMeshOverlay } from "./svg-decorations";
 import { buildSectionFrames } from "./section-frames";
+import { enforceStrictTypographyHierarchy, type TypographyItem } from "../hierarchy/strict-typography";
 import { enrichDecorations } from "./decoration-intelligence";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { analyzeStyleIntent, deriveStyleDirective, applyStyleDirective } from "../style/style-intelligence";
@@ -79,7 +80,7 @@ export function getSvgContentCacheStats() {
 export interface SvgContent {
   backgroundColor: string;
   backgroundGradient?: { type: "linear" | "radial" | "none"; colors: string[]; angle?: number };
-  textContents: Array<{ zoneId: string; text: string; fontSize: number; weight: number; color: string; fontFamily: string; }>;
+  textContents: Array<{ zoneId: string; text: string; fontSize: number; weight: number; color: string; fontFamily: string; letterSpacing?: number; textTransform?: "uppercase" | "none"; }>;
   ctaStyle?: { backgroundColor: string; textColor: string; borderRadius: number; paddingH: number; paddingV: number; shadow?: boolean; };
   overlayOpacity?: number;
   overlayColor?: string;
@@ -374,7 +375,7 @@ export async function buildUltimateSvgContent(
   else if ((brief.body ?? "").length > 240 || (brief.subhead ?? "").length > 110) _briefHierarchy = "detail";
   else if (brief.cta && ((brief.cta ?? "").length <= 16 || _briefUrgency > 0.7)) _briefHierarchy = "cta";
 
-  const textContents = zones
+  const rawTextContents: TypographyItem[] = zones
     .filter(z => !["background","image","accent"].includes(z.id))
     .flatMap(zone => {
       const text = textMap.get(zone.id) as string | undefined;
@@ -383,8 +384,19 @@ export async function buildUltimateSvgContent(
       if (!zt) return [];
       const hint: FontSizeHint = { charCount: text.trim().length, urgency: _briefUrgency, hierarchyBias: _briefHierarchy };
       const fontSize = targetFontSize(zone, zone.id as ZoneId, dims.height, hMult, hint, zt.fontSizeMultiplier);
-      return [{ zoneId:zone.id, text:text.trim(), fontSize, weight:zt.fontWeight, color:zt.color, fontFamily:zt.fontFamily as string }];
+      return [{
+        zoneId: zone.id, text: text.trim(), fontSize,
+        weight: zt.fontWeight, color: zt.color, fontFamily: zt.fontFamily as string,
+        letterSpacing: zt.letterSpacing,
+        textTransform: zt.textTransform as ("uppercase" | "none" | undefined),
+      }];
     });
+
+  const strict = enforceStrictTypographyHierarchy(rawTextContents, zones);
+  const textContents = strict.items;
+  for (const adj of strict.adjustments) {
+    violations.push(`hierarchy:${adj.field}:${adj.zoneId}:${adj.from}→${adj.to}(${adj.reason})`);
+  }
 
   const {primaryBgColor, gradient} = extractBgFromTheme(theme);
 
@@ -616,8 +628,10 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
     const yp  = getSvgLineYPositions(m);
     const fs  = getFontStack(tc.fontFamily);
     const ws  = tc.weight >= 700 ? "bold" : tc.weight >= 600 ? "600" : "normal";
-    const ls  = zt?.letterSpacing ? ` letter-spacing="${(zt.letterSpacing * m.fontSize).toFixed(2)}"` : "";
-    const pl  = (l: string) => zt?.textTransform === "uppercase" ? l.toUpperCase() : l;
+    const lsVal = tc.letterSpacing ?? zt?.letterSpacing;
+    const ls  = lsVal ? ` letter-spacing="${(lsVal * m.fontSize).toFixed(2)}"` : "";
+    const tt  = tc.textTransform ?? zt?.textTransform;
+    const pl  = (l: string) => tt === "uppercase" ? l.toUpperCase() : l;
     // Text shadow only on headline when sitting over image
     const fa  = (tc.zoneId === "headline" && hasImg && (content.overlayOpacity ?? 0) > 0.1) ? ` filter="url(#txt_sh)"` : "";
     // Zone-aware line height — editorial rhythm varies by zone purpose
@@ -660,9 +674,11 @@ function renderCtaZone(
   const tY = bY + bH * 0.63;
   const stk = getFontStack(tc.fontFamily);
   const cty = theme.typography.cta;
-  const d   = cty.textTransform === "uppercase" ? tc.text.toUpperCase() : tc.text;
+  const tt  = tc.textTransform ?? cty.textTransform;
+  const d   = tt === "uppercase" ? tc.text.toUpperCase() : tc.text;
   const fi  = cs.shadow ? ` filter="url(#cta_sh)"` : "";
-  const ls  = cty.letterSpacing ? ` letter-spacing="${(cty.letterSpacing * fs).toFixed(2)}"` : ` letter-spacing="${(0.06*fs).toFixed(2)}"`;
+  const lsVal = tc.letterSpacing ?? cty.letterSpacing;
+  const ls  = lsVal ? ` letter-spacing="${(lsVal * fs).toFixed(2)}"` : ` letter-spacing="${(0.06*fs).toFixed(2)}"`;
   return `<rect x="${f(bX)}" y="${f(bY)}" width="${f(bW)}" height="${f(bH)}" fill="${cs.backgroundColor}" rx="${cs.borderRadius}"${fi}/>`
     + `<text x="${f(tX)}" y="${f(tY)}" font-size="${fs}" font-weight="${tc.weight}" fill="${cs.textColor}" font-family="${escAttr(stk)}" text-anchor="middle"${ls}>${escSvg(d)}</text>`;
 }
