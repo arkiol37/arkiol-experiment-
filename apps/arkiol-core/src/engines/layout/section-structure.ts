@@ -46,7 +46,6 @@ export type SectionKind =
 /** Zone ids that structurally belong to a single section regardless of position. */
 const ZONE_SECTION_MAP: Partial<Record<ZoneId, SectionKind>> = {
   // Section-defining identifiers
-  eyebrow:        "header",
   badge:          "header",
   section_header: "header",
 
