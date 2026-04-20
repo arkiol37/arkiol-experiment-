@@ -76,6 +76,14 @@ const TEXT_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>([
   "bullet_1", "bullet_2", "bullet_3",
 ]);
 
+// Small decorative meta zones that can be safely corner-parked when
+// they conflict with a primary zone. Logos in particular are usually
+// watermarks / corner marks — relocating them is strictly better than
+// hard-failing the whole template.
+const SMALL_DECORATIVE_ZONES: ReadonlySet<ZoneId> = new Set<ZoneId>([
+  "logo", "badge", "price",
+]);
+
 // ── Geometry helpers ───────────────────────────────────────────────────────
 
 interface Rect { x: number; y: number; w: number; h: number; }
@@ -96,48 +104,149 @@ function area(r: Rect): number {
 
 // ── Overlap resolver ───────────────────────────────────────────────────────
 //
-// If two text zones overlap meaningfully, push the lower zone down until the
-// overlap clears. If that would push it past the canvas floor, shrink the
-// top zone's bottom edge instead.
+// Multi-strategy resolver that runs up to 4 passes over the zone set:
+//
+//   1. Vertical push — move the lower zone down by (upper bottom + gap).
+//   2. Horizontal shift — slide one zone sideways to clear the collision
+//      when vertical push is blocked by the canvas floor.
+//   3. Trim — shrink the upper zone's bottom edge as a last-resort
+//      adjustment when neither move is possible.
+//   4. Corner-park — for small decorative zones (logo, badge, price),
+//      relocate to the nearest safe corner instead of trimming.
+//
+// The pipeline previously only attempted step 1 (and a fallback trim),
+// which left critical overlaps unresolved when both zones shared the
+// same vertical band — e.g. a bottom CTA collided with a bottom-corner
+// logo. The gate would then hard-fail the job. This multi-strategy
+// pass fixes that class of conflict without relaxing the cap.
+
+function overlapFrac(a: Zone, b: Zone): number {
+  const ra = toRect(a);
+  const rb = toRect(b);
+  const inter = intersection(ra, rb);
+  if (inter <= 0) return 0;
+  const smaller = Math.min(area(ra), area(rb));
+  if (smaller <= 0) return 0;
+  return inter / smaller;
+}
+
+function tryVerticalSeparate(upper: Zone, lower: Zone, cfg: StrictConfig): boolean {
+  const desiredTop = upper.y + upper.height + cfg.minGapPct;
+  const shift = desiredTop - lower.y;
+  if (shift <= 0) return true;
+  if (lower.y + shift + lower.height <= 100 - cfg.marginTopBottom) {
+    lower.y += shift;
+    return true;
+  }
+  return false;
+}
+
+function tryHorizontalSeparate(a: Zone, b: Zone, cfg: StrictConfig): boolean {
+  // Move the smaller zone sideways. Prefer the direction with more
+  // free runway so we don't jam it into the opposite edge.
+  const smaller = area(toRect(a)) <= area(toRect(b)) ? a : b;
+  const bigger  = smaller === a ? b : a;
+  const gap     = 1.0;
+  const rightX  = bigger.x + bigger.width + gap;
+  const leftX   = bigger.x - gap - smaller.width;
+  const canRight = rightX + smaller.width <= 100 - cfg.marginLeftRight;
+  const canLeft  = leftX  >= cfg.marginLeftRight;
+  if (canRight && canLeft) {
+    // Pick whichever side has more runway remaining.
+    const runwayRight = (100 - cfg.marginLeftRight) - (rightX + smaller.width);
+    const runwayLeft  = leftX - cfg.marginLeftRight;
+    smaller.x = runwayRight >= runwayLeft ? rightX : leftX;
+    return true;
+  }
+  if (canRight) { smaller.x = rightX; return true; }
+  if (canLeft)  { smaller.x = leftX;  return true; }
+  return false;
+}
+
+function tryTrimUpper(upper: Zone, lower: Zone): boolean {
+  // Shrink the upper zone's bottom edge enough to clear the lower.
+  const needed = (upper.y + upper.height) - lower.y;
+  if (needed <= 0) return true;
+  const newHeight = Math.max(4, upper.height - needed);
+  if (newHeight >= upper.height) return false;
+  upper.height = newHeight;
+  return true;
+}
+
+function tryCornerPark(z: Zone, all: Zone[], cfg: StrictConfig): boolean {
+  // Four corner candidates inside the margin box, evaluated in order.
+  // The first that leaves z overlapping no non-surface zone wins.
+  const corners: Array<{ x: number; y: number }> = [
+    { x: 100 - cfg.marginLeftRight - z.width,  y: 100 - cfg.marginTopBottom - z.height }, // BR
+    { x: cfg.marginLeftRight,                  y: 100 - cfg.marginTopBottom - z.height }, // BL
+    { x: 100 - cfg.marginLeftRight - z.width,  y: cfg.marginTopBottom                  }, // TR
+    { x: cfg.marginLeftRight,                  y: cfg.marginTopBottom                  }, // TL
+  ];
+  for (const c of corners) {
+    if (c.x < 0 || c.y < 0) continue;
+    const candidate: Zone = { ...z, x: c.x, y: c.y };
+    let clear = true;
+    for (const other of all) {
+      if (other === z) continue;
+      if (SURFACE_ZONES.has(other.id) || other.height <= 0) continue;
+      if (overlapFrac(candidate, other) > cfg.maxOverlapPct) { clear = false; break; }
+    }
+    if (clear) {
+      z.x = c.x;
+      z.y = c.y;
+      return true;
+    }
+  }
+  return false;
+}
 
 export function resolveOverlaps(zones: Zone[], cfg: StrictConfig): { zones: Zone[]; fixed: number } {
   const out = zones.map(z => ({ ...z }));
   let fixed = 0;
+  const MAX_PASSES = 4;
 
-  for (let i = 0; i < out.length; i++) {
-    const a = out[i];
-    if (SURFACE_ZONES.has(a.id) || a.height <= 0) continue;
-    for (let j = i + 1; j < out.length; j++) {
-      const b = out[j];
-      if (SURFACE_ZONES.has(b.id) || b.height <= 0) continue;
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    let passChanges = 0;
+    for (let i = 0; i < out.length; i++) {
+      const a = out[i];
+      if (SURFACE_ZONES.has(a.id) || a.height <= 0 || a.locked) continue;
+      for (let j = i + 1; j < out.length; j++) {
+        const b = out[j];
+        if (SURFACE_ZONES.has(b.id) || b.height <= 0 || b.locked) continue;
 
-      const ra = toRect(a);
-      const rb = toRect(b);
-      const inter = intersection(ra, rb);
-      if (inter <= 0) continue;
+        const frac = overlapFrac(a, b);
+        if (frac <= cfg.maxOverlapPct) continue;
 
-      const smaller = Math.min(area(ra), area(rb));
-      if (smaller <= 0) continue;
-      const frac = inter / smaller;
-      if (frac <= cfg.maxOverlapPct) continue;
+        const upper = a.y <= b.y ? a : b;
+        const lower = upper === a ? b : a;
 
-      // Decide which is "upper" (smaller y = upper in screen space)
-      const upper = a.y <= b.y ? a : b;
-      const lower = upper === a ? b : a;
-
-      const desiredTop = upper.y + upper.height + cfg.minGapPct;
-      const shift = desiredTop - lower.y;
-      if (shift <= 0) continue;
-
-      if (lower.y + shift + lower.height <= 98) {
-        lower.y += shift;
-      } else {
-        // Can't push further — trim the upper zone's bottom
-        const trim = Math.min(shift, Math.max(0, upper.height - 4));
-        upper.height = Math.max(4, upper.height - trim);
+        // Strategy 1: vertical push.
+        if (tryVerticalSeparate(upper, lower, cfg) && overlapFrac(a, b) <= cfg.maxOverlapPct) {
+          passChanges++; fixed++;
+          continue;
+        }
+        // Strategy 2: horizontal shift — especially effective for
+        // bottom-row collisions like CTA × logo where both zones are
+        // stuck at the canvas floor.
+        if (tryHorizontalSeparate(a, b, cfg) && overlapFrac(a, b) <= cfg.maxOverlapPct) {
+          passChanges++; fixed++;
+          continue;
+        }
+        // Strategy 3: trim the upper zone's bottom edge.
+        if (tryTrimUpper(upper, lower) && overlapFrac(a, b) <= cfg.maxOverlapPct) {
+          passChanges++; fixed++;
+          continue;
+        }
+        // Strategy 4: park a small decorative zone (logo / badge /
+        // price) in a free corner. Only runs when earlier moves failed.
+        const smaller = area(toRect(a)) <= area(toRect(b)) ? a : b;
+        if (SMALL_DECORATIVE_ZONES.has(smaller.id) && tryCornerPark(smaller, out, cfg)) {
+          passChanges++; fixed++;
+          continue;
+        }
       }
-      fixed++;
     }
+    if (passChanges === 0) break;
   }
 
   return { zones: out, fixed };

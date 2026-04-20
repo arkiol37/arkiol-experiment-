@@ -474,6 +474,41 @@ async function run() {
     assert(hSkew, "heavily right-stacked layout should still trigger balance warning");
   });
 
+  test("cta × logo bottom-row collision is auto-resolved", () => {
+    // Reproduces the production hard-failure: CTA centered across
+    // the bottom of an Instagram post + logo parked in the bottom
+    // corner. Pre-fix the resolver tried to push the logo below the
+    // canvas floor, failed, trimmed the CTA marginally, and the gate
+    // blocked with "overlap: cta × logo 43%".
+    const zones = [
+      mkZone({ id: "headline", x: 10, y: 14, width: 80, height: 20 }),
+      mkZone({ id: "subhead",  x: 10, y: 38, width: 80, height: 10 }),
+      mkZone({ id: "body",     x: 10, y: 52, width: 80, height: 16 }),
+      mkZone({ id: "cta",      x: 20, y: 80, width: 60, height: 12 }),
+      mkZone({ id: "logo",     x: 64, y: 84, width: 24, height: 10 }),
+    ];
+    const r = lc.evaluateConstraints(zones, "instagram", "balanced");
+    const overlap = r.violations.find(v =>
+      v.category === "overlap" && v.severity === "critical" &&
+      v.zoneIds.includes("cta") && v.zoneIds.includes("logo"));
+    assert(!overlap, `cta × logo still critical after resolver: ${overlap?.message}`);
+    assert(!r.blocking, `report blocking=true after resolve: ${r.violations.map(v => v.message).join(" | ")}`);
+  });
+
+  test("multi-zone cascade is fully cleared by multi-pass resolver", () => {
+    // Three zones all vertically overlapping each other in a stack —
+    // single-pass resolvers leave residual conflicts after the first
+    // shift. The multi-pass resolver must fully clear them.
+    const zones = [
+      mkZone({ id: "headline", x: 10, y: 20, width: 80, height: 18 }),
+      mkZone({ id: "subhead",  x: 10, y: 30, width: 80, height: 10 }),
+      mkZone({ id: "body",     x: 10, y: 34, width: 80, height: 16 }),
+    ];
+    const r = lc.evaluateConstraints(zones, "instagram", "balanced");
+    const critOverlap = r.violations.find(v => v.category === "overlap" && v.severity === "critical");
+    assert(!critOverlap, `cascade left critical overlap: ${critOverlap?.message}`);
+  });
+
   test("image on left + text on right reads as balanced within cap", () => {
     // Classic split layout — weight on both sides, should pass.
     const zones = [
