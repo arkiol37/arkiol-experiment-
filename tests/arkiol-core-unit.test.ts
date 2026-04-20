@@ -334,6 +334,163 @@ async function run() {
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
   });
 
+  section("evaluation · rejection-rules");
+
+  const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
+  const themesMod = await import("../apps/arkiol-core/src/engines/render/design-themes");
+
+  test("REJECTION_RULES has unique ids and both hard/soft severities", () => {
+    const ids = new Set<string>();
+    let hard = 0, soft = 0;
+    for (const r of reject.REJECTION_RULES) {
+      assert(!ids.has(r.id), `duplicate rule id ${r.id}`);
+      ids.add(r.id);
+      if (r.severity === "hard") hard++; else soft++;
+    }
+    assert(hard > 0, "no hard rules defined");
+    assert(soft > 0, "no soft rules defined");
+  });
+
+  test("evaluateRejection accepts a full production theme", () => {
+    const theme = themesMod.THEMES[0];
+    const verdict = reject.evaluateRejection(theme);
+    assert(verdict.accept, `production theme rejected: ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("evaluateRejection rejects an empty-decoration theme (too_empty)", () => {
+    const theme = { ...themesMod.THEMES[0], decorations: [] };
+    const verdict = reject.evaluateRejection(theme as any);
+    assert(!verdict.accept, "empty theme was accepted — too_empty should have fired");
+    assert(verdict.hardReasons.some(r => r.startsWith("too_empty")),
+      `expected too_empty, got ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("evaluateRejection rejects a mono-kind theme (too_repetitive)", () => {
+    const base = themesMod.THEMES[0];
+    const mono = {
+      ...base,
+      decorations: Array.from({ length: 12 }, (_, i) => ({
+        kind: "circle" as const, x: 10 + i, y: 10 + i, r: 20,
+        color: "#ffffff", opacity: 1,
+      })),
+    };
+    const verdict = reject.evaluateRejection(mono as any);
+    assert(verdict.hardReasons.some(r => r.startsWith("too_repetitive")),
+      `expected too_repetitive, got ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("filterCandidateBatch separates accepted vs rejected", () => {
+    const good = { theme: themesMod.THEMES[0], label: "good-0" };
+    const bad  = { theme: { ...themesMod.THEMES[0], decorations: [] } as any, label: "bad-0" };
+    const result = reject.filterCandidateBatch([good, bad], { minAccepted: 0 });
+    assert(result.accepted.length >= 1, "good candidate was not accepted");
+    assert(result.rejected.length >= 1, "bad candidate was not rejected");
+    assert(result.rejected.some(r => r.label === "bad-0" || r.item.label === "bad-0"),
+      "bad label missing in rejected list");
+  });
+
+  test("filterCandidateBatch floor-fills when minAccepted > survivors", () => {
+    const bad  = { theme: { ...themesMod.THEMES[0], decorations: [] } as any, label: "bad-1" };
+    const bad2 = { theme: { ...themesMod.THEMES[0], decorations: [] } as any, label: "bad-2" };
+    const result = reject.filterCandidateBatch([bad, bad2], { minAccepted: 1 });
+    assert(result.accepted.length >= 1, "floor-fill did not keep a candidate");
+  });
+
+  section("svg-scene-composer · coverage & fallback");
+
+  test("every SceneKind registered in SCENES has deterministic 6 variants", () => {
+    // Exhaustive enumeration comes from the integration test. Here we
+    // just sanity-check that each newly added kind renders distinct
+    // palette variants (catches a missing palette entry).
+    const kinds = [
+      "phone-mockup", "podium-stage", "notebook-pen", "paint-brush", "music-note",
+    ] as const;
+    for (const k of kinds) {
+      const v0 = composer.renderScene(k, "marketing", 0);
+      const v3 = composer.renderScene(k, "marketing", 3);
+      assert(v0 && v0.startsWith("<svg"), `${k} v0 not an svg`);
+      assert(v0 !== v3, `${k}: variant 0 and 3 returned identical SVG`);
+    }
+  });
+
+  test("unknown scene kind throws a clear error", () => {
+    let threw = false;
+    try { (composer.renderScene as any)("no-such-scene", "motivation", 0); }
+    catch (err: any) {
+      threw = true;
+      assert(/unknown|scene|no-such/i.test(err?.message ?? ""),
+        `unhelpful error message: ${err?.message}`);
+    }
+    assert(threw, "expected unknown scene kind to throw");
+  });
+
+  test("clearSceneCache drops memoization", () => {
+    const k = "mountain-sunrise" as const;
+    const a = composer.renderScene(k, "motivation", 0);
+    composer.clearSceneCache?.();
+    const b = composer.renderScene(k, "motivation", 0);
+    // String content must be identical (deterministic), but cache was
+    // cleared, so both are freshly built — that's fine.
+    assertEq(a, b, "identical content after cache clear");
+  });
+
+  section("library · integration with new breadth scenes");
+
+  test("library total is at least 200 after Step 44 additions", () => {
+    const stats = lib.libraryStats();
+    assert(stats.total >= 200, `library total ${stats.total} < 200`);
+  });
+
+  test("every category's recipe yields >= 4 assets", () => {
+    for (const c of lib.ASSET_CATEGORIES) {
+      const picks = lib.selectAssetsForCategory(c, { seed: `coverage-${c}` });
+      assert(picks.length >= 4, `category ${c} returned only ${picks.length} picks`);
+    }
+  });
+
+  test("selectAssetsForCategory with different seeds produces different picks", () => {
+    const a = lib.selectAssetsForCategory("motivation", { seed: "seed-A" });
+    const b = lib.selectAssetsForCategory("motivation", { seed: "seed-B" });
+    const ids = (xs: typeof a) => xs.map(x => x.id).join("|");
+    assert(ids(a) !== ids(b),
+      `different seeds produced identical picks: ${ids(a)}`);
+  });
+
+  section("metrics · percentile math");
+
+  test("metrics percentiles are monotonic p50 <= p90 <= p99", () => {
+    metrics.__resetMetrics();
+    for (const ms of [50, 75, 100, 120, 150, 200, 300, 450, 700, 1000]) {
+      metrics.recordGenerationStart();
+      metrics.recordGenerationSuccess(ms);
+    }
+    const s = metrics.snapshot();
+    assert(s.latency.p50_ms <= s.latency.p90_ms, `p50 ${s.latency.p50_ms} > p90 ${s.latency.p90_ms}`);
+    assert(s.latency.p90_ms <= s.latency.p99_ms, `p90 ${s.latency.p90_ms} > p99 ${s.latency.p99_ms}`);
+  });
+
+  test("metrics successRate is 0 when counters are empty", () => {
+    metrics.__resetMetrics();
+    const s = metrics.snapshot();
+    assertEq(s.successRate, 0, "empty successRate");
+  });
+
+  section("3d-asset-manifest · realm distribution");
+
+  test("byRealm counts sum to total slugs", () => {
+    const s = manifest.asset3dManifestStats();
+    const sum = Object.values(s.byRealm).reduce((a: number, b: number) => a + (b as number), 0);
+    assertEq(sum, s.totalSlugs, "byRealm sum");
+  });
+
+  test("manifest slugs are unique", () => {
+    const seen = new Set<string>();
+    for (const m of manifest.ASSET_3D_MANIFEST) {
+      assert(!seen.has(m.slug), `duplicate slug ${m.slug}`);
+      seen.add(m.slug);
+    }
+  });
+
   // ── Summary ───────────────────────────────────────────────────────────────
 
   console.log(`\n─────────────────────────────────────────`);

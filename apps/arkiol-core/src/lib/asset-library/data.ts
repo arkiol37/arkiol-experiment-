@@ -1267,6 +1267,67 @@ const INLINE_SCENE_ASSETS: Asset[] = [
     label: "Map with compass",
     tags: ["map", "compass", "travel", "journey", "explore", "direction"],
   }),
+  // Step 44 — breadth additions
+  sceneAsset({
+    id: "scene.marketing.phone-mockup", sceneKind: "phone-mockup",
+    category: "marketing", extraCategories: ["business", "productivity"],
+    label: "Phone chat mockup",
+    tags: ["phone", "mockup", "chat", "app", "ui", "notification", "product"],
+  }),
+  sceneAsset({
+    id: "scene.business.phone-mockup", sceneKind: "phone-mockup",
+    category: "business", extraCategories: ["marketing"],
+    label: "Mobile app preview",
+    tags: ["phone", "app", "device", "product", "mockup"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.podium-stage", sceneKind: "podium-stage",
+    category: "motivation", extraCategories: ["business", "fitness"],
+    label: "Winner podium with spotlight",
+    tags: ["podium", "winner", "1st", "champion", "stage", "award", "success"],
+  }),
+  sceneAsset({
+    id: "scene.business.podium-stage", sceneKind: "podium-stage",
+    category: "business", extraCategories: ["motivation"],
+    label: "Leaderboard podium",
+    tags: ["ranking", "leader", "podium", "1st", "award", "trophy"],
+  }),
+  sceneAsset({
+    id: "scene.education.notebook-pen", sceneKind: "notebook-pen",
+    category: "education", extraCategories: ["productivity", "business"],
+    label: "Notebook with pen",
+    tags: ["notebook", "pen", "write", "study", "learn", "note", "journal"],
+  }),
+  sceneAsset({
+    id: "scene.productivity.notebook-pen", sceneKind: "notebook-pen",
+    category: "productivity", extraCategories: ["education"],
+    label: "Planner and pen",
+    tags: ["planner", "notebook", "pen", "write", "task", "journal"],
+  }),
+  sceneAsset({
+    id: "scene.marketing.paint-brush", sceneKind: "paint-brush",
+    category: "marketing", extraCategories: ["education"],
+    label: "Paintbrush with splash",
+    tags: ["paint", "brush", "creative", "art", "design", "splash", "color"],
+  }),
+  sceneAsset({
+    id: "scene.education.paint-brush", sceneKind: "paint-brush",
+    category: "education", extraCategories: ["marketing"],
+    label: "Art supplies",
+    tags: ["paint", "art", "brush", "creative", "school"],
+  }),
+  sceneAsset({
+    id: "scene.marketing.music-note", sceneKind: "music-note",
+    category: "marketing", extraCategories: ["motivation"],
+    label: "Music note burst",
+    tags: ["music", "note", "sound", "audio", "song", "playlist", "celebrate"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.music-note", sceneKind: "music-note",
+    category: "motivation", extraCategories: ["marketing"],
+    label: "Rhythm and beat",
+    tags: ["music", "beat", "rhythm", "energy", "motivation"],
+  }),
 ];
 
 // ── Public seed ───────────────────────────────────────────────────────────────

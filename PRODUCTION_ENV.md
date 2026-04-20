@@ -94,3 +94,18 @@ All variables are set in: **Vercel Dashboard → Project → Settings → Enviro
 |----------|---------|-------|
 | `NEXT_PUBLIC_APP_URL` | `https://app.arkiol.com` | Client-accessible |
 | `WORKER_CONCURRENCY` | `3` | BullMQ worker threads |
+
+## Arkiol-Core (scene engine + memory + 3D manifest)
+
+These are specific to the arkiol-core sub-app under `apps/arkiol-core`.
+Everything is optional — sensible defaults apply when unset.
+
+| Variable | Example | Notes |
+|----------|---------|-------|
+| `ARKIOL_MEMORY_STORE` | `in-memory` (default) or `redis` | Picks the memory store driver at boot. `redis` requires `REDIS_URL`. |
+| `REDIS_URL` | `rediss://default:TOKEN@host:6380` | Used when `ARKIOL_MEMORY_STORE=redis`. TLS endpoint recommended for cloud Redis. |
+| `ARKIOL_MEMORY_CAPACITY` | `2000` | Max records retained in the InMemoryStore ring buffer. Default 1,000. |
+| `ARKIOL_3D_ASSET_BASE` | `https://cdn.arkiol.ai/3d` | Base URL for the 3D asset manifest. Without it, `asset3dUrl()` returns undefined and the pipeline falls back to inline SVG scenes. |
+| `ARKIOL_3D_ASSET_EXT` | `png` (default), `webp`, `jpg` | File extension appended to each slug. |
+| `ARKIOL_PACK_ANCHOR_STRICT` | `true` / `false` | When `true`, downstream variations must inherit palette + typography from the first gallery render. Default: `true`. |
+| `ARKIOL_METRICS_WINDOW` | `200` | Rolling latency sample window used by `/api/health/generation`. Default: 200. |

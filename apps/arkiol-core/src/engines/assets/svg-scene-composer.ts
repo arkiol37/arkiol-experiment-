@@ -510,38 +510,85 @@ function sparkles(p: ScenePalette): string {
 // Polaroid-framed mountain (travel) ────────────────────────────────────────
 function polaroidMountain(p: ScenePalette, id: string): string {
   return (
-    // Polaroid card
-    `<g transform="rotate(-4 200 200)">` +
-      `<rect x="70" y="70" width="260" height="280" fill="#FFFFFF" stroke="${p.ink}" stroke-width="2" opacity="0.98"/>` +
+    `<g transform="rotate(-4 200 200)" filter="url(%23dsLg-${id})">` +
+      // Polaroid card base with subtle paper tint
+      `<rect x="70" y="70" width="260" height="280" fill="#FFFDF7" stroke="${p.ink}" stroke-width="1.5" opacity="0.98"/>` +
+      `<rect x="70" y="70" width="260" height="280" fill="url(%23hl-${id})" opacity="0.5"/>` +
+      // Tape strips (top corners)
+      `<rect x="110" y="60" width="50" height="18" fill="${p.accent}" opacity="0.55" transform="rotate(-8 135 69)"/>` +
+      `<rect x="240" y="60" width="50" height="18" fill="${p.accent}" opacity="0.55" transform="rotate(8 265 69)"/>` +
       // Picture window
       `<rect x="90" y="90" width="220" height="180" fill="url(%23sky-${id})"/>` +
-      // Mini mountains inside the frame
-      `<polygon points="90,270 170,160 250,270" fill="${p.subject}"/>` +
-      `<polygon points="170,160 190,180 205,175 225,200 200,230 170,190" fill="#FFFFFF" opacity="0.8"/>` +
-      `<polygon points="200,270 280,180 310,270" fill="${p.subject}" opacity="0.8"/>` +
-      `<circle cx="260" cy="120" r="22" fill="${p.accent}" opacity="0.95"/>` +
-      // Caption
-      `<text x="200" y="320" text-anchor="middle" font-family="Caveat, Georgia, serif" font-size="24" fill="${p.ink}" font-style="italic">~ memories ~</text>` +
+      // Sun with gradient
+      `<circle cx="260" cy="120" r="26" fill="url(%23sun-${id})"/>` +
+      `<circle cx="260" cy="120" r="26" fill="url(%23hl-${id})" opacity="0.7"/>` +
+      // Back mountain (furthest)
+      `<polygon points="90,270 200,155 310,270" fill="${darkenHex(p.subject, 0.25)}" opacity="0.9"/>` +
+      // Mid mountain
+      `<polygon points="90,270 170,175 250,270" fill="${p.subject}"/>` +
+      `<polygon points="170,175 190,195 205,188 225,215 200,240 170,205" fill="#FFFFFF" opacity="0.85"/>` +
+      // Front mountain
+      `<polygon points="200,270 280,195 310,270" fill="${lightenHex(p.subject, 0.12)}"/>` +
+      `<polygon points="280,195 295,215 305,208 310,230 310,270 280,270" fill="#FFFFFF" opacity="0.6"/>` +
+      // Reflective ground line
+      `<rect x="90" y="265" width="220" height="5" fill="${p.ink}" opacity="0.15"/>` +
+      // Caption with hand-drawn underline
+      `<text x="200" y="322" text-anchor="middle" font-family="Caveat, Georgia, serif" font-size="24" fill="${p.ink}" font-style="italic">~ memories ~</text>` +
+      `<path d="M150 330 Q200 338 250 328" stroke="${p.accent}" stroke-width="2" fill="none" stroke-linecap="round"/>` +
     `</g>`
   );
 }
 
 // Floral wreath (beauty / wellness) ────────────────────────────────────────
-function floralWreath(p: ScenePalette): string {
-  const flower = (cx: number, cy: number, r: number, color: string) =>
-    Array.from({ length: 5 }, (_, i) => {
-      const a = (i / 5) * Math.PI * 2;
-      const px = cx + Math.cos(a) * r * 0.6;
-      const py = cy + Math.sin(a) * r * 0.6;
-      return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${r * 0.5}" fill="${color}" opacity="0.9"/>`;
-    }).join("") +
-    `<circle cx="${cx}" cy="${cy}" r="${r * 0.35}" fill="#FFF8E1"/>`;
+function floralWreath(p: ScenePalette, id: string): string {
+  const flower = (cx: number, cy: number, r: number, color: string) => {
+    const petals = Array.from({ length: 8 }, (_, i) => {
+      const a = (i / 8) * Math.PI * 2;
+      const px = cx + Math.cos(a) * r * 0.55;
+      const py = cy + Math.sin(a) * r * 0.55;
+      return `<ellipse cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" rx="${(r * 0.45).toFixed(1)}" ry="${(r * 0.3).toFixed(1)}" fill="${color}" opacity="0.92" transform="rotate(${((a * 180) / Math.PI).toFixed(1)} ${px.toFixed(1)} ${py.toFixed(1)})"/>`;
+    }).join("");
+    const highlight = Array.from({ length: 8 }, (_, i) => {
+      const a = (i / 8) * Math.PI * 2;
+      const px = cx + Math.cos(a) * r * 0.55;
+      const py = cy + Math.sin(a) * r * 0.55;
+      return `<ellipse cx="${(px - 1).toFixed(1)}" cy="${(py - 2).toFixed(1)}" rx="${(r * 0.18).toFixed(1)}" ry="${(r * 0.1).toFixed(1)}" fill="#FFFFFF" opacity="0.35"/>`;
+    }).join("");
+    return petals + highlight +
+      `<circle cx="${cx}" cy="${cy}" r="${r * 0.38}" fill="#FFF8E1"/>` +
+      `<circle cx="${cx}" cy="${cy}" r="${r * 0.38}" fill="url(%23hl-${id})" opacity="0.8"/>` +
+      // Stamens
+      Array.from({ length: 6 }, (_, i) => {
+        const a = (i / 6) * Math.PI * 2;
+        const sx = cx + Math.cos(a) * r * 0.22;
+        const sy = cy + Math.sin(a) * r * 0.22;
+        return `<circle cx="${sx.toFixed(1)}" cy="${sy.toFixed(1)}" r="1.8" fill="${darkenHex("#F59E0B", 0.1)}"/>`;
+      }).join("");
+  };
 
   const leaf = (cx: number, cy: number, angle: number) =>
-    `<ellipse cx="${cx}" cy="${cy}" rx="14" ry="28" fill="${p.ground[0]}" transform="rotate(${angle} ${cx} ${cy})" opacity="0.85"/>`;
+    `<g transform="rotate(${angle} ${cx} ${cy})">` +
+      `<ellipse cx="${cx}" cy="${cy}" rx="14" ry="28" fill="${p.ground[0]}" opacity="0.88"/>` +
+      `<ellipse cx="${cx - 2}" cy="${cy - 4}" rx="5" ry="16" fill="#FFFFFF" opacity="0.2"/>` +
+      `<path d="M${cx} ${cy - 28} L${cx} ${cy + 28}" stroke="${darkenHex(p.ground[0], 0.25)}" stroke-width="1" opacity="0.6"/>` +
+    `</g>`;
+
+  const berry = (cx: number, cy: number) =>
+    `<circle cx="${cx}" cy="${cy}" r="4" fill="${p.accent}"/>` +
+    `<circle cx="${cx - 1}" cy="${cy - 1}" r="1.3" fill="#FFFFFF" opacity="0.7"/>`;
 
   return (
-    `<circle cx="200" cy="200" r="110" fill="none" stroke="${p.ground[1]}" stroke-width="2" opacity="0.4"/>` +
+    // Soft backdrop glow
+    `<circle cx="200" cy="200" r="130" fill="${p.accent}" opacity="0.08" filter="url(%23glow-${id})"/>` +
+    `<circle cx="200" cy="200" r="110" fill="none" stroke="${p.ground[1]}" stroke-width="1.5" opacity="0.35" stroke-dasharray="4 3"/>` +
+    // Leaves first (behind flowers)
+    leaf(160, 105, -30) + leaf(240, 105, 30) +
+    leaf(105, 160, -60) + leaf(295, 160,  60) +
+    leaf(105, 240, -120) + leaf(295, 240, 120) +
+    leaf(160, 295, -150) + leaf(240, 295, 150) +
+    // Berries tucked in
+    berry(140, 150) + berry(260, 150) + berry(140, 250) + berry(260, 250) +
+    // Flowers
     flower(100, 200, 28, p.subject) +
     flower(300, 200, 28, p.accent) +
     flower(200, 95,  28, p.subject) +
@@ -549,81 +596,156 @@ function floralWreath(p: ScenePalette): string {
     flower(128, 128, 22, p.accent) +
     flower(272, 128, 22, p.subject) +
     flower(128, 272, 22, p.accent) +
-    flower(272, 272, 22, p.subject) +
-    leaf(160, 105, -30) + leaf(240, 105, 30) +
-    leaf(105, 160, -60) + leaf(295, 160,  60) +
-    leaf(105, 240, -120) + leaf(295, 240, 120) +
-    leaf(160, 295, -150) + leaf(240, 295, 150)
+    flower(272, 272, 22, p.subject)
   );
 }
 
 // Workout scene — bench + weights + foliage backdrop (fitness) ────────────
-function workoutScene(p: ScenePalette): string {
+function workoutScene(p: ScenePalette, id: string): string {
   return (
-    // Background foliage
-    `<ellipse cx="60"  cy="240" rx="60" ry="90" fill="${p.ground[1]}" opacity="0.7"/>` +
-    `<ellipse cx="340" cy="240" rx="60" ry="90" fill="${p.ground[1]}" opacity="0.7"/>` +
-    // Bench
-    `<rect x="100" y="250" width="200" height="20" rx="4" fill="${p.subject}"/>` +
+    // Background foliage with soft glow
+    `<ellipse cx="60"  cy="240" rx="60" ry="90" fill="${p.ground[1]}" opacity="0.6" filter="url(%23glow-${id})"/>` +
+    `<ellipse cx="340" cy="240" rx="60" ry="90" fill="${p.ground[1]}" opacity="0.6" filter="url(%23glow-${id})"/>` +
+    `<ellipse cx="60"  cy="240" rx="55" ry="85" fill="${p.ground[1]}" opacity="0.75"/>` +
+    `<ellipse cx="340" cy="240" rx="55" ry="85" fill="${p.ground[1]}" opacity="0.75"/>` +
+    // Floor shadow
+    `<ellipse cx="200" cy="312" rx="150" ry="8" fill="${p.ink}" opacity="0.15"/>` +
+    // Bench (with gradient + highlight)
+    `<rect x="100" y="250" width="200" height="20" rx="4" fill="url(%23subj-${id})" filter="url(%23ds-${id})"/>` +
+    `<rect x="102" y="252" width="196" height="4" fill="#FFFFFF" opacity="0.25"/>` +
     `<rect x="110" y="270" width="14" height="40" fill="${p.ink}"/>` +
     `<rect x="276" y="270" width="14" height="40" fill="${p.ink}"/>` +
-    // Barbell
-    `<rect x="80" y="210" width="240" height="8" rx="2" fill="${p.ink}"/>` +
-    // Weight plates
-    `<circle cx="80"  cy="214" r="28" fill="${p.accent}" stroke="${p.ink}" stroke-width="2"/>` +
+    `<rect x="110" y="270" width="3" height="40" fill="#FFFFFF" opacity="0.25"/>` +
+    `<rect x="276" y="270" width="3" height="40" fill="#FFFFFF" opacity="0.25"/>` +
+    // Barbell bar with highlight stripe
+    `<rect x="80" y="210" width="240" height="8" rx="2" fill="${p.ink}" filter="url(%23ds-${id})"/>` +
+    `<rect x="80" y="210" width="240" height="2" fill="#FFFFFF" opacity="0.35"/>` +
+    // Weight plates (left) — outer ring, inner ring, hub, highlight
+    `<circle cx="80"  cy="214" r="30" fill="${darkenHex(p.accent, 0.2)}"/>` +
+    `<circle cx="80"  cy="214" r="28" fill="url(%23accent-${id})" stroke="${p.ink}" stroke-width="1.5"/>` +
+    `<circle cx="80"  cy="214" r="20" fill="none" stroke="${p.ink}" stroke-width="1" opacity="0.3"/>` +
     `<circle cx="80"  cy="214" r="10" fill="${p.ink}"/>` +
-    `<circle cx="320" cy="214" r="28" fill="${p.accent}" stroke="${p.ink}" stroke-width="2"/>` +
+    `<circle cx="76"  cy="210" r="3"  fill="#FFFFFF" opacity="0.5"/>` +
+    // Weight plates (right)
+    `<circle cx="320" cy="214" r="30" fill="${darkenHex(p.accent, 0.2)}"/>` +
+    `<circle cx="320" cy="214" r="28" fill="url(%23accent-${id})" stroke="${p.ink}" stroke-width="1.5"/>` +
+    `<circle cx="320" cy="214" r="20" fill="none" stroke="${p.ink}" stroke-width="1" opacity="0.3"/>` +
     `<circle cx="320" cy="214" r="10" fill="${p.ink}"/>` +
+    `<circle cx="316" cy="210" r="3"  fill="#FFFFFF" opacity="0.5"/>` +
+    // Motion sparks around plates
+    `<circle cx="48"  cy="180" r="2.5" fill="${p.accent}" opacity="0.75"/>` +
+    `<circle cx="38"  cy="200" r="1.8" fill="${p.accent}" opacity="0.6"/>` +
+    `<circle cx="352" cy="180" r="2.5" fill="${p.accent}" opacity="0.75"/>` +
+    `<circle cx="362" cy="200" r="1.8" fill="${p.accent}" opacity="0.6"/>` +
     // Decorative dumbbell in corner
     `<rect x="30" y="340" width="60" height="8" rx="2" fill="${p.ink}"/>` +
-    `<rect x="20" y="332" width="16" height="24" rx="3" fill="${p.subject}"/>` +
-    `<rect x="84" y="332" width="16" height="24" rx="3" fill="${p.subject}"/>` +
+    `<rect x="20" y="332" width="16" height="24" rx="3" fill="url(%23subj-${id})"/>` +
+    `<rect x="84" y="332" width="16" height="24" rx="3" fill="url(%23subj-${id})"/>` +
     sparkles(p)
   );
 }
 
 // Script banner — cursive "Motivation" text over a decorative underline ──
-function scriptBanner(p: ScenePalette): string {
+function scriptBanner(p: ScenePalette, id: string): string {
   return (
-    `<rect x="40" y="140" width="320" height="120" rx="12" fill="${p.ground[0]}" opacity="0.3"/>` +
+    // Layered backdrop — back plate shifted, shadow, front plate
+    `<rect x="48" y="148" width="320" height="120" rx="12" fill="${p.accent}" opacity="0.28"/>` +
+    `<rect x="40" y="140" width="320" height="120" rx="12" fill="${p.ground[0]}" opacity="0.45" filter="url(%23ds-${id})"/>` +
+    `<rect x="40" y="140" width="320" height="120" rx="12" fill="url(%23hl-${id})" opacity="0.35"/>` +
+    // Decorative corner ornaments
+    `<circle cx="58"  cy="158" r="3" fill="${p.accent}"/>` +
+    `<circle cx="342" cy="158" r="3" fill="${p.accent}"/>` +
+    `<circle cx="58"  cy="252" r="3" fill="${p.accent}"/>` +
+    `<circle cx="342" cy="252" r="3" fill="${p.accent}"/>` +
+    // Script text with drop-shadow
+    `<text x="202" y="212" text-anchor="middle" font-family="'Great Vibes', 'Brush Script MT', cursive" ` +
+      `font-size="72" fill="${p.ink}" opacity="0.18">Motivation</text>` +
     `<text x="200" y="210" text-anchor="middle" font-family="'Great Vibes', 'Brush Script MT', cursive" ` +
-      `font-size="72" fill="${p.subject}">Motivation</text>` +
-    `<path d="M90 235 Q200 250 310 235" stroke="${p.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
-    `<path d="M180 320 q 10 -25 20 0 q 10 -25 20 0" stroke="${p.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+      `font-size="72" fill="url(%23subj-${id})" filter="url(%23ds-${id})">Motivation</text>` +
+    // Swash underline with trailing flourish
+    `<path d="M70 238 Q200 254 330 232" stroke="${p.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+    `<path d="M330 232 Q345 230 348 220" stroke="${p.accent}" stroke-width="2.5" fill="none" stroke-linecap="round"/>` +
+    `<circle cx="348" cy="220" r="3" fill="${p.accent}"/>` +
+    // Lower flourish
+    `<path d="M160 320 q 10 -22 20 0 q 10 -22 20 0 q 10 -22 20 0 q 10 -22 20 0" stroke="${p.accent}" stroke-width="2.5" fill="none" stroke-linecap="round" opacity="0.85"/>` +
     sparkles(p)
   );
 }
 
 // Confidence spark — bolt + gradient glow (motivation) ────────────────────
-function confidenceSpark(p: ScenePalette): string {
+function confidenceSpark(p: ScenePalette, id: string): string {
+  // Radiating rays from the center
+  const ray = (angleDeg: number, len: number, w: number) => {
+    const rad = (angleDeg * Math.PI) / 180;
+    const x2 = 200 + Math.cos(rad) * len;
+    const y2 = 200 + Math.sin(rad) * len;
+    return `<line x1="200" y1="200" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${p.accent}" stroke-width="${w}" stroke-linecap="round" opacity="0.35"/>`;
+  };
+  const rays = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330]
+    .map((a, i) => ray(a + 8, i % 2 === 0 ? 170 : 150, i % 2 === 0 ? 4 : 2))
+    .join("");
+
   return (
-    // Glow
-    `<circle cx="200" cy="200" r="140" fill="${p.accent}" opacity="0.15"/>` +
-    `<circle cx="200" cy="200" r="100" fill="${p.accent}" opacity="0.25"/>` +
-    // Lightning bolt
+    // Triple-layer halo
+    `<circle cx="200" cy="200" r="155" fill="${p.accent}" opacity="0.1" filter="url(%23glow-${id})"/>` +
+    `<circle cx="200" cy="200" r="140" fill="${p.accent}" opacity="0.16"/>` +
+    `<circle cx="200" cy="200" r="100" fill="${p.accent}" opacity="0.26"/>` +
+    // Radiating rays
+    rays +
+    // Inner core glow
+    `<circle cx="200" cy="200" r="70" fill="#FFF8E1" opacity="0.5" filter="url(%23glow-${id})"/>` +
+    // Lightning bolt shadow (offset)
+    `<polygon points="218,83 148,218 198,218 173,323 263,178 208,178 233,83" ` +
+      `fill="${p.ink}" opacity="0.25"/>` +
+    // Lightning bolt (gradient fill)
     `<polygon points="215,80 145,215 195,215 170,320 260,175 205,175 230,80" ` +
-      `fill="${p.accent}" stroke="${p.ink}" stroke-width="3" stroke-linejoin="round"/>` +
+      `fill="url(%23accent-${id})" stroke="${p.ink}" stroke-width="3" stroke-linejoin="round" filter="url(%23ds-${id})"/>` +
+    // Bolt inner highlight
+    `<polygon points="220,90 170,200 195,200 185,280 245,180 215,180 228,90" ` +
+      `fill="#FFFFFF" opacity="0.32"/>` +
     sparkles(p)
   );
 }
 
 // Diet plate — healthy food arranged on a plate (wellness / education) ───
-function dietPlate(p: ScenePalette): string {
+function dietPlate(p: ScenePalette, id: string): string {
   return (
-    // Plate
-    `<circle cx="200" cy="220" r="130" fill="#FFFFFF" stroke="${p.ink}" stroke-width="3"/>` +
-    `<circle cx="200" cy="220" r="110" fill="${p.sky[0]}"/>` +
-    // Food items (abstract polychrome shapes)
-    `<circle cx="150" cy="180" r="28" fill="#DC2626"/>` +         // tomato
-    `<circle cx="150" cy="180" r="10" fill="#FBBF24"/>` +         // tomato highlight
-    `<ellipse cx="250" cy="175" rx="34" ry="22" fill="${p.ground[0]}"/>` + // leafy
-    `<path d="M250 150 Q258 170 252 195" stroke="${p.ink}" stroke-width="2" fill="none"/>` +
-    `<path d="M130 240 Q200 230 270 240 L265 280 Q200 295 135 280 Z" fill="${p.accent}"/>` + // crescent bread
-    `<circle cx="200" cy="270" r="16" fill="${p.subject}"/>` +    // protein
+    // Placemat shadow
+    `<ellipse cx="200" cy="358" rx="160" ry="12" fill="${p.ink}" opacity="0.12"/>` +
+    `<rect x="50" y="150" width="300" height="190" rx="12" fill="${p.ground[0]}" opacity="0.3"/>` +
+    // Plate (base + gradient rim + inner well)
+    `<circle cx="200" cy="220" r="134" fill="${darkenHex("#FFFFFF", 0.08)}" filter="url(%23dsLg-${id})"/>` +
+    `<circle cx="200" cy="220" r="130" fill="#FFFFFF" stroke="${p.ink}" stroke-width="2"/>` +
+    `<circle cx="200" cy="220" r="130" fill="url(%23hl-${id})" opacity="0.55"/>` +
+    `<circle cx="200" cy="220" r="112" fill="none" stroke="${p.ink}" stroke-width="0.8" opacity="0.25"/>` +
+    `<circle cx="200" cy="220" r="110" fill="${p.sky[0]}" opacity="0.35"/>` +
+    // Leafy greens cluster (upper right)
+    `<ellipse cx="250" cy="175" rx="36" ry="24" fill="${p.ground[0]}" filter="url(%23ds-${id})"/>` +
+    `<ellipse cx="238" cy="168" rx="14" ry="20" fill="${lightenHex(p.ground[0], 0.18)}" transform="rotate(-20 238 168)"/>` +
+    `<ellipse cx="262" cy="168" rx="14" ry="20" fill="${lightenHex(p.ground[0], 0.1)}" transform="rotate(20 262 168)"/>` +
+    `<path d="M250 152 Q256 172 252 196" stroke="${darkenHex(p.ground[0], 0.25)}" stroke-width="1.5" fill="none"/>` +
+    `<path d="M238 158 Q238 175 242 190" stroke="${darkenHex(p.ground[0], 0.2)}" stroke-width="1" fill="none" opacity="0.7"/>` +
+    // Tomato (upper left) with leaf
+    `<circle cx="150" cy="180" r="30" fill="${darkenHex("#DC2626", 0.15)}"/>` +
+    `<circle cx="150" cy="180" r="28" fill="#DC2626"/>` +
+    `<ellipse cx="143" cy="170" rx="8" ry="5" fill="#FBBF24" opacity="0.75"/>` +
+    `<circle cx="143" cy="170" r="3" fill="#FFFFFF" opacity="0.7"/>` +
+    `<path d="M142 155 Q150 148 158 155 Q154 160 150 158 Q146 160 142 155 Z" fill="${p.ground[0]}"/>` +
+    // Bread / grain (bottom crescent)
+    `<path d="M128 240 Q200 228 272 240 L266 282 Q200 298 134 282 Z" fill="${darkenHex(p.accent, 0.15)}"/>` +
+    `<path d="M130 240 Q200 230 270 240 L265 280 Q200 295 135 280 Z" fill="url(%23accent-${id})"/>` +
+    `<path d="M145 252 Q200 244 255 252" stroke="${darkenHex(p.accent, 0.25)}" stroke-width="1" fill="none" opacity="0.7"/>` +
+    `<path d="M150 268 Q200 262 250 268" stroke="${darkenHex(p.accent, 0.25)}" stroke-width="1" fill="none" opacity="0.55"/>` +
+    // Protein ball (center)
+    `<circle cx="200" cy="270" r="18" fill="${darkenHex(p.subject, 0.15)}"/>` +
+    `<circle cx="200" cy="270" r="16" fill="url(%23subj-${id})"/>` +
     `<circle cx="200" cy="270" r="7"  fill="${p.accent}"/>` +
-    // Fork
-    `<rect x="40" y="180" width="6" height="80" fill="${p.ink}"/>` +
-    `<path d="M30 160 L30 200 M40 160 L40 200 M50 160 L50 200" stroke="${p.ink}" stroke-width="3"/>` +
+    `<circle cx="196" cy="266" r="2.5" fill="#FFFFFF" opacity="0.6"/>` +
+    // Fork (with highlights + tines)
+    `<rect x="40" y="180" width="6" height="80" fill="${p.ink}" filter="url(%23ds-${id})"/>` +
+    `<rect x="40" y="180" width="1.5" height="80" fill="#FFFFFF" opacity="0.3"/>` +
+    `<path d="M30 160 L30 200 M40 160 L40 200 M50 160 L50 200" stroke="${p.ink}" stroke-width="3" stroke-linecap="round"/>` +
+    `<rect x="28" y="196" width="24" height="8" rx="2" fill="${p.ink}"/>` +
     sparkles(p)
   );
 }
@@ -803,6 +925,204 @@ function mapCompass(p: ScenePalette, id: string): string {
   );
 }
 
+// ── Step 44: Five additional premium scene kinds ──────────────────────────
+
+// Phone mockup — chat bubble UI on a tilted device (marketing / product)
+function phoneMockup(p: ScenePalette, id: string): string {
+  return (
+    `<g transform="rotate(-6 200 200)" filter="url(%23dsLg-${id})">` +
+      // Device body
+      `<rect x="130" y="60" width="140" height="280" rx="22" fill="${p.ink}"/>` +
+      // Bezel highlight
+      `<rect x="132" y="62" width="136" height="276" rx="20" fill="url(%23hl-${id})" opacity="0.25"/>` +
+      // Screen
+      `<rect x="140" y="80" width="120" height="240" rx="6" fill="#FFFFFF"/>` +
+      // Status bar
+      `<rect x="140" y="80" width="120" height="16" fill="${lightenHex(p.ink, 0.1)}" opacity="0.08"/>` +
+      `<circle cx="200" cy="72" r="4" fill="${darkenHex(p.ink, 0.2)}"/>` +
+      // Chat bubble (incoming, left)
+      `<path d="M150 120 L230 120 Q240 120 240 130 L240 150 Q240 160 230 160 L162 160 L150 170 Z" fill="${lightenHex(p.subject, 0.7)}"/>` +
+      // Chat bubble (outgoing, right)
+      `<path d="M168 180 L244 180 Q252 180 252 190 L252 210 Q252 220 244 220 L180 220 L168 230 Z" fill="url(%23accent-${id})"/>` +
+      // Chat bubble (incoming short)
+      `<path d="M150 240 L200 240 Q210 240 210 250 L210 268 Q210 278 200 278 L162 278 L150 286 Z" fill="${lightenHex(p.subject, 0.7)}"/>` +
+      // Send input
+      `<rect x="150" y="296" width="100" height="16" rx="8" fill="${p.ground[0]}" opacity="0.4"/>` +
+      `<circle cx="245" cy="304" r="8" fill="url(%23accent-${id})"/>` +
+      `<path d="M241 304 L248 304 M245 301 L248 304 L245 307" stroke="#FFFFFF" stroke-width="1.5" fill="none" stroke-linecap="round"/>` +
+    `</g>` +
+    // Notification ping
+    `<circle cx="310" cy="105" r="14" fill="url(%23accent-${id})" filter="url(%23ds-${id})"/>` +
+    `<text x="310" y="110" text-anchor="middle" font-family="Inter, sans-serif" font-size="14" font-weight="800" fill="#FFFFFF">1</text>` +
+    sparkles(p)
+  );
+}
+
+// Podium stage — 3-tier winner podium with spotlight (motivation / business)
+function podiumStage(p: ScenePalette, id: string): string {
+  return (
+    // Spotlight cones
+    `<path d="M200 40 L90 320 L310 320 Z" fill="${p.accent}" opacity="0.1"/>` +
+    `<path d="M200 50 L140 320 L260 320 Z" fill="${p.accent}" opacity="0.12"/>` +
+    // Floor shadow
+    `<ellipse cx="200" cy="345" rx="170" ry="10" fill="${p.ink}" opacity="0.2"/>` +
+    // Rear podium (3rd place, shortest)
+    `<g filter="url(%23ds-${id})">` +
+      `<rect x="60"  y="260" width="95" height="80"  fill="${darkenHex(p.subject, 0.15)}"/>` +
+      `<rect x="60"  y="260" width="95" height="12"  fill="url(%23hl-${id})" opacity="0.5"/>` +
+      `<text x="107" y="310" text-anchor="middle" font-family="Inter, sans-serif" font-size="32" font-weight="900" fill="#FFFFFF" opacity="0.9">3</text>` +
+    `</g>` +
+    // Right podium (2nd place)
+    `<g filter="url(%23ds-${id})">` +
+      `<rect x="245" y="230" width="95" height="110" fill="${p.subject}"/>` +
+      `<rect x="245" y="230" width="95" height="12"  fill="url(%23hl-${id})" opacity="0.55"/>` +
+      `<text x="292" y="295" text-anchor="middle" font-family="Inter, sans-serif" font-size="36" font-weight="900" fill="#FFFFFF">2</text>` +
+    `</g>` +
+    // Center podium (1st place, tallest)
+    `<g filter="url(%23dsLg-${id})">` +
+      `<rect x="152" y="195" width="96" height="145" fill="url(%23accent-${id})"/>` +
+      `<rect x="152" y="195" width="96" height="14"  fill="url(%23hl-${id})" opacity="0.6"/>` +
+      `<text x="200" y="275" text-anchor="middle" font-family="Inter, sans-serif" font-size="42" font-weight="900" fill="#FFFFFF">1</text>` +
+    `</g>` +
+    // Star above center
+    `<g transform="translate(200 150)" filter="url(%23ds-${id})">` +
+      `<polygon points="0,-34 10,-10 36,-10 14,6 22,32 0,16 -22,32 -14,6 -36,-10 -10,-10" fill="url(%23accent-${id})"/>` +
+      `<polygon points="0,-34 6,-8 0,8" fill="#FFFFFF" opacity="0.4"/>` +
+    `</g>` +
+    // Confetti dots
+    `<circle cx="80"  cy="90"  r="4" fill="${p.accent}" opacity="0.8"/>` +
+    `<circle cx="320" cy="105" r="5" fill="${p.subject}" opacity="0.8"/>` +
+    `<circle cx="60"  cy="170" r="3" fill="${p.accent}" opacity="0.8"/>` +
+    `<circle cx="340" cy="180" r="4" fill="${p.subject}" opacity="0.8"/>`
+  );
+}
+
+// Notebook + pen — study / writing scene (education / productivity)
+function notebookPen(p: ScenePalette, id: string): string {
+  return (
+    // Desk surface shadow
+    `<ellipse cx="200" cy="340" rx="170" ry="12" fill="${p.ink}" opacity="0.18"/>` +
+    // Notebook base (tilted slightly)
+    `<g transform="rotate(-3 200 215)" filter="url(%23dsLg-${id})">` +
+      // Back cover shadow
+      `<rect x="72" y="102" width="256" height="216" rx="8" fill="${darkenHex(p.subject, 0.25)}"/>` +
+      // Page
+      `<rect x="70" y="100" width="256" height="216" rx="6" fill="#FFFBF2" stroke="${p.ink}" stroke-width="1" opacity="0.97"/>` +
+      // Spiral rings
+      Array.from({ length: 10 }, (_, i) => {
+        const y = 115 + i * 20;
+        return `<rect x="66" y="${y}" width="14" height="6" rx="2" fill="${p.ink}" opacity="0.75"/>` +
+               `<rect x="66" y="${y}" width="14" height="2" fill="#FFFFFF" opacity="0.4"/>`;
+      }).join("") +
+      // Ruled lines
+      Array.from({ length: 7 }, (_, i) => {
+        const y = 140 + i * 22;
+        return `<line x1="95" y1="${y}" x2="315" y2="${y}" stroke="${p.accent}" stroke-width="0.7" opacity="0.35"/>`;
+      }).join("") +
+      // Red margin line
+      `<line x1="105" y1="108" x2="105" y2="310" stroke="${p.accent}" stroke-width="1.3" opacity="0.6"/>` +
+      // Handwritten-looking scribble (2 rows)
+      `<path d="M115 148 Q140 144 165 148 Q190 152 215 148 Q240 144 265 150" stroke="${p.ink}" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.75"/>` +
+      `<path d="M115 170 Q145 166 175 170 Q205 174 235 168" stroke="${p.ink}" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.6"/>` +
+      // A star / check at top corner
+      `<polygon points="290,125 295,138 308,138 297,146 301,160 290,152 279,160 283,146 272,138 285,138" fill="${p.accent}"/>` +
+    `</g>` +
+    // Pen (diagonal, foreground)
+    `<g transform="rotate(28 280 280)" filter="url(%23ds-${id})">` +
+      // Barrel
+      `<rect x="200" y="274" width="150" height="14" rx="7" fill="url(%23subj-${id})"/>` +
+      `<rect x="200" y="274" width="150" height="4"  fill="#FFFFFF" opacity="0.35"/>` +
+      // Grip
+      `<rect x="340" y="272" width="14" height="18" rx="3" fill="${darkenHex(p.subject, 0.3)}"/>` +
+      // Tip
+      `<polygon points="354,272 370,281 354,290" fill="${p.ink}"/>` +
+      // Cap clip
+      `<rect x="210" y="282" width="34" height="4" rx="2" fill="${p.accent}"/>` +
+    `</g>` +
+    sparkles(p)
+  );
+}
+
+// Paintbrush with splash — creative / art (marketing, education)
+function paintBrush(p: ScenePalette, id: string): string {
+  return (
+    // Splash spots behind the brush
+    `<circle cx="130" cy="200" r="32" fill="${p.accent}" opacity="0.9" filter="url(%23ds-${id})"/>` +
+    `<circle cx="165" cy="160" r="14" fill="${p.accent}" opacity="0.85"/>` +
+    `<circle cx="100" cy="245" r="18" fill="${p.subject}" opacity="0.85"/>` +
+    `<circle cx="85"  cy="180" r="8"  fill="${p.accent}" opacity="0.85"/>` +
+    `<circle cx="155" cy="250" r="10" fill="${p.subject}" opacity="0.85"/>` +
+    // Paint drip trail
+    `<path d="M95 280 Q90 300 95 325" stroke="${p.accent}" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.85"/>` +
+    `<circle cx="95" cy="328" r="5" fill="${p.accent}"/>` +
+    // Sweeping paint stroke (behind brush handle)
+    `<path d="M60 210 Q160 170 250 210 Q310 235 360 180" stroke="url(%23accent-${id})" stroke-width="28" fill="none" stroke-linecap="round" opacity="0.85"/>` +
+    `<path d="M60 210 Q160 170 250 210 Q310 235 360 180" stroke="#FFFFFF" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.3"/>` +
+    // Brush handle (angled, upper-right)
+    `<g transform="rotate(35 280 140)" filter="url(%23dsLg-${id})">` +
+      // Wooden handle with gradient
+      `<rect x="180" y="132" width="170" height="16" rx="8" fill="url(%23subj-${id})"/>` +
+      `<rect x="180" y="132" width="170" height="4"  fill="#FFFFFF" opacity="0.35"/>` +
+      // Ferrule (metal band)
+      `<rect x="346" y="128" width="24" height="24" rx="3" fill="${darkenHex(p.ink, 0.0)}"/>` +
+      `<rect x="346" y="128" width="24" height="6"  fill="#FFFFFF" opacity="0.4"/>` +
+      `<rect x="346" y="146" width="24" height="4"  fill="${p.ink}" opacity="0.5"/>` +
+      // Bristles (loaded with paint)
+      `<path d="M370 128 L412 120 L418 130 L412 160 L370 152 Z" fill="${p.accent}"/>` +
+      `<path d="M370 128 L412 120 L418 130 L412 160 L370 152 Z" fill="url(%23hl-${id})" opacity="0.45"/>` +
+      // Individual bristle tips
+      `<path d="M412 120 L418 115 M414 128 L422 125 M418 140 L424 140 M416 152 L422 156" stroke="${darkenHex(p.accent, 0.3)}" stroke-width="1.5" stroke-linecap="round"/>` +
+    `</g>` +
+    sparkles(p)
+  );
+}
+
+// Music note — treble clef + notes (marketing / celebration / creative)
+function musicNote(p: ScenePalette, id: string): string {
+  return (
+    // Staff lines
+    `<g stroke="${p.ink}" stroke-width="1.5" opacity="0.35">` +
+      `<line x1="60"  y1="170" x2="340" y2="170"/>` +
+      `<line x1="60"  y1="195" x2="340" y2="195"/>` +
+      `<line x1="60"  y1="220" x2="340" y2="220"/>` +
+      `<line x1="60"  y1="245" x2="340" y2="245"/>` +
+      `<line x1="60"  y1="270" x2="340" y2="270"/>` +
+    `</g>` +
+    // Halo glow around hero note
+    `<circle cx="210" cy="240" r="110" fill="${p.accent}" opacity="0.14" filter="url(%23glow-${id})"/>` +
+    // Hero eighth note (big, stylized)
+    `<g filter="url(%23dsLg-${id})">` +
+      // Stem
+      `<rect x="242" y="110" width="8" height="145" fill="${p.ink}"/>` +
+      // Flag
+      `<path d="M250 110 Q300 125 305 175 Q290 150 250 155 Z" fill="url(%23accent-${id})"/>` +
+      `<path d="M250 130 Q292 145 300 180 Q286 162 250 168 Z" fill="url(%23accent-${id})" opacity="0.85"/>` +
+      // Head (filled oval)
+      `<ellipse cx="225" cy="255" rx="26" ry="20" fill="url(%23subj-${id})" transform="rotate(-20 225 255)"/>` +
+      `<ellipse cx="220" cy="248" rx="10" ry="6" fill="#FFFFFF" opacity="0.4" transform="rotate(-20 220 248)"/>` +
+    `</g>` +
+    // Secondary connected pair (beamed eighth notes)
+    `<g filter="url(%23ds-${id})">` +
+      `<rect x="92"  y="160" width="5" height="95" fill="${p.ink}"/>` +
+      `<rect x="142" y="155" width="5" height="100" fill="${p.ink}"/>` +
+      // Beam
+      `<path d="M92 160 L147 155 L147 170 L92 175 Z" fill="${p.ink}"/>` +
+      // Heads
+      `<ellipse cx="88"  cy="255" rx="14" ry="10" fill="${p.accent}" transform="rotate(-15 88 255)"/>` +
+      `<ellipse cx="138" cy="250" rx="14" ry="10" fill="${p.accent}" transform="rotate(-15 138 250)"/>` +
+    `</g>` +
+    // Treble-clef-ish scroll (top-left)
+    `<g transform="translate(40 80)" fill="none" stroke="${p.subject}" stroke-width="5" stroke-linecap="round">` +
+      `<path d="M20 0 Q35 20 20 50 Q5 70 20 100 Q45 110 40 80 Q30 60 40 45"/>` +
+    `</g>` +
+    // Floating motion sparks
+    `<circle cx="60"  cy="120" r="3" fill="${p.accent}" opacity="0.8"/>` +
+    `<circle cx="340" cy="140" r="4" fill="${p.subject}" opacity="0.8"/>` +
+    `<circle cx="360" cy="280" r="3" fill="${p.accent}" opacity="0.8"/>` +
+    `<circle cx="45"  cy="310" r="4" fill="${p.subject}" opacity="0.8"/>`
+  );
+}
+
 // ── Scene catalog ───────────────────────────────────────────────────────────
 // Each scene is a named composition that takes a palette and returns the
 // inner SVG body (no <svg> wrapper — wrapping happens in render()).
@@ -834,7 +1154,13 @@ export type SceneKind =
   | "calendar-day"
   | "brain-sparks"
   | "confetti-burst"
-  | "map-compass";
+  | "map-compass"
+  // Step 44: breadth additions
+  | "phone-mockup"
+  | "podium-stage"
+  | "notebook-pen"
+  | "paint-brush"
+  | "music-note";
 
 interface SceneBuilder {
   build(p: ScenePalette, id: string): string;
@@ -936,31 +1262,31 @@ const SCENES: Record<SceneKind, SceneBuilder> = {
   "floral-wreath": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + floralWreath(p);
+      return defsGradients(p, id) + skyFlat(p, id) + floralWreath(p, id);
     },
   },
   "workout-scene": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + workoutScene(p);
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + workoutScene(p, id);
     },
   },
   "script-banner": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + scriptBanner(p);
+      return defsGradients(p, id) + skyFlat(p, id) + scriptBanner(p, id);
     },
   },
   "confidence-spark": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + confidenceSpark(p);
+      return defsGradients(p, id) + skyFlat(p, id) + confidenceSpark(p, id);
     },
   },
   "diet-plate": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + dietPlate(p);
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + dietPlate(p, id);
     },
   },
   "yoga-pose": {
@@ -999,6 +1325,36 @@ const SCENES: Record<SceneKind, SceneBuilder> = {
       return defsGradients(p, id) + skyFlat(p, id) + mapCompass(p, id);
     },
   },
+  "phone-mockup": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + phoneMockup(p, id);
+    },
+  },
+  "podium-stage": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyWithSun(p, id) + groundFlat(id) + podiumStage(p, id);
+    },
+  },
+  "notebook-pen": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + notebookPen(p, id);
+    },
+  },
+  "paint-brush": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + paintBrush(p, id);
+    },
+  },
+  "music-note": {
+    aspectRatio: 1,
+    build(p, id) {
+      return defsGradients(p, id) + skyFlat(p, id) + musicNote(p, id);
+    },
+  },
 };
 
 // ── Public render ────────────────────────────────────────────────────────────
@@ -1030,6 +1386,9 @@ export function renderScene(
   if (cached) return cached;
 
   const builder = SCENES[kind];
+  if (!builder) {
+    throw new Error(`unknown scene kind "${kind}" — no builder registered in SCENES`);
+  }
   const palette = getScenePalette(category, variant);
   const id = `${kind}_${category}_${variant}_${Math.abs(hashCode(cacheKey))}`;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">${builder.build(palette, id)}</svg>`;

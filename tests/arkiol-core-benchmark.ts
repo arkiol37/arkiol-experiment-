@@ -22,6 +22,7 @@ async function run() {
     "script-banner", "confidence-spark", "diet-plate",
     "yoga-pose", "coffee-mug", "calendar-day", "brain-sparks",
     "confetti-burst", "map-compass",
+    "phone-mockup", "podium-stage", "notebook-pen", "paint-brush", "music-note",
   ] as const;
   const categories = lib.ASSET_CATEGORIES;
 
