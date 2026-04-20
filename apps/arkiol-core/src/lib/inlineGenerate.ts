@@ -133,6 +133,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       /** Template type the composer shaped this render for — drives
        *  gallery-level diversity. */
       templateType:   string;
+      /** Populated sections (header / content / visual / list_block / cta
+       *  / supporting) derived from the actual text zones that render.
+       *  Surfaced in the admission audit so gallery ops can verify the
+       *  multi-section structural floor held. */
+      sections:       string[];
+      sectionCount:   number;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -216,11 +222,14 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         themeId:        verdict?.themeId ?? result?.evaluationSignals?.themeId ?? "unknown",
         paletteKey,
         templateType:   verdict?.templateType ?? "unknown",
+        sections:       verdict?.sections ?? [],
+        sectionCount:   verdict?.sectionCount ?? 0,
       });
 
       console.info(
         `[inline-generate] vi=${vi} theme=${verdict?.themeId ?? "?"} ` +
         `type=${verdict?.templateType ?? "?"} ` +
+        `sections=${verdict?.sectionCount ?? 0}[${(verdict?.sections ?? []).join("+")}] ` +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -365,6 +374,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               rankPenalties:    adm.rankPenalties,
               themeId:          adm.themeId,
               templateType:     adm.templateType,
+              sections:         adm.sections,
+              sectionCount:     adm.sectionCount,
               rejectReasons:    adm.rejectReasons,
               failedCriteria:   adm.failedCriteria,
               attemptsUsed:     attemptedCount,
@@ -381,12 +392,17 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     }
 
     const uniqueTypes = new Set(admitted.map(a => a.templateType));
+    const avgSections = admitted.length
+      ? (admitted.reduce((s, a) => s + a.sectionCount, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const uniqueSections = new Set(admitted.flatMap(a => a.sections));
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
       `accepted=${acceptedCount()} shipped=${admitted.length} ` +
       `floorFilled=${admitted.filter(a => a.floorFill).length} ` +
-      `types=[${[...uniqueTypes].join(",")}]`,
+      `types=[${[...uniqueTypes].join(",")}] ` +
+      `avgSections=${avgSections} sections=[${[...uniqueSections].join(",")}]`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});

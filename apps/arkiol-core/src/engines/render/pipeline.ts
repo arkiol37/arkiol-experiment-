@@ -26,6 +26,13 @@ import { createHash }              from "crypto";
 import { randomUUID }              from "crypto";
 import sharp                       from "sharp";
 import { resolveLayoutSpec, AuthorityContext } from "../layout/authority";
+import {
+  analyzeSectionStructure,
+  analyzePopulatedSections,
+  enforceSectionBands,
+  type SectionReport,
+  type SectionKind,
+} from "../layout/section-structure";
 import { adaptLayout }             from "../layout/adaptive-layout";
 import { LayoutConstraintError }   from "../layout/layout-constraints";
 import { detectCategoryPack }      from "../style/category-style-packs";
@@ -317,6 +324,17 @@ export interface PipelineResult {
      *   promotional / educational / minimal). Undefined when no theme
      *  was selected. */
     templateType?:       TemplateType;
+    /** Populated sections (header / content / visual / list_block / cta /
+     *  supporting) derived from the actual text zones that will render.
+     *  A structurally valid template spans ≥ 2 sections with ≥ 1 anchor
+     *  (header/content/cta/visual); the `single_block` rejection rule
+     *  guards this at the hard gate, but the verdict surfaces the
+     *  breakdown so downstream admission logs can describe *why* a
+     *  template qualified. */
+    sections?:           SectionKind[];
+    sectionCount?:       number;
+    sectionAnchorCount?: number;
+    sectionsSatisfied?:  boolean;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -518,7 +536,26 @@ async function renderAssetInner(
     violations.push(...zoneHealing.actions.map(a => `self_healing:zone: ${a.issue}`));
   }
 
-  const spec = { ...rawSpec, zones: zoneHealing.zones };
+  // ── Structured-section enforcement ─────────────────────────────────────
+  // Every template must render as a real composition — a header / content
+  // / visual / cta cluster, not a single floating text block. We classify
+  // every active zone into a section, snap zones whose center-Y already
+  // lands in a canonical band to that band's midline (gentle ±4% nudge
+  // — custom variations keep their distinctive shape), and record the
+  // structural report on the pipeline context for downstream stages.
+  const bandsAdjusted = enforceSectionBands(zoneHealing.zones);
+  if (bandsAdjusted.nudged.length > 0) {
+    violations.push(`section_bands:nudged=${bandsAdjusted.nudged.join(",")}`);
+  }
+  const sectionReport: SectionReport = analyzeSectionStructure(
+    bandsAdjusted.zones,
+    rawSpec.activeZoneIds,
+  );
+  if (sectionReport.issues.length > 0) {
+    violations.push(...sectionReport.issues.map(i => `section_structure:${i}`));
+  }
+
+  const spec = { ...rawSpec, zones: bandsAdjusted.zones };
   ctx.currentStage = "layout";
   ctx.layout = { rawSpec, adapted, spec };
   if (adapted.adjustments.length > 0) {
@@ -1403,6 +1440,13 @@ async function renderAssetInner(
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5)
         .map(p => `${p.kind}:${p.amount.toFixed(2)}`);
+      // Populated-section report — classifies the zones that actually
+      // carry text into the six SectionKinds so admission logs can
+      // show why a template qualified (or was rejected) on structure.
+      const populatedZones = (content.textContents ?? [])
+        .filter((z: any) => typeof z?.text === "string" && z.text.trim().length > 0)
+        .map((z: any) => ({ zoneId: z.zoneId as string, text: z.text as string }));
+      const populatedSectionReport = analyzePopulatedSections(populatedZones);
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1416,6 +1460,10 @@ async function renderAssetInner(
           failedCriteria:      marketplaceVerdict?.failedCriteria ?? [],
           themeId,
           templateType:        (buildResult.content as any)._templateType as TemplateType | undefined,
+          sections:            populatedSectionReport.populatedSections,
+          sectionCount:        populatedSectionReport.count,
+          sectionAnchorCount:  populatedSectionReport.anchorCount,
+          sectionsSatisfied:   populatedSectionReport.satisfiesMinimum,
         },
       };
     })() : {}),

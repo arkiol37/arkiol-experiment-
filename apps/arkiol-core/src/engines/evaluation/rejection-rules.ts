@@ -17,6 +17,10 @@
 import type { DesignTheme } from "../render/design-themes";
 import type { SvgContent }  from "../render/svg-builder-ultimate";
 import {
+  analyzePopulatedSections,
+  MIN_SECTIONS,
+} from "../layout/section-structure";
+import {
   scoreCandidateQuality,
   scoreThemeQuality,
   areTooSimilar,
@@ -223,6 +227,39 @@ export const REJECTION_RULES: RejectionRule[] = [
       const zones = content.textContents ?? [];
       const populated = zones.filter(z => z.text?.trim().length > 0);
       if (populated.length < 2) return `sparse_content:populated(${populated.length})`;
+      return null;
+    },
+  },
+
+  // ── Structured sections (hard) ───────────────────────────────────────────
+  // Step 26: gallery outputs must read as structured compositions — a
+  // header / content / visual / cta cluster, not zones stacked in one
+  // section. This rule runs the id-based section analyzer over the
+  // populated text zones and fails templates that don't span the
+  // minimum (2) sections or lack an anchor section (header / content /
+  // cta / visual). Applies uniformly to every template type because
+  // it's keyed off the zone ids the composer populated, not a type
+  // override. When content is not available the rule skips.
+  {
+    id:          "single_block",
+    severity:    "hard",
+    description: "Populated zones cluster in one section — no real structure.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const zones = content.textContents ?? [];
+      const populated = zones
+        .filter(z => z.text?.trim().length > 0)
+        .map(z => ({ zoneId: z.zoneId, text: z.text }));
+      const rep = analyzePopulatedSections(populated);
+      if (rep.isSingleBlock) {
+        return `single_block:only_${rep.populatedSections[0] ?? "empty"}_section`;
+      }
+      if (rep.count < MIN_SECTIONS) {
+        return `insufficient_sections:${rep.count}/${MIN_SECTIONS}`;
+      }
+      if (rep.anchorCount < 1) {
+        return `no_anchor_section:[${rep.populatedSections.join(",")}]`;
+      }
       return null;
     },
   },
