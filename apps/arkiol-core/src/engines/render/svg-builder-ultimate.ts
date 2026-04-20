@@ -57,6 +57,11 @@ import {
   type CompositionVerdict,
 } from "../layout/composition-analyzer";
 import {
+  analyzeStyleConsistency,
+  describeStyleConsistency,
+  type StyleConsistencyVerdict,
+} from "../evaluation/style-consistency";
+import {
   restructureTextMap,
   analyzeContentCoverage,
   type ContentCoverageReport,
@@ -176,6 +181,14 @@ export interface SvgContent {
    *  missing_cta. Consumed by four rejection rules so layouts that feel
    *  random, cluttered, or lack a clear focal point don't ship. */
   _composition?: CompositionVerdict;
+  /** Step 11 — style consistency + final-polish verdict. Reports
+   *  palette hue cardinality, distinct font families, worst WCAG text
+   *  contrast, CTA contrast, component radius spread, decoration
+   *  noise, and photo-vs-illustrative-decor mismatch. Consumed by
+   *  five rejection rules that drop candidates with fragmented
+   *  palettes, too many fonts, unreadable text, visual clutter, or
+   *  clashing illustrative decor over a realistic subject. */
+  _styleConsistency?: StyleConsistencyVerdict;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -683,6 +696,21 @@ export async function buildUltimateSvgContent(
     _photoSubjectExpected: photoExpected,
     _composition:          composition,
   };
+
+  // ── Step 11: Style consistency + final visual polish ─────────────────────
+  // Now that the builder knows the theme, content, subject, and composition,
+  // evaluate palette harmony, font consistency, text contrast, component
+  // radius spread, decoration noise, and photo-vs-illustrative-decor
+  // alignment. The verdict is stamped on content so the rejection gate can
+  // drop fragmented, low-contrast, or noisy candidates.
+  const styleConsistency = analyzeStyleConsistency({
+    theme,
+    content,
+    populatedZoneIds,
+    subject: subjectImage,
+  });
+  content._styleConsistency = styleConsistency;
+  violations.push("style_consistency:" + describeStyleConsistency(styleConsistency));
 
   // ── Post-build marketplace quality gate ──────────────────────────────
   const marketplaceReject = checkMarketplaceQuality(theme, content);

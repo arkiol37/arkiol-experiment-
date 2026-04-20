@@ -399,6 +399,23 @@ export interface PipelineResult {
     compositionMinGap?:     number;
     compositionSkew?:       number;
     compositionFlags?:      string[];
+    /** Step 11 — style consistency + final-polish verdict. Summary of
+     *  palette cardinality, font cohesion, worst text contrast, CTA
+     *  contrast, component radius spread, decoration noise, and
+     *  subject-vs-decor alignment. Feeds `palette_fragmentation`,
+     *  `font_switching`, `low_contrast_text`, `component_inconsistency`,
+     *  `decoration_noise`, and `style_mismatch` rejection rules. */
+    styleDistinctHues?:     number;
+    styleDistinctFonts?:    number;
+    styleFontFamilies?:     string[];
+    styleMinContrast?:      number;
+    styleMinContrastRole?:  string;
+    styleCtaContrast?:      number;
+    styleRadiusCv?:         number;
+    styleDecorationCount?:  number;
+    styleIllustrativeCount?:number;
+    styleSubjectMode?:      string;
+    styleFlags?:            string[];
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1550,6 +1567,24 @@ async function renderAssetInner(
       const compFlagList = comp
         ? Object.entries(comp.flags).filter(([, v]) => v).map(([k]) => k)
         : [];
+      const style = (content as any)._styleConsistency as
+        | {
+            distinctHues: number;
+            distinctFontFamilies: number;
+            fontFamilyList: string[];
+            minTextContrast: number;
+            minTextContrastRole: string;
+            ctaContrast: number;
+            radiusCv: number;
+            decorationCount: number;
+            illustrativeCount: number;
+            subjectMode: string;
+            flags: Record<string, boolean>;
+          }
+        | undefined;
+      const styleFlagList = style
+        ? Object.entries(style.flags).filter(([, v]) => v).map(([k]) => k)
+        : [];
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1603,6 +1638,17 @@ async function renderAssetInner(
           compositionMinGap:        comp?.minGapPct,
           compositionSkew:          comp?.quadrantSkew,
           compositionFlags:         compFlagList,
+          styleDistinctHues:        style?.distinctHues,
+          styleDistinctFonts:       style?.distinctFontFamilies,
+          styleFontFamilies:        style?.fontFamilyList ?? [],
+          styleMinContrast:         style?.minTextContrast,
+          styleMinContrastRole:     style?.minTextContrastRole,
+          styleCtaContrast:         style?.ctaContrast,
+          styleRadiusCv:            style?.radiusCv,
+          styleDecorationCount:     style?.decorationCount,
+          styleIllustrativeCount:   style?.illustrativeCount,
+          styleSubjectMode:         style?.subjectMode,
+          styleFlags:               styleFlagList,
         },
       };
     })() : {}),

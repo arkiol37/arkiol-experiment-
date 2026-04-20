@@ -583,6 +583,118 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
+  // ── Step 11 style consistency floors (all hard) ──────────────────────────
+  // Read `_styleConsistency` (StyleConsistencyVerdict) stamped by the SVG
+  // builder. Each rule focuses on one aesthetic failure mode from the
+  // Step 11 charter: too many hues, too many fonts, unreadable text,
+  // clashing illustrative decor over a photo subject, or clutter.
+
+  // Palette fragmentation: premium packs stick to 2-3 accent hues plus
+  // neutrals; anything more reads as visually inconsistent.
+  {
+    id:          "palette_fragmentation",
+    severity:    "hard",
+    description: "Too many distinct accent hues across palette and decorations — colours feel unharmonious.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const sc = (content as any)._styleConsistency as
+        | { distinctHues: number; distinctHueSamples: string[]; flags: { paletteFragmented: boolean } }
+        | undefined;
+      if (!sc?.flags?.paletteFragmented) return null;
+      return `palette_fragmentation:hues=${sc.distinctHues}[${sc.distinctHueSamples.slice(0, 6).join(",")}]`;
+    },
+  },
+
+  // Font switching: a cohesive design uses a display pairing — one
+  // family for hero text plus a body family. More than two distinct
+  // families across zones reads as mismatched.
+  {
+    id:          "font_switching",
+    severity:    "hard",
+    description: "Too many distinct font families across populated text roles — typography lacks a consistent pairing.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const sc = (content as any)._styleConsistency as
+        | { distinctFontFamilies: number; fontFamilyList: string[]; flags: { fontSwitching: boolean } }
+        | undefined;
+      if (!sc?.flags?.fontSwitching) return null;
+      return `font_switching:fonts=${sc.distinctFontFamilies}[${sc.fontFamilyList.join(",")}]`;
+    },
+  },
+
+  // Low contrast text: any populated text role whose foreground sits
+  // below MIN_CONTRAST_TEXT WCAG ratio against the approximate
+  // backdrop. Drops candidates where headline / body / subhead would
+  // be hard to read on the ship canvas.
+  {
+    id:          "low_contrast_text",
+    severity:    "hard",
+    description: "A populated text role fails the WCAG contrast floor against the background.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const sc = (content as any)._styleConsistency as
+        | { minTextContrast: number; minTextContrastRole: string; ctaContrast: number; flags: { lowContrastText: boolean; lowContrastCta: boolean } }
+        | undefined;
+      if (!sc) return null;
+      const f = sc.flags;
+      if (!f.lowContrastText && !f.lowContrastCta) return null;
+      const bits: string[] = [];
+      if (f.lowContrastText) bits.push(`${sc.minTextContrastRole}=${sc.minTextContrast.toFixed(2)}`);
+      if (f.lowContrastCta)  bits.push(`cta=${sc.ctaContrast.toFixed(2)}`);
+      return `low_contrast_text:${bits.join("|")}`;
+    },
+  },
+
+  // Component inconsistency: corner radii across CTA + decoration
+  // panels / bars should cluster. Wild variance (CV > 0.85) means
+  // rounded pills next to sharp rectangles — a mismatched system.
+  {
+    id:          "component_inconsistency",
+    severity:    "hard",
+    description: "Component corner radii vary too widely — cards, buttons, and panels don't feel like one system.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const sc = (content as any)._styleConsistency as
+        | { radiusCv: number; radiusComponentCount: number; flags: { componentInconsistency: boolean } }
+        | undefined;
+      if (!sc?.flags?.componentInconsistency) return null;
+      return `component_inconsistency:radius_cv=${sc.radiusCv.toFixed(2)}(n=${sc.radiusComponentCount})`;
+    },
+  },
+
+  // Decoration noise: decoration count above the clutter cap is a
+  // reliable signal that the canvas is overloaded with shapes.
+  {
+    id:          "decoration_noise",
+    severity:    "hard",
+    description: "Decoration layer exceeds the clutter cap — too many shapes competing for attention.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const sc = (content as any)._styleConsistency as
+        | { decorationCount: number; flags: { decorationNoise: boolean } }
+        | undefined;
+      if (!sc?.flags?.decorationNoise) return null;
+      return `decoration_noise:decor=${sc.decorationCount}`;
+    },
+  },
+
+  // Style mismatch: a realistic photo subject was placed but the theme
+  // layered in too many illustrative shapes (flowers / squiggles /
+  // stickers / starbursts) that fight the photography mode.
+  {
+    id:          "style_mismatch",
+    severity:    "hard",
+    description: "Photo subject is overlaid with too many illustrative decorations — visual languages clash.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const sc = (content as any)._styleConsistency as
+        | { subjectMode: string; illustrativeCount: number; flags: { styleMismatch: boolean } }
+        | undefined;
+      if (!sc?.flags?.styleMismatch) return null;
+      return `style_mismatch:subject=${sc.subjectMode}|illustrative=${sc.illustrativeCount}`;
+    },
+  },
+
   // ── Low diversity (soft) ─────────────────────────────────────────────────
   {
     id:          "low_diversity",

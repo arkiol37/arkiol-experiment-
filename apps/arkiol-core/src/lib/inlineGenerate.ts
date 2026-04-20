@@ -184,6 +184,19 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       compositionFocalArea:  number;
       compositionCoverage:   number;
       compositionFlags:      string[];
+      /** Step 11 — style consistency verdict. Hue + font counts, worst
+       *  text / CTA contrast, corner-radius spread, decoration volume,
+       *  subject mode, and the flag list that drove the palette /
+       *  font / contrast / noise / mismatch rejection rules. */
+      styleHues:            number;
+      styleFonts:           number;
+      styleFontFamilies:    string[];
+      styleMinContrast:     number;
+      styleCtaContrast:     number;
+      styleRadiusCv:        number;
+      styleDecorCount:      number;
+      styleSubjectMode:     string;
+      styleFlags:           string[];
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -293,6 +306,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         compositionFocalArea:  verdict?.compositionFocalArea ?? 0,
         compositionCoverage:   verdict?.compositionCoverage ?? 0,
         compositionFlags:      verdict?.compositionFlags ?? [],
+        styleHues:             verdict?.styleDistinctHues ?? 0,
+        styleFonts:            verdict?.styleDistinctFonts ?? 0,
+        styleFontFamilies:     verdict?.styleFontFamilies ?? [],
+        styleMinContrast:      verdict?.styleMinContrast ?? 0,
+        styleCtaContrast:      verdict?.styleCtaContrast ?? 0,
+        styleRadiusCv:         verdict?.styleRadiusCv ?? 0,
+        styleDecorCount:       verdict?.styleDecorationCount ?? 0,
+        styleSubjectMode:      verdict?.styleSubjectMode ?? "none",
+        styleFlags:            verdict?.styleFlags ?? [],
       });
 
       console.info(
@@ -313,6 +335,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         `/focal=${verdict?.compositionFocalZone ?? "?"}(${(verdict?.compositionFocalArea ?? 0).toFixed(0)}%)` +
         `/cov=${(verdict?.compositionCoverage ?? 0).toFixed(0)}%` +
         (verdict?.compositionFlags?.length ? `!${verdict.compositionFlags.join(",")}` : "") + " " +
+        `style=hues${verdict?.styleDistinctHues ?? 0}` +
+        `/fonts${verdict?.styleDistinctFonts ?? 0}` +
+        `/contrast${(verdict?.styleMinContrast ?? 0).toFixed(1)}` +
+        `/decor${verdict?.styleDecorationCount ?? 0}` +
+        (verdict?.styleFlags?.length ? `!${verdict.styleFlags.join(",")}` : "") + " " +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -534,6 +561,25 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     }, {});
     const compFlagsLabel = Object.entries(compFlagCounts)
       .map(([k, v]) => `${k}:${v}`).join(",") || "clean";
+    const avgHues = admitted.length
+      ? (admitted.reduce((s, a) => s + a.styleHues, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const avgFonts = admitted.length
+      ? (admitted.reduce((s, a) => s + a.styleFonts, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const avgContrast = admitted.length
+      ? (admitted.reduce((s, a) => s + a.styleMinContrast, 0) / admitted.length).toFixed(2)
+      : "0.00";
+    const avgDecor = admitted.length
+      ? (admitted.reduce((s, a) => s + a.styleDecorCount, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const styleFlagCounts = admitted.reduce<Record<string, number>>((acc, a) => {
+      for (const f of a.styleFlags) acc[f] = (acc[f] ?? 0) + 1;
+      return acc;
+    }, {});
+    const styleFlagsLabel = Object.entries(styleFlagCounts)
+      .map(([k, v]) => `${k}:${v}`).join(",") || "clean";
+    const uniqueFontFamilies = new Set(admitted.flatMap(a => a.styleFontFamilies));
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
@@ -549,7 +595,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `subjects=${subjectCount}/${subjectExpectedCount}expected licensed=${subjectLicensedCount} ` +
       `slugs=[${subjectSlugs.join(",")}] ` +
       `layouts={${patternLabel}} avgFocalArea=${avgFocalArea}% avgCoverage=${avgCoverage}% ` +
-      `compositionFlags={${compFlagsLabel}}`,
+      `compositionFlags={${compFlagsLabel}} ` +
+      `avgHues=${avgHues} avgFonts=${avgFonts} avgContrast=${avgContrast} avgDecor=${avgDecor} ` +
+      `fontFamilies=[${[...uniqueFontFamilies].join(",")}] styleFlags={${styleFlagsLabel}}`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});
