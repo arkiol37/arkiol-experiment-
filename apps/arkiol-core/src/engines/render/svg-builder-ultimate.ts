@@ -40,6 +40,12 @@ import {
   type ComponentAssignment,
   type ComponentCoverageReport,
 } from "../components/component-system";
+import {
+  restructureTextMap,
+  analyzeContentCoverage,
+  type ContentCoverageReport,
+  type RestructureAction,
+} from "../content/content-structure";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { evaluateRejection } from "../evaluation/rejection-rules";
 import { passesMarketplaceStandard, describeMarketplaceVerdict } from "../evaluation/marketplace-gate";
@@ -113,6 +119,13 @@ export interface SvgContent {
   /** Coverage summary derived from `_components`. Used by the rejection
    *  gate and the quality verdict. */
   _componentReport?: ComponentCoverageReport;
+  /** Content-aware restructuring report — records which list was split
+   *  out of body/subhead/tagline into bullets and the final item count
+   *  the template rendered. Used by the `unstructured_content`
+   *  rejection rule to drop list-style templates that still ship as a
+   *  single paragraph. */
+  _contentCoverage?: ContentCoverageReport;
+  _contentActions?: RestructureAction[];
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -425,7 +438,26 @@ export async function buildUltimateSvgContent(
     }
   }
 
-  const textMap   = new Map(aiText.textContents.map((tc: any) => [tc.zoneId, tc.text]));
+  const rawTextMap  = new Map<string, string>(aiText.textContents.map((tc: any) => [tc.zoneId as string, tc.text as string]));
+
+  // ── Content-aware restructuring ──────────────────────────────────────────
+  // When the composer populated `body` (or subhead/tagline) with a
+  // numbered list, bulleted list, or tip/step sequence, and the active
+  // template type expects multiple items (checklist / tips /
+  // step_by_step / list_based / educational), redistribute the detected
+  // items across bullet_1 / bullet_2 / bullet_3 zones so each one
+  // renders as its own component row. Source zone is cleared when its
+  // entire text was the list; otherwise it stays as a lead line.
+  const availableZoneIds = new Set(zones.map(z => z.id as string));
+  const restructure      = restructureTextMap(rawTextMap, availableZoneIds, resolvedTemplateType);
+  const textMap          = restructure.textMap;
+  const contentActions   = restructure.actions;
+  for (const a of contentActions) {
+    if (a.kind !== "skip") {
+      violations.push(`content_structure:${a.kind}:${a.source}→${a.targets.join("+") || "-"}(${a.items.length})`);
+    }
+  }
+
   const typo      = theme.typography;
   const hMult     = theme.headlineSizeMultiplier ?? 1.0;
 
@@ -477,6 +509,15 @@ export async function buildUltimateSvgContent(
     violations.push(`components:no_structured_components_populated=${populatedZoneIds.length}`);
   }
 
+  // ── Content coverage (post-restructure) ──────────────────────────────────
+  // Count how many bullet zones actually carry text after the
+  // restructurer ran and compare against the template type's minimum.
+  const finalTextMap = new Map<string, string>(textContents.map(tc => [tc.zoneId, tc.text]));
+  const contentCoverage = analyzeContentCoverage(finalTextMap, resolvedTemplateType, contentActions);
+  if (!contentCoverage.satisfiesMinimum) {
+    violations.push(`content_coverage:below_minimum(${contentCoverage.populatedItems}/${contentCoverage.required})`);
+  }
+
   const content: SvgContent = {
     backgroundColor:primaryBgColor, backgroundGradient:gradient, textContents,
     ctaStyle:{ backgroundColor:theme.ctaStyle.backgroundColor, textColor:theme.ctaStyle.textColor,
@@ -488,6 +529,8 @@ export async function buildUltimateSvgContent(
     _templateType: resolvedTemplateType,
     _components:   componentAssignments,
     _componentReport: componentReport,
+    _contentCoverage: contentCoverage,
+    _contentActions:  contentActions,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────

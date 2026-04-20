@@ -145,6 +145,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       componentKinds: string[];
       componentCount: number;
       structuredComponentCount: number;
+      /** Content-aware structure classification + bullet item count. */
+      contentKind:    string;
+      contentItems:   number;
+      contentSatisfied: boolean;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -233,6 +237,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         componentKinds: verdict?.componentKinds ?? [],
         componentCount: verdict?.componentCount ?? 0,
         structuredComponentCount: verdict?.structuredComponentCount ?? 0,
+        contentKind:      verdict?.contentKind ?? "prose",
+        contentItems:     verdict?.contentItems ?? 0,
+        contentSatisfied: verdict?.contentSatisfied ?? true,
       });
 
       console.info(
@@ -240,6 +247,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         `type=${verdict?.templateType ?? "?"} ` +
         `sections=${verdict?.sectionCount ?? 0}[${(verdict?.sections ?? []).join("+")}] ` +
         `components=${verdict?.componentCount ?? 0}/${verdict?.structuredComponentCount ?? 0}[${(verdict?.componentKinds ?? []).join("+")}] ` +
+        `content=${verdict?.contentKind ?? "?"}×${verdict?.contentItems ?? 0} ` +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -389,6 +397,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               componentKinds:   adm.componentKinds,
               componentCount:   adm.componentCount,
               structuredComponentCount: adm.structuredComponentCount,
+              contentKind:      adm.contentKind,
+              contentItems:     adm.contentItems,
+              contentSatisfied: adm.contentSatisfied,
               rejectReasons:    adm.rejectReasons,
               failedCriteria:   adm.failedCriteria,
               attemptsUsed:     attemptedCount,
@@ -413,6 +424,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const avgComponents    = admitted.length
       ? (admitted.reduce((s, a) => s + a.componentCount, 0) / admitted.length).toFixed(1)
       : "0.0";
+    const uniqueContentKinds = new Set(admitted.map(a => a.contentKind));
+    const avgContentItems    = admitted.length
+      ? (admitted.reduce((s, a) => s + a.contentItems, 0) / admitted.length).toFixed(1)
+      : "0.0";
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
@@ -420,7 +435,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `floorFilled=${admitted.filter(a => a.floorFill).length} ` +
       `types=[${[...uniqueTypes].join(",")}] ` +
       `avgSections=${avgSections} sections=[${[...uniqueSections].join(",")}] ` +
-      `avgComponents=${avgComponents} components=[${[...uniqueComponents].join(",")}]`,
+      `avgComponents=${avgComponents} components=[${[...uniqueComponents].join(",")}] ` +
+      `avgContentItems=${avgContentItems} contentKinds=[${[...uniqueContentKinds].join(",")}]`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});

@@ -26,6 +26,11 @@ import {
   MIN_STRUCTURED_COMPONENTS,
 } from "../components/component-system";
 import {
+  analyzeContentStructure,
+  expectsStructuredList,
+  MIN_LIST_ITEMS,
+} from "../content/content-structure";
+import {
   scoreCandidateQuality,
   scoreThemeQuality,
   areTooSimilar,
@@ -295,6 +300,53 @@ export const REJECTION_RULES: RejectionRule[] = [
         return `no_components:populated=${report.assignments.length} structured=${report.structuredCount}`;
       }
       return null;
+    },
+  },
+
+  // ── Unstructured list content (hard) ─────────────────────────────────────
+  // Step 6 floor: when the template type expects a structured list
+  // (checklist / tips / step_by_step / list_based / educational) the
+  // output must render as ≥ 2 distinct bullet items. A single body
+  // paragraph that smuggled a list into prose form reads as a flat text
+  // card and gets dropped. Reads the SVG builder's pre-computed
+  // coverage report first; falls back to inspecting the populated
+  // textContents + running the content analyzer so older cached
+  // renders still get gated.
+  {
+    id:          "unstructured_content",
+    severity:    "hard",
+    description: "List-style template ships as a single paragraph instead of distinct component items.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const tt = content._templateType;
+      if (!expectsStructuredList(tt)) return null;
+
+      const coverage = content._contentCoverage;
+      if (coverage) {
+        if (!coverage.satisfiesMinimum) {
+          return `unstructured_content:${tt}:items=${coverage.populatedItems}/${coverage.required}`;
+        }
+        return null;
+      }
+
+      // Fallback path — no coverage stamped on content.
+      const textMap = new Map<string, string>(
+        (content.textContents ?? []).map(t => [t.zoneId, t.text])
+      );
+      const bulletCount = ["bullet_1", "bullet_2", "bullet_3"]
+        .filter(b => (textMap.get(b) ?? "").trim().length > 0).length;
+      if (bulletCount >= MIN_LIST_ITEMS) return null;
+
+      const bodyText = (textMap.get("body") ?? textMap.get("subhead") ?? textMap.get("tagline") ?? "").trim();
+      if (!bodyText) return `unstructured_content:${tt}:no_items`;
+      const structure = analyzeContentStructure(bodyText);
+      // If the body *obviously* contained a list (confidence ≥ 0.7) but
+      // we shipped < 2 bullets, we failed to unpack it — reject.
+      if (structure.items.length >= MIN_LIST_ITEMS && structure.confidence >= 0.7) {
+        return `unstructured_content:${tt}:detected=${structure.items.length}_shipped=${bulletCount}`;
+      }
+      // Otherwise, list-style template with <2 bullets is still a fail.
+      return `unstructured_content:${tt}:shipped=${bulletCount}/${MIN_LIST_ITEMS}`;
     },
   },
 

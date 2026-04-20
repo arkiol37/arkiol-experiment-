@@ -344,6 +344,16 @@ export interface PipelineResult {
     componentCount?:     number;
     structuredComponentCount?: number;
     componentsSatisfied?: boolean;
+    /** Content-aware restructuring summary — what kind of content the
+     *  composer read (list / checklist / steps / tips / informational /
+     *  quote / prose) and how many structured items shipped. The
+     *  `unstructured_content` rejection rule uses this floor; the
+     *  verdict exposes it so admission audits can show *why* a
+     *  list-style template shipped with only two bullets. */
+    contentKind?:        string;
+    contentItems?:       number;
+    contentItemsRequired?: number;
+    contentSatisfied?:   boolean;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1462,6 +1472,9 @@ async function renderAssetInner(
       const compReport = (content as any)._componentReport as
         | { assignments: Array<{ kind: string }>; componentCount: number; distinctKinds: string[]; structuredCount: number; hasStructuredComponents: boolean }
         | undefined;
+      const contentCov = (content as any)._contentCoverage as
+        | { kind: string; populatedItems: number; required: number; satisfiesMinimum: boolean }
+        | undefined;
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1483,6 +1496,10 @@ async function renderAssetInner(
           componentCount:           compReport?.componentCount ?? 0,
           structuredComponentCount: compReport?.structuredCount ?? 0,
           componentsSatisfied:      compReport?.hasStructuredComponents ?? false,
+          contentKind:              contentCov?.kind,
+          contentItems:             contentCov?.populatedItems ?? 0,
+          contentItemsRequired:     contentCov?.required ?? 0,
+          contentSatisfied:         contentCov?.satisfiesMinimum ?? true,
         },
       };
     })() : {}),
