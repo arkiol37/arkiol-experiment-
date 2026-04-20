@@ -52,6 +52,11 @@ import {
   type SubjectImage,
 } from "../assets/subject-image-selector";
 import {
+  analyzeComposition,
+  describeComposition,
+  type CompositionVerdict,
+} from "../layout/composition-analyzer";
+import {
   restructureTextMap,
   analyzeContentCoverage,
   type ContentCoverageReport,
@@ -165,6 +170,12 @@ export interface SvgContent {
    *  rejection rule can distinguish "photo missing" from "abstract
    *  brief, no photo expected". */
   _photoSubjectExpected?: boolean;
+  /** Step 10 — composition balance + visual hierarchy verdict. Reports
+   *  the identified focal zone, composition pattern, and flags such as
+   *  overcrowded / sparse / no_focal / poor_spacing / text_overlap /
+   *  missing_cta. Consumed by four rejection rules so layouts that feel
+   *  random, cluttered, or lack a clear focal point don't ship. */
+  _composition?: CompositionVerdict;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -639,6 +650,20 @@ export async function buildUltimateSvgContent(
     violations.push(`subject_image:skipped expected=${photoExpected} has_image_zone=${zones.some(z => z.id === "image")}`);
   }
 
+  // ── Step 10: Composition balance + visual hierarchy ─────────────────────
+  // Now that zones, components, and subject are resolved, evaluate whether
+  // the finished layout has a dominant focal area, consistent spacing, and
+  // follows a recognisable composition pattern. The verdict is stamped on
+  // SvgContent so the rejection gate can drop unbalanced / cluttered /
+  // no-focal-point outputs and the admission audit can describe why.
+  const composition = analyzeComposition({
+    zones,
+    populatedZoneIds,
+    templateType: resolvedTemplateType,
+    subject:      subjectImage,
+  });
+  violations.push("composition:" + describeComposition(composition));
+
   const content: SvgContent = {
     backgroundColor:primaryBgColor, backgroundGradient:gradient, textContents,
     ctaStyle:{ backgroundColor:theme.ctaStyle.backgroundColor, textColor:theme.ctaStyle.textColor,
@@ -656,6 +681,7 @@ export async function buildUltimateSvgContent(
     _contentMapping:    contentMapping,
     _subjectImage:         subjectImage ?? undefined,
     _photoSubjectExpected: photoExpected,
+    _composition:          composition,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────

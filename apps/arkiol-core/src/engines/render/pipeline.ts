@@ -386,6 +386,19 @@ export interface PipelineResult {
     subjectImagePlacement?: string;
     subjectImageLicensed?:  boolean;
     subjectImageExpected?:  boolean;
+    /** Step 10 — composition balance + visual hierarchy. Summary of the
+     *  focal zone, detected pattern, coverage, and the flags that drove
+     *  the `missing_focal_point`, `unbalanced_composition`,
+     *  `poor_spacing`, `no_composition_pattern`, and `missing_cta`
+     *  rejection rules. */
+    compositionPattern?:    string;
+    compositionFocalZone?:  string;
+    compositionFocalArea?:  number;
+    compositionCoverage?:   number;
+    compositionSubjectArea?: number;
+    compositionMinGap?:     number;
+    compositionSkew?:       number;
+    compositionFlags?:      string[];
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1522,6 +1535,21 @@ async function renderAssetInner(
         | { slug: string; category: string; realm: string; placement: string; licensed: boolean }
         | undefined;
       const subjectExpected = (content as any)._photoSubjectExpected as boolean | undefined;
+      const comp = (content as any)._composition as
+        | {
+            pattern: string;
+            focalZoneId?: string;
+            focalArea: number;
+            coverage: number;
+            subjectArea?: number;
+            minGapPct: number;
+            quadrantSkew: number;
+            flags: Record<string, boolean>;
+          }
+        | undefined;
+      const compFlagList = comp
+        ? Object.entries(comp.flags).filter(([, v]) => v).map(([k]) => k)
+        : [];
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1567,6 +1595,14 @@ async function renderAssetInner(
           subjectImagePlacement:    subject?.placement,
           subjectImageLicensed:     subject?.licensed,
           subjectImageExpected:     subjectExpected ?? false,
+          compositionPattern:       comp?.pattern,
+          compositionFocalZone:     comp?.focalZoneId,
+          compositionFocalArea:     comp?.focalArea,
+          compositionCoverage:      comp?.coverage,
+          compositionSubjectArea:   comp?.subjectArea,
+          compositionMinGap:        comp?.minGapPct,
+          compositionSkew:          comp?.quadrantSkew,
+          compositionFlags:         compFlagList,
         },
       };
     })() : {}),

@@ -175,6 +175,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       subjectPlacement:  string;
       subjectLicensed:   boolean;
       subjectExpected:   boolean;
+      /** Step 10 — composition balance verdict. `compositionFlags`
+       *  lists every failing heuristic (no_focal / overcrowded /
+       *  poor_spacing / text_overlap / missing_cta / …) so admission
+       *  audits can explain layout rejections. */
+      compositionPattern:    string;
+      compositionFocal:      string;
+      compositionFocalArea:  number;
+      compositionCoverage:   number;
+      compositionFlags:      string[];
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -279,6 +288,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         subjectPlacement:    verdict?.subjectImagePlacement ?? "",
         subjectLicensed:     verdict?.subjectImageLicensed ?? false,
         subjectExpected:     verdict?.subjectImageExpected ?? false,
+        compositionPattern:    verdict?.compositionPattern ?? "none",
+        compositionFocal:      verdict?.compositionFocalZone ?? "none",
+        compositionFocalArea:  verdict?.compositionFocalArea ?? 0,
+        compositionCoverage:   verdict?.compositionCoverage ?? 0,
+        compositionFlags:      verdict?.compositionFlags ?? [],
       });
 
       console.info(
@@ -295,6 +309,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         (verdict?.mappingUnderfilled ? "!underfilled" : "") + " " +
         `subject=${verdict?.subjectImageSlug || (verdict?.subjectImageExpected ? "MISSING" : "n/a")} ` +
         (verdict?.subjectImagePlacement ? `@${verdict.subjectImagePlacement} ` : "") +
+        `layout=${verdict?.compositionPattern ?? "?"}` +
+        `/focal=${verdict?.compositionFocalZone ?? "?"}(${(verdict?.compositionFocalArea ?? 0).toFixed(0)}%)` +
+        `/cov=${(verdict?.compositionCoverage ?? 0).toFixed(0)}%` +
+        (verdict?.compositionFlags?.length ? `!${verdict.compositionFlags.join(",")}` : "") + " " +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -497,6 +515,25 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const subjectExpectedCount = admitted.filter(a => a.subjectExpected).length;
     const subjectLicensedCount = admitted.filter(a => a.subjectLicensed).length;
     const subjectSlugs = [...new Set(admitted.filter(a => a.subjectSlug).map(a => a.subjectSlug))];
+    const patternCounts = admitted.reduce<Record<string, number>>((acc, a) => {
+      const k = a.compositionPattern || "none";
+      acc[k] = (acc[k] ?? 0) + 1;
+      return acc;
+    }, {});
+    const patternLabel = Object.entries(patternCounts)
+      .map(([k, v]) => `${k}:${v}`).join(",") || "none";
+    const avgFocalArea = admitted.length
+      ? (admitted.reduce((s, a) => s + a.compositionFocalArea, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const avgCoverage = admitted.length
+      ? (admitted.reduce((s, a) => s + a.compositionCoverage, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const compFlagCounts = admitted.reduce<Record<string, number>>((acc, a) => {
+      for (const f of a.compositionFlags) acc[f] = (acc[f] ?? 0) + 1;
+      return acc;
+    }, {});
+    const compFlagsLabel = Object.entries(compFlagCounts)
+      .map(([k, v]) => `${k}:${v}`).join(",") || "clean";
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
@@ -510,7 +547,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `avgMapping=${avgMappingPlaced}items×${avgMappingSlots}slots ` +
       `compressed=${mappingCompressedCount} underfilled=${mappingUnderfilledCount} ` +
       `subjects=${subjectCount}/${subjectExpectedCount}expected licensed=${subjectLicensedCount} ` +
-      `slugs=[${subjectSlugs.join(",")}]`,
+      `slugs=[${subjectSlugs.join(",")}] ` +
+      `layouts={${patternLabel}} avgFocalArea=${avgFocalArea}% avgCoverage=${avgCoverage}% ` +
+      `compositionFlags={${compFlagsLabel}}`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});

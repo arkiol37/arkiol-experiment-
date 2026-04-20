@@ -462,6 +462,127 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
+  // ── Step 10 composition floors (all hard) ────────────────────────────────
+  // These rules read `_composition` (the CompositionVerdict stamped by
+  // the SVG builder) and drop layouts that look random, cluttered, or
+  // lack a clear focal point. Each rule addresses one failure mode
+  // from the Step 10 charter.
+
+  // Missing focal point: no zone dominates the canvas — the eye has
+  // nowhere to land first. Fires when the largest populated content
+  // zone covers less than FOCAL_MIN_AREA of the canvas.
+  {
+    id:          "missing_focal_point",
+    severity:    "hard",
+    description: "No dominant focal area — headline / subject is too small to anchor the composition.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const comp = (content as any)._composition as
+        | { flags: { noFocal: boolean }; focalZoneId?: string; focalArea: number } | undefined;
+      if (!comp) return null;
+      if (!comp.flags.noFocal) return null;
+      return `missing_focal_point:focal=${comp.focalZoneId ?? "none"}(${comp.focalArea.toFixed(1)}%)`;
+    },
+  },
+
+  // Composition unbalanced: either overcrowded (no breathing room),
+  // sparse (too much empty canvas), subject-too-large (photo eats the
+  // page), subject-too-small (photo can't act as subject), or mass
+  // concentrated in a single quadrant.
+  {
+    id:          "unbalanced_composition",
+    severity:    "hard",
+    description: "Layout is overcrowded, sparse, or lopsided — elements are not evenly distributed.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const comp = (content as any)._composition as
+        | {
+            flags: {
+              overcrowded: boolean; sparse: boolean;
+              subjectTooLarge: boolean; subjectTooSmall: boolean;
+              quadrantHeavy: boolean;
+            };
+            coverage: number;
+            subjectArea?: number;
+            quadrantSkew: number;
+          }
+        | undefined;
+      if (!comp) return null;
+      const f = comp.flags;
+      const reasons: string[] = [];
+      if (f.overcrowded)     reasons.push(`overcrowded(${comp.coverage.toFixed(1)}%)`);
+      if (f.sparse)          reasons.push(`sparse(${comp.coverage.toFixed(1)}%)`);
+      if (f.subjectTooLarge) reasons.push(`subject_too_large(${comp.subjectArea?.toFixed(1) ?? "?"}%)`);
+      if (f.subjectTooSmall) reasons.push(`subject_too_small(${comp.subjectArea?.toFixed(1) ?? "?"}%)`);
+      if (f.quadrantHeavy)   reasons.push(`quadrant_heavy(skew=${comp.quadrantSkew.toFixed(2)})`);
+      if (reasons.length === 0) return null;
+      return `unbalanced_composition:${reasons.join("|")}`;
+    },
+  },
+
+  // Poor spacing: zones at the same z-index are touching (no gutter)
+  // OR a text zone lies on top of the image subject at lower/equal
+  // z-index with ≥35% intersection. Either reads as collision.
+  {
+    id:          "poor_spacing",
+    severity:    "hard",
+    description: "Adjacent elements touch without a gutter, or text collides with the image subject.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const comp = (content as any)._composition as
+        | {
+            flags: { poorSpacing: boolean; textOverlapsSubject: boolean };
+            minGapPct: number;
+            overlapIssues: Array<{ text: string; visual: string; overlapPct: number }>;
+          }
+        | undefined;
+      if (!comp) return null;
+      const f = comp.flags;
+      if (!f.poorSpacing && !f.textOverlapsSubject) return null;
+      const bits: string[] = [];
+      if (f.poorSpacing)         bits.push(`gap=${comp.minGapPct.toFixed(2)}%`);
+      if (f.textOverlapsSubject) {
+        const first = comp.overlapIssues[0];
+        bits.push(`overlap=${first?.text ?? "?"}→${first?.visual ?? "?"}(${first?.overlapPct.toFixed(0) ?? "?"}%)`);
+      }
+      return `poor_spacing:${bits.join("|")}`;
+    },
+  },
+
+  // No composition pattern: the populated zones don't match any known
+  // arrangement (full_bleed / left_right / top_bottom / centered_stack /
+  // grid / asymmetric). Random scatter is rejected.
+  {
+    id:          "no_composition_pattern",
+    severity:    "hard",
+    description: "Populated zones don't match a recognisable composition pattern — design looks randomly assembled.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const comp = (content as any)._composition as
+        | { flags: { noPattern: boolean }; pattern: string } | undefined;
+      if (!comp) return null;
+      if (!comp.flags.noPattern) return null;
+      return `no_composition_pattern:pattern=${comp.pattern}`;
+    },
+  },
+
+  // Missing CTA: templates that should drive action shipped without a
+  // CTA / badge. Quote / minimal templates are exempt — the analyzer
+  // already carries that carve-out.
+  {
+    id:          "missing_cta",
+    severity:    "hard",
+    description: "Action-oriented template shipped without a CTA or badge zone populated.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const comp = (content as any)._composition as
+        | { flags: { missingCta: boolean }; templateType: string } | undefined;
+      if (!comp) return null;
+      if (!comp.flags.missingCta) return null;
+      return `missing_cta:template=${comp.templateType}`;
+    },
+  },
+
   // ── Low diversity (soft) ─────────────────────────────────────────────────
   {
     id:          "low_diversity",
