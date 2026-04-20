@@ -174,6 +174,7 @@ export function analyzeContentStructure(text: string): ContentStructure {
  *  restructurer to redistribute body/subhead list content into bullets. */
 const LIST_STYLE_TEMPLATES: ReadonlySet<TemplateType> = new Set<TemplateType>([
   "checklist", "tips", "step_by_step", "list_based", "educational",
+  "reminder", "announcement",
 ]);
 
 /** Minimum number of populated bullet zones a list-style template must
@@ -195,6 +196,8 @@ function hintedKindForType(templateType: TemplateType | undefined): ContentStruc
     case "step_by_step": return "steps";
     case "list_based":   return "list";
     case "educational":  return "informational";
+    case "reminder":     return "list";
+    case "announcement": return "informational";
     case "quote":        return "quote";
     default:             return "prose";
   }

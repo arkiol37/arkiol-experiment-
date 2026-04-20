@@ -125,6 +125,18 @@ const TEMPLATE_COMPONENT_MAP: Record<TemplateType, PerZoneMap> = {
     body:     "content_card",
     bullet_1: "tip_card", bullet_2: "tip_card", bullet_3: "tip_card",
   },
+  reminder: {
+    section_header: "labeled_section", headline: "labeled_section",
+    bullet_1: "tip_card",  bullet_2: "tip_card",  bullet_3: "tip_card",
+    body:     "content_card", tagline: "content_card",
+    badge:    "badge",        cta:     "cta_button",
+  },
+  announcement: {
+    section_header: "labeled_section", headline: "labeled_section",
+    bullet_1: "content_card", bullet_2: "content_card", bullet_3: "content_card",
+    body:     "content_card", tagline: "content_card",
+    badge:    "badge",        cta:     "cta_button",
+  },
   minimal: {
     headline: "labeled_section",
     body:     "content_card",

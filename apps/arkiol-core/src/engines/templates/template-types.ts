@@ -33,6 +33,8 @@ export type TemplateType =
   | "list_based"
   | "promotional"
   | "educational"
+  | "reminder"
+  | "announcement"
   | "minimal";
 
 export const TEMPLATE_TYPES: readonly TemplateType[] = [
@@ -43,6 +45,8 @@ export const TEMPLATE_TYPES: readonly TemplateType[] = [
   "list_based",
   "promotional",
   "educational",
+  "reminder",
+  "announcement",
   "minimal",
 ] as const;
 
@@ -141,6 +145,26 @@ export const TEMPLATE_TYPE_CONFIGS: Record<TemplateType, TemplateTypeConfig> = {
     signatureKinds:["frame_border", "icon_symbol", "section_divider"],
     ctaVoice:      "inviting",
   },
+  reminder: {
+    id:            "reminder",
+    name:          "Reminder",
+    description:   "Short labeled reminders — pinned-note feel with a clear 'don't forget' hook.",
+    keywords:      ["reminder", "remember", "don't forget", "dont forget", "heads up", "psa", "note", "important", "deadline", "due", "before"],
+    layoutBias:    "top_anchor",
+    keyZones:      ["badge", "headline", "body_text", "cta"],
+    signatureKinds:["banner_strip", "sticker_circle", "icon_symbol", "section_divider"],
+    ctaVoice:      "imperative",
+  },
+  announcement: {
+    id:            "announcement",
+    name:          "Announcement",
+    description:   "Bold news-style reveal — announcement banner + dated detail + CTA.",
+    keywords:      ["announcement", "announcing", "introducing", "now live", "news", "update", "reveal", "launch day", "drop", "unveiling", "coming soon", "save the date"],
+    layoutBias:    "split_hero",
+    keyZones:      ["badge", "eyebrow", "headline", "body_text", "cta"],
+    signatureKinds:["banner_strip", "starburst", "ribbon", "icon_symbol", "accent_bar"],
+    ctaVoice:      "urgent",
+  },
   minimal: {
     id:            "minimal",
     name:          "Minimal",
@@ -157,13 +181,18 @@ export const TEMPLATE_TYPE_CONFIGS: Record<TemplateType, TemplateTypeConfig> = {
 // Rotation order ensures that when a brief is generated across several
 // variations the gallery shows a mix of types rather than eight copies of
 // the same archetype.
+// Rotation is biased toward use-case-driven types. `minimal` is intentionally
+// last so fallbacks land on it only when every other type has been shown —
+// minimal templates are the easiest to confuse with a generic poster card.
 const ROTATION_ORDER: TemplateType[] = [
-  "promotional",
   "tips",
-  "step_by_step",
-  "educational",
   "checklist",
+  "step_by_step",
+  "promotional",
+  "announcement",
+  "reminder",
   "list_based",
+  "educational",
   "quote",
   "minimal",
 ];
@@ -346,6 +375,33 @@ function decorationsForType(theme: DesignTheme, type: TemplateType): DecorShape[
         { kind:"section_divider",  x:25, y:86, w:50, color:accent, opacity:0.4, strokeWidth:1, ornament:"diamond" },
         { kind:"corner_bracket",   x:5,  y:5,  size:10, color:accent, opacity:0.55, strokeWidth:2, corner:"tl" },
         { kind:"corner_bracket",   x:95, y:95, size:10, color:accent, opacity:0.55, strokeWidth:2, corner:"br" },
+      ];
+    }
+
+    case "reminder": {
+      // Pinned-note / sticky-card feel. A loud "REMINDER" banner anchors the
+      // top, a sticker circle carries the date / urgency marker, and an icon
+      // + divider keep the composition from feeling like a bare card.
+      return [
+        { kind:"banner_strip",     x:0,  y:4,  w:54, h:8,  color:accent, text:"REMINDER", textColor:ink, fontSize:13, opacity:0.95, skew:0 },
+        { kind:"sticker_circle",   x:90, y:12, r:26, color:accent, text:"!", textColor:ink, fontSize:28, rotation:-6, opacity:0.95 },
+        { kind:"icon_symbol",      x:8,  y:88, size:12, icon:"lightning", color:accent, opacity:0.75 },
+        { kind:"section_divider",  x:8,  y:82, w:50, color:accent, opacity:0.5, strokeWidth:1, ornament:"dash" },
+        { kind:"accent_bar",       x:4,  y:20, w:0.6, h:55, color:accent, rx:1 },
+        { kind:"corner_bracket",   x:96, y:96, size:8, color:accent, opacity:0.55, strokeWidth:2, corner:"br" },
+      ];
+    }
+
+    case "announcement": {
+      // Announcement banner + ribbon + starburst — reads unmistakably as a
+      // news-style reveal rather than a general poster card.
+      return [
+        { kind:"banner_strip",     x:0,  y:4,  w:100, h:9,  color:accent, text:"ANNOUNCEMENT", textColor:ink, fontSize:14, opacity:0.98, skew:0 },
+        { kind:"ribbon",           x:70, y:16, w:28, h:9,  color:ink,    text:"NEW",          textColor:accent, fontSize:13, opacity:0.95, corner:"tr" },
+        { kind:"starburst",        x:12, y:22, r:110, rays:14, color:accent, opacity:0.18, rotation:-8 },
+        { kind:"section_divider",  x:20, y:85, w:60, color:accent, opacity:0.5, strokeWidth:1, ornament:"diamond" },
+        { kind:"icon_symbol",      x:93, y:90, size:14, icon:"sparkle", color:accent, opacity:0.8 },
+        { kind:"accent_bar",       x:6,  y:30, w:0.6, h:50, color:accent, rx:1 },
       ];
     }
 

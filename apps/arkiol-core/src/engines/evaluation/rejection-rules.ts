@@ -38,6 +38,10 @@ import {
   computeRankScore,
   type CandidateQualityScore,
 } from "./candidate-quality";
+import {
+  TEMPLATE_TYPE_CONFIGS,
+  type TemplateType,
+} from "../templates/template-types";
 
 // ── Rule shape ───────────────────────────────────────────────────────────────
 
@@ -692,6 +696,34 @@ export const REJECTION_RULES: RejectionRule[] = [
         | undefined;
       if (!sc?.flags?.styleMismatch) return null;
       return `style_mismatch:subject=${sc.subjectMode}|illustrative=${sc.illustrativeCount}`;
+    },
+  },
+
+  // ── Generic poster card (hard, Step 13) ──────────────────────────────────
+  // Use-case signature must SURVIVE composition. Every TemplateType carries
+  // a list of `signatureKinds` — the decorations that make the type visible
+  // at a glance (ribbon + starburst for promotional, checklist + icon for
+  // checklist, banner_strip for announcement, etc). If NONE of those kinds
+  // landed in the final decoration layer, the output ships as a generic
+  // styled poster card instead of a recognisable use-case template. The
+  // Step 13 charter calls this out explicitly — "reject outputs that still
+  // feel like generic poster cards instead of usable social media
+  // templates". Skips when no template type is stamped (older renders) or
+  // when the type has no signature kinds configured.
+  {
+    id:          "generic_poster_card",
+    severity:    "hard",
+    description: "Template ships without any of its use-case signature decorations — reads as a generic poster card.",
+    evaluate(theme, content, _score) {
+      if (!content) return null;
+      const tt = (content._templateType as TemplateType | undefined);
+      if (!tt) return null;
+      const cfg = TEMPLATE_TYPE_CONFIGS[tt];
+      if (!cfg || cfg.signatureKinds.length === 0) return null;
+      const signature = new Set(cfg.signatureKinds);
+      const hasSignature = theme.decorations.some(d => signature.has(d.kind));
+      if (hasSignature) return null;
+      return `generic_poster_card:${tt}:missing_signature[${cfg.signatureKinds.join(",")}]`;
     },
   },
 
