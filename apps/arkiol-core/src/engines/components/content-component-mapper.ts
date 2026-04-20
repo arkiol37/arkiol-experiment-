@@ -202,6 +202,33 @@ const TEMPLATE_EXPECTATIONS: Record<TemplateType, TemplateExpectations> = {
     maxItems:  3,
   },
 
+  reminder: {
+    roles: [
+      { role: "headline",    required: true,  prefer: ["headline"],                      kind: "labeled_section" },
+      { role: "supporting",  required: false, prefer: ["subhead", "body", "tagline"],    kind: "content_card" },
+      { role: "cta",         required: false, prefer: ["cta"],                           kind: "cta_button" },
+      { role: "badge",       required: false, prefer: ["badge"],                         kind: "badge" },
+    ],
+    itemZones: ["bullet_1", "bullet_2", "bullet_3"],
+    itemKind:  "tip_card",
+    minItems:  2,
+    maxItems:  3,
+  },
+
+  announcement: {
+    roles: [
+      { role: "eyebrow",     required: false, prefer: ["eyebrow", "section_header"],     kind: "labeled_section" },
+      { role: "headline",    required: true,  prefer: ["headline"],                      kind: "labeled_section" },
+      { role: "supporting",  required: false, prefer: ["subhead", "body", "tagline"],    kind: "content_card" },
+      { role: "cta",         required: false, prefer: ["cta"],                           kind: "cta_button" },
+      { role: "badge",       required: false, prefer: ["badge"],                         kind: "badge" },
+    ],
+    itemZones: ["bullet_1", "bullet_2", "bullet_3"],
+    itemKind:  "content_card",
+    minItems:  2,
+    maxItems:  3,
+  },
+
   minimal: {
     roles: [
       { role: "eyebrow",    required: false, prefer: ["eyebrow", "section_header"],      kind: "labeled_section" },
