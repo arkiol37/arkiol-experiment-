@@ -19,6 +19,14 @@
 //   sees them. If too few survive, a minimum floor is filled from the
 //   strongest rejected candidates so the gallery is never empty — those
 //   entries are tagged so the audit trail still knows why they shipped.
+//
+// BEST-N SELECTION:
+//   After over-generation, survivors are ranked by the penalty-aware
+//   rank score (qualityVerdict.rankScore) and the top `variations`
+//   templates are shipped. FIFO is never used: if attempt 4 scores
+//   higher than attempts 0..3 it ships; weaker accepted candidates are
+//   demoted. Floor-fills are ordered by rank score too so the strongest
+//   rescues win.
 // ─────────────────────────────────────────────────────────────────────────────
 import "server-only";
 import { prisma } from "./prisma";
@@ -111,7 +119,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       vi:             number;
       result:         any;
       orchestrated:   any;
-      score:          number;
+      /** Penalty-aware rank score used for best-N selection. */
+      rankScore:      number;
+      /** Raw marketplace score (audit only). */
+      marketScore:    number;
+      /** Top penalty reasons pulled from the verdict (audit only). */
+      rankPenalties:  string[];
       accepted:       boolean;
       rejectReasons:  string[];
       failedCriteria: string[];
@@ -191,7 +204,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         vi,
         result,
         orchestrated,
-        score:          verdict?.marketplaceScore ?? verdict?.qualityScore ?? 0,
+        rankScore:      verdict?.rankScore ?? verdict?.qualityScore ?? 0,
+        marketScore:    verdict?.marketplaceScore ?? 0,
+        rankPenalties:  verdict?.rankPenalties ?? [],
         accepted,
         rejectReasons,
         failedCriteria: verdict?.failedCriteria ?? [],
@@ -201,27 +216,32 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
       console.info(
         `[inline-generate] vi=${vi} theme=${verdict?.themeId ?? "?"} ` +
-        `accepted=${accepted} score=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
-        (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : ""),
+        `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
+        `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
+        (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
+        ((verdict?.rankPenalties?.length ?? 0) > 0 ? ` pen=[${verdict!.rankPenalties.slice(0, 3).join("|")}]` : ""),
       );
     }
 
-    // Build the final admission list. Prefer accepted candidates; if we
-    // didn't reach the requested count after exhausting attempts, floor-
-    // fill with the strongest rejected candidates so the gallery isn't
-    // empty. Floor-fills carry their reject reasons into metadata so the
-    // ops channel still sees why they were weak.
+    // Build the final admission list by *ranking* all accepted candidates
+    // on the penalty-aware rank score and taking the top N. This is
+    // explicitly not FIFO — a late, higher-scoring candidate beats an
+    // earlier weaker one, so the gallery always shows the best of what
+    // was generated. Floor-fill uses the same rank score ordering so the
+    // strongest rescues win when not enough passed.
     type Admission = RenderedCandidate & { floorFill: boolean };
     const admitted: Admission[] = rendered
       .filter(r => r.accepted)
+      .sort((a, b) => b.rankScore - a.rankScore)
       .slice(0, totalVariations)
       .map(r => ({ ...r, floorFill: false }));
 
     if (admitted.length < totalVariations) {
+      const admittedVis = new Set(admitted.map(a => a.vi));
       const needed = totalVariations - admitted.length;
       const filler = rendered
-        .filter(r => !r.accepted)
-        .sort((a, b) => b.score - a.score)
+        .filter(r => !admittedVis.has(r.vi))
+        .sort((a, b) => b.rankScore - a.rankScore)
         .slice(0, needed)
         .map(r => ({ ...r, floorFill: true }));
       admitted.push(...filler);
@@ -310,15 +330,17 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             thumbnailUrl,
             // Gallery-grade admission audit.
             strictAdmission:  {
-              accepted:       adm.accepted,
-              floorFill:      adm.floorFill,
-              marketplaceScore: adm.score,
-              themeId:        adm.themeId,
-              rejectReasons:  adm.rejectReasons,
-              failedCriteria: adm.failedCriteria,
-              attemptsUsed:   attemptedCount,
-              acceptedCount:  acceptedCount(),
-              requested:      totalVariations,
+              accepted:         adm.accepted,
+              floorFill:        adm.floorFill,
+              rankScore:        adm.rankScore,
+              marketplaceScore: adm.marketScore,
+              rankPenalties:    adm.rankPenalties,
+              themeId:          adm.themeId,
+              rejectReasons:    adm.rejectReasons,
+              failedCriteria:   adm.failedCriteria,
+              attemptsUsed:     attemptedCount,
+              acceptedCount:    acceptedCount(),
+              requested:        totalVariations,
             },
           } as any,
         },

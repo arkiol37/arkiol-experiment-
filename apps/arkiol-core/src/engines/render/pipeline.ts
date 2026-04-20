@@ -43,7 +43,7 @@ import {
 } from "../assets/contract";
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
-import { scoreCandidateQuality, scoreThemeQuality } from "../evaluation/candidate-quality";
+import { scoreCandidateQuality, scoreThemeQuality, computeRankScore } from "../evaluation/candidate-quality";
 import { enforceMarketplaceStandard, type MarketplaceVerdict } from "../evaluation/marketplace-gate";
 import { evaluateRejection } from "../evaluation/rejection-rules";
 import {
@@ -289,6 +289,13 @@ export interface PipelineResult {
     marketplaceScore:    number;
     /** Weighted quality score (0..1). */
     qualityScore:        number;
+    /** Penalty-aware rank score (0..1) — primary selection signal. Empty
+     *  / simple / repetitive / unbalanced / asset-poor outputs score
+     *  lower here than on qualityScore because the rank score applies
+     *  explicit penalties for those failure modes. */
+    rankScore:           number;
+    /** Top penalties that pulled the rank score down, highest first. */
+    rankPenalties:       string[];
     /** Hard-rule reasons that fired, if any. */
     hardReasons:         string[];
     /** Soft-rule reasons (audit only). */
@@ -1370,12 +1377,25 @@ async function renderAssetInner(
         try { return evaluateRejection(theme, content); }
         catch { return { accept: true, hardReasons: [], softReasons: [], score: null as any }; }
       })();
+      // Penalty-aware rank score — only computed when we have a real
+      // quality score from the rejection evaluation. Falls back to the
+      // plain quality score for defensive callers.
+      const rankBreakdown = rej.score
+        ? computeRankScore(rej.score, theme)
+        : { total: finalQualityScore, penalties: [] as Array<{ kind: string; amount: number }> };
+      const topPenalties = rankBreakdown.penalties
+        .slice()
+        .sort((a, b) => b.amount - a.amount)
+        .slice(0, 5)
+        .map(p => `${p.kind}:${p.amount.toFixed(2)}`);
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
           marketplaceApproved: marketplaceVerdict?.approved ?? false,
           marketplaceScore:    marketplaceVerdict?.marketplaceScore ?? 0,
           qualityScore:        finalQualityScore,
+          rankScore:           rankBreakdown.total,
+          rankPenalties:       topPenalties,
           hardReasons:         rej.hardReasons,
           softReasons:         rej.softReasons,
           failedCriteria:      marketplaceVerdict?.failedCriteria ?? [],

@@ -20,6 +20,7 @@ import {
   scoreCandidateQuality,
   scoreThemeQuality,
   areTooSimilar,
+  computeRankScore,
   type CandidateQualityScore,
 } from "./candidate-quality";
 
@@ -310,7 +311,7 @@ export interface BatchFilterItem {
 }
 
 export interface BatchFilterResult<T extends BatchFilterItem> {
-  accepted: Array<T & { score: CandidateQualityScore }>;
+  accepted: Array<T & { score: CandidateQualityScore; rankScore: number }>;
   rejected: Array<{
     item:      T;
     reasons:   string[];
@@ -359,12 +360,19 @@ export function filterCandidateBatch<T extends BatchFilterItem>(
     return true;
   });
 
-  // 3. Sort survivors by composite score, best first.
-  passed.sort((a, b) => b.verdict.score.total - a.verdict.score.total);
+  // 3. Sort survivors by rank score (penalty-aware), best first. The
+  // rank score applies explicit penalties for empty / simple / repetitive
+  // / unbalanced outputs so mediocre candidates sort clearly below
+  // candidates that read as designed.
+  const rankOf = (q: CandidateQualityScore, theme: DesignTheme) =>
+    computeRankScore(q, theme).total;
+  const passedRanked = passed
+    .map(p => ({ ...p, rank: rankOf(p.verdict.score, p.item.theme) }))
+    .sort((a, b) => b.rank - a.rank);
 
   // 4. Greedy dedup via areTooSimilar.
   const acceptedThemes: Array<{ theme: DesignTheme; label?: string }> = [];
-  for (const p of passed) {
+  for (const p of passedRanked) {
     const dupIndex = acceptedThemes.findIndex(a => areTooSimilar(a.theme, p.item.theme));
     if (dupIndex !== -1 && acceptedThemes.length - dupIndex > similarityCap) {
       rejected.push({
@@ -376,27 +384,27 @@ export function filterCandidateBatch<T extends BatchFilterItem>(
       });
       continue;
     }
-    accepted.push({ ...p.item, score: p.verdict.score });
+    accepted.push({ ...p.item, score: p.verdict.score, rankScore: p.rank });
     acceptedThemes.push({ theme: p.item.theme, label: p.item.label });
   }
 
-  // 5. Floor-fill: if we're below the minimum, promote the highest-scoring
+  // 5. Floor-fill: if we're below the minimum, promote the highest-ranked
   // hard-rejected candidates back in. Their rejection reasons are kept for
   // audit (reason = "kept_as_floor_fill") but they ship so the gallery is
   // never empty.
   if (accepted.length < minAccepted) {
     const rescuable = rejected
       .filter(r => r.reason === "hard_rules")
-      .map(r => ({
-        r,
-        score: evaluateRejection(r.item.theme, r.item.content).score,
-      }))
-      .sort((a, b) => b.score.total - a.score.total);
+      .map(r => {
+        const v = evaluateRejection(r.item.theme, r.item.content);
+        return { r, score: v.score, rank: rankOf(v.score, r.item.theme) };
+      })
+      .sort((a, b) => b.rank - a.rank);
 
     const needed = minAccepted - accepted.length;
     const lifted = rescuable.slice(0, needed);
-    for (const { r, score } of lifted) {
-      accepted.push({ ...r.item, score });
+    for (const { r, score, rank } of lifted) {
+      accepted.push({ ...r.item, score, rankScore: rank });
       // Move the rejection into "kept_as_floor_fill" so the audit log
       // still knows this was a weak candidate that we shipped only
       // because we needed a minimum count.

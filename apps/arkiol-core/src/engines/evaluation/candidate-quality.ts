@@ -507,11 +507,137 @@ export function areTooSimilar(a: DesignTheme, b: DesignTheme): boolean {
   return false;
 }
 
+// ── Ranking score (selection signal) ─────────────────────────────────────────
+// Step 24: selection must prefer visibly richer designs, not just weighted-
+// average totals. `computeRankScore` folds the quality vocabulary into one
+// 0..1 signal that inlineGenerate (and the batch filter) sort on, and it
+// applies *explicit* penalties for the specific failure modes that make
+// templates feel amateur: empty, simple, repetitive, unbalanced, sparse,
+// asset-poor, flat hierarchy, and crowded / illegible text. A candidate
+// that would pass the hard rules but still feel weak (mid-range across the
+// board, one kind dominating, no premium shapes) lands clearly below a
+// candidate that reads as designed, so top-N selection is meaningful.
+
+export interface RankScoreBreakdown {
+  /** Final 0..1 rank score consumed by selection. */
+  total:   number;
+  /** Positive weighted contributions before penalties. */
+  base:    number;
+  /** Total penalty applied (>= 0). */
+  penalty: number;
+  /** Per-penalty detail for audit. */
+  penalties: Array<{ kind: string; amount: number }>;
+}
+
+export function computeRankScore(
+  score: CandidateQualityScore,
+  theme?: DesignTheme,
+): RankScoreBreakdown {
+  // Positive contributions. Weighting leans on the dimensions that
+  // separate professional-looking designs from mediocre ones:
+  //   - craft    (hierarchy, composition, asset usage)  = 34%
+  //   - richness (layering, premium, diversity)         = 30%
+  //   - content  (completeness, readability)            = 16%
+  //   - baseline (composite total)                      = 20%
+  const base =
+    score.total                * 0.20 +
+    score.hierarchyClarity     * 0.12 +
+    score.compositionBalance   * 0.10 +
+    score.assetUsage           * 0.12 +
+    score.visualLayering       * 0.12 +
+    score.premiumElements      * 0.10 +
+    score.decorationDiversity  * 0.08 +
+    score.decorationRichness   * 0.03 +
+    score.backgroundComplexity * 0.03 +
+    score.readability          * 0.07 +
+    score.contentCompleteness  * 0.08;
+  // Σ weights = 1.05 — gives the selector a little headroom to reward
+  // strong craft while leaving room for penalties to bite.
+
+  const penalties: Array<{ kind: string; amount: number }> = [];
+  const push = (kind: string, amount: number) => {
+    if (amount > 0) penalties.push({ kind, amount });
+  };
+
+  // Empty / sparse feel — decorationRichness or layering too low.
+  if (score.decorationRichness < 0.30) {
+    push("empty_decoration", (0.30 - score.decorationRichness) * 0.50);
+  }
+  if (score.visualLayering < 0.25) {
+    push("flat_layering", (0.25 - score.visualLayering) * 0.45);
+  }
+
+  // Overly simple — no premium library shapes at all.
+  if (score.premiumElements < 0.15) {
+    push("no_premium", (0.15 - score.premiumElements) * 0.55);
+  }
+  if (score.assetUsage < 0.25) {
+    push("asset_poor", (0.25 - score.assetUsage) * 0.50);
+  }
+
+  // Repetitive — one decoration kind dominates the composition. Pulled
+  // from theme if available (cheap; we already have it).
+  if (theme && theme.decorations.length >= 4) {
+    const counts = new Map<string, number>();
+    for (const d of theme.decorations) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
+    const maxShare = Math.max(...counts.values()) / theme.decorations.length;
+    if (maxShare > 0.38) push("repetitive_kind", (maxShare - 0.38) * 0.90);
+  }
+  if (score.decorationDiversity < 0.30) {
+    push("low_variety", (0.30 - score.decorationDiversity) * 0.45);
+  }
+
+  // Unbalanced — decorations clustered in one quadrant.
+  if (score.compositionBalance < 0.35) {
+    push("unbalanced", (0.35 - score.compositionBalance) * 0.55);
+  }
+
+  // Hierarchy + readability — text-driven clarity.
+  if (score.hierarchyClarity < 0.35) {
+    push("flat_hierarchy", (0.35 - score.hierarchyClarity) * 0.50);
+  }
+  if (score.readability < 0.40) {
+    push("hard_to_read", (0.40 - score.readability) * 0.55);
+  }
+
+  // Content completeness — too few populated zones reads as unfinished.
+  if (score.contentCompleteness < 0.45) {
+    push("sparse_content", (0.45 - score.contentCompleteness) * 0.40);
+  }
+
+  // Gradient-only / bland background composition.
+  if (theme) {
+    const bg = theme.background.kind;
+    const gradientOnly = (bg === "linear_gradient" || bg === "solid");
+    if (gradientOnly && score.premiumElements < 0.20 && score.assetUsage < 0.25) {
+      push("gradient_only", 0.08);
+    }
+  }
+
+  // Mid-range-across-the-board — no single craft dimension breaks out.
+  const craftPeak = Math.max(
+    score.hierarchyClarity,
+    score.visualLayering,
+    score.assetUsage,
+    score.compositionBalance,
+    score.premiumElements,
+  );
+  if (craftPeak < 0.50) {
+    push("no_standout", (0.50 - craftPeak) * 0.40);
+  }
+
+  const penalty = penalties.reduce((sum, p) => sum + p.amount, 0);
+  const total = clamp(base - penalty, 0, 1);
+
+  return { total, base, penalty, penalties };
+}
+
 // ── Multi-candidate selection ─────────────────────────────────────────────────
 
 export interface RankedThemeCandidate {
   theme: DesignTheme;
   quality: CandidateQualityScore;
+  rankScore: number;
   rejected: boolean;
   rejectReason?: string;
 }
@@ -528,6 +654,7 @@ export function rankThemeCandidates(themes: DesignTheme[]): RankedThemeCandidate
     return {
       theme,
       quality,
+      rankScore: computeRankScore(quality, theme).total,
       rejected: bland,
       rejectReason: bland ? "below_quality_floor" : undefined,
     };
@@ -545,27 +672,14 @@ export function rankThemeCandidates(themes: DesignTheme[]): RankedThemeCandidate
     }
   }
 
-  // Sort: non-rejected first, then by marketplace-quality composite
+  // Step 24: ordering is now driven by computeRankScore, which folds the
+  // full quality vocabulary together AND applies explicit penalties for
+  // empty / simple / repetitive / unbalanced / asset-poor templates.
+  // Candidates that pass the bland gate but still feel mediocre sort
+  // below candidates that read as designed.
   return candidates.sort((a, b) => {
     if (a.rejected !== b.rejected) return a.rejected ? 1 : -1;
-    // Step 22: ranking now reflects the full quality vocabulary. Templates
-    // that read as designed (strong hierarchy + readable + balanced + real
-    // asset usage) outrank templates that simply pile on decorations. Mix:
-    //   composite total           0.30  (baseline)
-    //   hierarchy + readability   0.20  (clarity & legibility)
-    //   composition + asset usage 0.20  (craft + intentional asset)
-    //   layering + premium        0.20  (visual richness)
-    //   diversity                 0.10  (variation)
-    const rank = (q: CandidateQualityScore) =>
-      q.total                * 0.30 +
-      q.hierarchyClarity     * 0.12 +
-      q.readability          * 0.08 +
-      q.compositionBalance   * 0.10 +
-      q.assetUsage           * 0.10 +
-      q.visualLayering       * 0.12 +
-      q.premiumElements      * 0.08 +
-      q.decorationDiversity  * 0.10;
-    return rank(b.quality) - rank(a.quality);
+    return b.rankScore - a.rankScore;
   });
 }
 
