@@ -15,20 +15,37 @@ import { z }        from "zod";
 export const maxDuration = 30;
 
 // GET /api/assets
+//
+// Failure policy: this endpoint powers the gallery landing page. Any hard
+// failure here makes the dashboard show a red banner instead of an empty
+// state, which is a worse UX than "No designs yet". We therefore degrade to a
+// 200 empty payload on unexpected errors, and only return an HTTP error when
+// the caller genuinely can't proceed (auth / capabilities missing).
 export const GET = withErrorHandling(async (req: NextRequest) => {
   if (!detectCapabilities().database) return dbUnavailable();
 
-  const user = await getRequestUser(req);
-
   const url        = new URL(req.url);
-  const page       = parseInt(url.searchParams.get("page") ?? "1");
-  const limit      = Math.min(parseInt(url.searchParams.get("limit") ?? "20"), 100);
+  const pageRaw    = parseInt(url.searchParams.get("page") ?? "1");
+  const limitRaw   = parseInt(url.searchParams.get("limit") ?? "20");
+  const page       = Number.isFinite(pageRaw)  && pageRaw  > 0 ? pageRaw  : 1;
+  const limit      = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 100) : 20;
   const format     = url.searchParams.get("format");
   const category   = url.searchParams.get("category");
   const campaignId = url.searchParams.get("campaignId");
   const tag        = url.searchParams.get("tag");
   const search     = url.searchParams.get("q");
   const sortBy     = url.searchParams.get("sort") === "brandScore" ? "brandScore" : "createdAt";
+
+  // Auth resolution is the only path that should yield 401/503. Anything else
+  // past this point must never bubble up to the 500 branch — we render empty.
+  let user: { id: string; role: string; orgId: string; email: string };
+  try {
+    user = await getRequestUser(req);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    console.error("[api/assets] Unexpected auth failure:", err);
+    throw new ApiError(401, "Authentication required");
+  }
 
   let assets: any[] = [];
   let total = 0;
@@ -64,20 +81,22 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       where: { userId: user.id, createdAt: { gte: weekAgo } },
     });
   } catch (dbErr: any) {
-    console.error("[api/assets] Database query failed:", dbErr.message);
-    // Return empty result instead of 500 when DB query fails
+    console.error("[api/assets] Database query failed:", dbErr?.message ?? dbErr);
     return NextResponse.json({ assets: [], total: 0, thisWeek: 0, page, limit, dbError: true });
   }
 
-  const hasS3 = detectCapabilities().storage;
+  const hasS3 = (() => {
+    try { return detectCapabilities().storage; } catch { return false; }
+  })();
 
-  // Resolve thumbnailUrl for each asset
+  // Resolve thumbnailUrl for each asset. Every map entry is wrapped so one
+  // bad row can't reject the whole Promise.all and tip the request into 500.
   const withUrls = await Promise.all(
     assets.map(async (a: any) => {
-      let thumbnailUrl: string | null = null;
-      let downloadUrl:  string | null = null;
-
       try {
+        let thumbnailUrl: string | null = null;
+        let downloadUrl:  string | null = null;
+
         if (a.s3Key && !a.s3Key.startsWith('inline:') && hasS3) {
           try {
             const url = await getSignedDownloadUrl(a.s3Key, 3600).catch(() => null);
@@ -86,21 +105,31 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
           } catch { /* no-op */ }
         }
 
-        // Inline SVG fallback: encode as data URL so the <img> tag renders it
         if (!thumbnailUrl && a.svgSource) {
-          thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(a.svgSource).toString('base64')}`;
+          try {
+            thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(String(a.svgSource), 'utf8').toString('base64')}`;
+          } catch { /* no-op */ }
         }
+
+        const { svgSource: _omit, ...rest } = a;
+        return { ...rest, thumbnailUrl, downloadUrl };
       } catch (err) {
-        console.warn(`[api/assets] Failed to resolve URLs for asset ${a.id}:`, err);
+        console.warn(`[api/assets] Row hydration failed for ${a?.id}:`, err);
+        const { svgSource: _omit, ...rest } = a ?? {};
+        return { ...rest, thumbnailUrl: null, downloadUrl: null };
       }
-
-      // Omit raw svgSource from list response (can be large; use /api/assets/[id] for full data)
-      const { svgSource: _omit, ...rest } = a;
-      return { ...rest, thumbnailUrl, downloadUrl };
     })
-  );
+  ).catch((err) => {
+    console.error("[api/assets] Promise.all hydration failed:", err);
+    return [] as any[];
+  });
 
-  return NextResponse.json({ assets: withUrls, total, thisWeek, page, limit });
+  try {
+    return NextResponse.json({ assets: withUrls, total, thisWeek, page, limit });
+  } catch (err) {
+    console.error("[api/assets] Response serialization failed:", err);
+    return NextResponse.json({ assets: [], total: 0, thisWeek: 0, page, limit, responseError: true });
+  }
 });
 
 // DELETE /api/assets
