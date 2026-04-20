@@ -284,16 +284,37 @@ function checkBalance(zones: Zone[], cfg: StrictConfig): ConstraintViolation[] {
     bullet_1: 0.6, bullet_2: 0.6, bullet_3: 0.6, logo: 0.7,
   };
 
+  // Split each zone's weight proportionally across the midline instead
+  // of dumping the full weight into one half based on a center-point
+  // test. A zone that straddles x=50 (or a zone centered at 50) was
+  // previously counted as 100% right-side, which caused balanced
+  // center-aligned templates to register 100% skew and block at the
+  // 72% cap. Proportional splitting makes a centered layout read as
+  // ~0% skew, as intended.
   let leftW = 0, rightW = 0, topW = 0, botW = 0, total = 0;
   for (const z of zones) {
     if (z.id === "background" || z.height <= 0 || z.width <= 0) continue;
     const mul = roleWeight[z.id] ?? 0.5;
     const w = z.width * z.height * mul;
     total += w;
-    const cx = z.x + z.width / 2;
-    const cy = z.y + z.height / 2;
-    if (cx < 50) leftW += w; else rightW += w;
-    if (cy < 50) topW  += w; else botW  += w;
+
+    // Fraction of the zone's width that lies left of x=50.
+    const xLeft  = Math.max(0,   z.x);
+    const xRight = Math.min(100, z.x + z.width);
+    const xSpan  = Math.max(0.0001, xRight - xLeft);
+    const xLeftHalf  = Math.max(0, Math.min(50,  xRight) - Math.max(0, xLeft));
+    const leftFrac   = Math.max(0, Math.min(1, xLeftHalf / xSpan));
+    leftW  += w * leftFrac;
+    rightW += w * (1 - leftFrac);
+
+    // Same idea for vertical.
+    const yTop    = Math.max(0,   z.y);
+    const yBottom = Math.min(100, z.y + z.height);
+    const ySpan   = Math.max(0.0001, yBottom - yTop);
+    const yTopHalf = Math.max(0, Math.min(50, yBottom) - Math.max(0, yTop));
+    const topFrac  = Math.max(0, Math.min(1, yTopHalf / ySpan));
+    topW += w * topFrac;
+    botW += w * (1 - topFrac);
   }
   if (total <= 0) return vs;
 

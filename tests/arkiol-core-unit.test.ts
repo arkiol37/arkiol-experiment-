@@ -434,6 +434,59 @@ async function run() {
     assertEq(a, b, "identical content after cache clear");
   });
 
+  section("layout · constraints balance");
+
+  const lc = await import("../apps/arkiol-core/src/engines/layout/layout-constraints");
+
+  const mkZone = (over: Partial<any>): any => ({
+    id: "headline", x: 10, y: 10, width: 80, height: 10,
+    required: true, zIndex: 1, alignH: "center", alignV: "middle",
+    ...over,
+  });
+
+  test("centered-layout balance: horizontal skew is near zero", () => {
+    // A realistic centered Instagram post: every text zone spans
+    // x:10–90, every image spans the top. Pre-fix this reported 100%
+    // skew because every center point was exactly 50 and all weight
+    // collapsed into the right half.
+    const zones = [
+      mkZone({ id: "headline", x: 10, y: 14, width: 80, height: 20 }),
+      mkZone({ id: "subhead",  x: 10, y: 38, width: 80, height: 10 }),
+      mkZone({ id: "body",     x: 10, y: 52, width: 80, height: 16 }),
+      mkZone({ id: "cta",      x: 30, y: 74, width: 40, height: 10 }),
+      mkZone({ id: "image",    x: 20, y: 0,  width: 60, height: 12 }),
+    ];
+    const r = lc.evaluateConstraints(zones, "instagram", "balanced");
+    const hSkew = r.violations.find(v => v.category === "balance" && v.message.includes("horizontal"));
+    assert(!hSkew, `centered layout still reports horizontal skew: ${hSkew?.message}`);
+  });
+
+  test("asymmetric layout still detects real skew", () => {
+    // All text pushed to the right — real skew > 50%.
+    const zones = [
+      mkZone({ id: "headline", x: 55, y: 14, width: 40, height: 20 }),
+      mkZone({ id: "subhead",  x: 55, y: 38, width: 40, height: 10 }),
+      mkZone({ id: "body",     x: 55, y: 52, width: 40, height: 16 }),
+      mkZone({ id: "cta",      x: 58, y: 74, width: 34, height: 10 }),
+    ];
+    const r = lc.evaluateConstraints(zones, "instagram", "balanced");
+    const hSkew = r.violations.find(v => v.category === "balance" && v.message.includes("horizontal"));
+    assert(hSkew, "heavily right-stacked layout should still trigger balance warning");
+  });
+
+  test("image on left + text on right reads as balanced within cap", () => {
+    // Classic split layout — weight on both sides, should pass.
+    const zones = [
+      mkZone({ id: "image",    x: 4,  y: 10, width: 40, height: 80 }),
+      mkZone({ id: "headline", x: 48, y: 14, width: 46, height: 20 }),
+      mkZone({ id: "subhead",  x: 48, y: 38, width: 46, height: 12 }),
+      mkZone({ id: "cta",      x: 48, y: 74, width: 30, height: 10 }),
+    ];
+    const r = lc.evaluateConstraints(zones, "instagram", "balanced");
+    const hCrit = r.violations.find(v => v.category === "balance" && v.severity === "critical");
+    assert(!hCrit, `split layout wrongly hit balance: ${hCrit?.message}`);
+  });
+
   section("library · integration with new breadth scenes");
 
   test("library total is at least 225 after Step 45 photo expansion", () => {
