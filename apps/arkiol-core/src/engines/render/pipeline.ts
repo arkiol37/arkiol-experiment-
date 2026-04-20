@@ -44,6 +44,7 @@ import {
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
 import { scoreCandidateQuality, scoreThemeQuality, computeRankScore } from "../evaluation/candidate-quality";
+import type { TemplateType } from "../templates/template-types";
 import { enforceMarketplaceStandard, type MarketplaceVerdict } from "../evaluation/marketplace-gate";
 import { evaluateRejection } from "../evaluation/rejection-rules";
 import {
@@ -200,6 +201,13 @@ export interface PipelineInput {
     firstTone?:   string;
   };
 
+  // Step 25: template type override. When set, the renderer shapes the
+  // theme to visibly announce this type (checklist, tips, quote,
+  // step-by-step, list-based, promotional, educational, minimal). When
+  // unset, the composer picks a type based on the brief + variationIdx
+  // so a multi-variation gallery rotates through different types.
+  templateType?: TemplateType;
+
   // ── On-Demand Asset Engine context ──────────────────────────────────────
   // Must be populated by the orchestrator from org/plan DB data.
   // If absent, asset generation is skipped (composition is text/gradient only).
@@ -304,6 +312,11 @@ export interface PipelineResult {
     failedCriteria:      string[];
     /** Theme id picked for this render. */
     themeId:             string;
+    /** Template type the composer shaped the render for
+     *  (checklist / tips / quote / step-by-step / list-based /
+     *   promotional / educational / minimal). Undefined when no theme
+     *  was selected. */
+    templateType?:       TemplateType;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -893,6 +906,7 @@ async function renderAssetInner(
         agentResult?.plan.themePreferences,
         input.personalization,
         input.packAnchor,
+        input.templateType,
       );
       return { result };
     },
@@ -964,6 +978,7 @@ async function renderAssetInner(
           agentResult?.plan.themePreferences,
           input.personalization,
           input.packAnchor,
+          input.templateType,
         );
         const retryTheme = retryResult.content._selectedTheme;
         if (retryTheme) {
@@ -1400,6 +1415,7 @@ async function renderAssetInner(
           softReasons:         rej.softReasons,
           failedCriteria:      marketplaceVerdict?.failedCriteria ?? [],
           themeId,
+          templateType:        (buildResult.content as any)._templateType as TemplateType | undefined,
         },
       };
     })() : {}),

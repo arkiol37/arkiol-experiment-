@@ -28,6 +28,11 @@ import { buildSectionFrames } from "./section-frames";
 import { enforceStrictTypographyHierarchy, type TypographyItem } from "../hierarchy/strict-typography";
 import { computeTextInset, refinedLineHeight } from "./text-rhythm";
 import { enrichDecorations } from "./decoration-intelligence";
+import {
+  selectTemplateType,
+  shapeThemeForTemplateType,
+  type TemplateType,
+} from "../templates/template-types";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { evaluateRejection } from "../evaluation/rejection-rules";
 import { passesMarketplaceStandard, describeMarketplaceVerdict } from "../evaluation/marketplace-gate";
@@ -91,6 +96,8 @@ export interface SvgContent {
   overlayColor?: string;
   accentShape?: { type: "rect" | "circle" | "line" | "none"; color: string; x: number; y: number; w: number; h: number; opacity?: number; borderRadius?: number; };
   _selectedTheme?: DesignTheme;
+  /** Template type the composer shaped the theme for (checklist, tips, quote, ...). */
+  _templateType?: TemplateType;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -167,6 +174,11 @@ export async function buildUltimateSvgContent(
     fontDisplay: string; fontBody: string;
     cornerRadius: number; ctaShadow: boolean;
   },
+  // Template type — if provided, the theme is shaped to visibly
+  // announce this type (checklist / tips / quote / step-by-step /
+  // list / promotional / educational / minimal). Undefined lets the
+  // builder auto-select based on the brief + variationIdx.
+  templateType?: TemplateType,
 ): Promise<BuildResult> {
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
@@ -318,12 +330,24 @@ export async function buildUltimateSvgContent(
   // Enrich decorations to enforce minimum visual richness
   theme = { ...theme, decorations: enrichDecorations(theme.decorations, theme) };
 
+  // ── Template type shaping ────────────────────────────────────────────────
+  // The composer picks a template type (checklist / tips / quote / ...) and
+  // layers type-specific signature decorations on top of the theme so the
+  // gallery surface visibly differs across variations. Selection is
+  // deterministic from brief + variationIdx so repeat renders are stable.
+  const typeDecision = selectTemplateType(brief, variationIdx, templateType);
+  const resolvedTemplateType = typeDecision.type;
+  theme = shapeThemeForTemplateType(theme, resolvedTemplateType);
+  (theme as any)._templateType = resolvedTemplateType;
+
   // Record after style application so fingerprint reflects actual output
   recordOutputFingerprint(theme);
 
-  // ── Cache lookup — keyed on theme + brief + pack so style variety is preserved
+  // ── Cache lookup — keyed on theme + brief + pack so style variety is preserved.
+  // Template type is folded into the cache key so different types for the
+  // same brief + variationIdx aren't served from a single cached entry.
   const packSuffix = categoryPack ? ':' + categoryPack.id : '';
-  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx) + ':' + theme.id + packSuffix;
+  const cacheKey = buildCacheKey(brief, format, brand?.primaryColor, variationIdx) + ':' + theme.id + packSuffix + ':tt=' + resolvedTemplateType;
   const cached   = svgCacheGet(cacheKey);
   if (cached) return cached;
 
@@ -431,6 +455,7 @@ export async function buildUltimateSvgContent(
     overlayOpacity:theme.overlayOpacity ?? 0, overlayColor:theme.overlayColor ?? "#000000",
     accentShape:{ type:"none", color:"#000000", x:0, y:0, w:0, h:0 },
     _selectedTheme:theme,
+    _templateType: resolvedTemplateType,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────

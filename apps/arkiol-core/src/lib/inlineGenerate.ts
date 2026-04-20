@@ -130,6 +130,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       failedCriteria: string[];
       themeId:        string;
       paletteKey:     string;
+      /** Template type the composer shaped this render for — drives
+       *  gallery-level diversity. */
+      templateType:   string;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -212,10 +215,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         failedCriteria: verdict?.failedCriteria ?? [],
         themeId:        verdict?.themeId ?? result?.evaluationSignals?.themeId ?? "unknown",
         paletteKey,
+        templateType:   verdict?.templateType ?? "unknown",
       });
 
       console.info(
         `[inline-generate] vi=${vi} theme=${verdict?.themeId ?? "?"} ` +
+        `type=${verdict?.templateType ?? "?"} ` +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -223,28 +228,51 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       );
     }
 
-    // Build the final admission list by *ranking* all accepted candidates
-    // on the penalty-aware rank score and taking the top N. This is
-    // explicitly not FIFO — a late, higher-scoring candidate beats an
-    // earlier weaker one, so the gallery always shows the best of what
-    // was generated. Floor-fill uses the same rank score ordering so the
-    // strongest rescues win when not enough passed.
+    // Build the final admission list with *best-N by rank score + template-
+    // type variety*. Candidates are picked greedily: each iteration
+    // re-sorts the pool by rank score with a small penalty applied to
+    // types already admitted, so the gallery surfaces different template
+    // types (checklist, tips, quote, step-by-step, list, promotional,
+    // educational, minimal) whenever available — without letting a
+    // significantly higher-scoring candidate be blocked just because its
+    // type was already picked. Floor-fill follows the same greedy logic
+    // when accepted candidates alone can't satisfy the requested count.
     type Admission = RenderedCandidate & { floorFill: boolean };
-    const admitted: Admission[] = rendered
-      .filter(r => r.accepted)
-      .sort((a, b) => b.rankScore - a.rankScore)
-      .slice(0, totalVariations)
-      .map(r => ({ ...r, floorFill: false }));
+    const TYPE_VARIETY_PENALTY = 0.06;
+
+    const greedyPickN = (pool: RenderedCandidate[], n: number, seen: Set<string>, floorFill: boolean): Admission[] => {
+      const remaining = pool.slice();
+      const out: Admission[] = [];
+      while (out.length < n && remaining.length > 0) {
+        remaining.sort((a, b) => {
+          const aPen = seen.has(a.templateType) ? TYPE_VARIETY_PENALTY : 0;
+          const bPen = seen.has(b.templateType) ? TYPE_VARIETY_PENALTY : 0;
+          return (b.rankScore - bPen) - (a.rankScore - aPen);
+        });
+        const pick = remaining.shift()!;
+        out.push({ ...pick, floorFill });
+        if (pick.templateType) seen.add(pick.templateType);
+      }
+      return out;
+    };
+
+    const seenTypes = new Set<string>();
+    const admitted: Admission[] = greedyPickN(
+      rendered.filter(r => r.accepted),
+      totalVariations,
+      seenTypes,
+      false,
+    );
 
     if (admitted.length < totalVariations) {
       const admittedVis = new Set(admitted.map(a => a.vi));
-      const needed = totalVariations - admitted.length;
-      const filler = rendered
-        .filter(r => !admittedVis.has(r.vi))
-        .sort((a, b) => b.rankScore - a.rankScore)
-        .slice(0, needed)
-        .map(r => ({ ...r, floorFill: true }));
-      admitted.push(...filler);
+      const fill = greedyPickN(
+        rendered.filter(r => !admittedVis.has(r.vi)),
+        totalVariations - admitted.length,
+        seenTypes,
+        true,
+      );
+      admitted.push(...fill);
     }
 
     // Stable order by render index so the UI shows variation numbering
@@ -336,6 +364,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               marketplaceScore: adm.marketScore,
               rankPenalties:    adm.rankPenalties,
               themeId:          adm.themeId,
+              templateType:     adm.templateType,
               rejectReasons:    adm.rejectReasons,
               failedCriteria:   adm.failedCriteria,
               attemptsUsed:     attemptedCount,
@@ -351,11 +380,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       lastResult = result;
     }
 
+    const uniqueTypes = new Set(admitted.map(a => a.templateType));
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
       `accepted=${acceptedCount()} shipped=${admitted.length} ` +
-      `floorFilled=${admitted.filter(a => a.floorFill).length}`,
+      `floorFilled=${admitted.filter(a => a.floorFill).length} ` +
+      `types=[${[...uniqueTypes].join(",")}]`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});
