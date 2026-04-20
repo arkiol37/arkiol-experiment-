@@ -44,7 +44,8 @@ import {
 // ── Ultimate renderer — replaces svg-builder for Canva-quality output ─────────
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
 import { scoreCandidateQuality, scoreThemeQuality } from "../evaluation/candidate-quality";
-import { enforceMarketplaceStandard } from "../evaluation/marketplace-gate";
+import { enforceMarketplaceStandard, type MarketplaceVerdict } from "../evaluation/marketplace-gate";
+import { evaluateRejection } from "../evaluation/rejection-rules";
 import {
   recordGenerationStart,
   recordGenerationSuccess,
@@ -271,6 +272,31 @@ export interface PipelineResult {
     qualityScore: number;
     designQualityScore: number;
     themeId: string;
+  };
+
+  // Strict quality verdict — consumed by the multi-candidate gallery flow
+  // to decide whether a candidate is admitted or discarded before the
+  // user sees it. Populated on every render that has a selected theme +
+  // content. Encodes both the rejection-rule verdict and the marketplace
+  // gate outcome so downstream batch filtering does not need to re-score.
+  qualityVerdict?: {
+    /** Passed every hard rejection rule (gradient-only, single-text-block,
+     *  asset-poor, weak composition, repetition, etc). */
+    rulesAccepted:       boolean;
+    /** Marketplace gate approved the template as gallery-grade. */
+    marketplaceApproved: boolean;
+    /** Composite marketplace score for ranking survivors. */
+    marketplaceScore:    number;
+    /** Weighted quality score (0..1). */
+    qualityScore:        number;
+    /** Hard-rule reasons that fired, if any. */
+    hardReasons:         string[];
+    /** Soft-rule reasons (audit only). */
+    softReasons:         string[];
+    /** Marketplace criteria that failed, if any. */
+    failedCriteria:      string[];
+    /** Theme id picked for this render. */
+    themeId:             string;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -977,6 +1003,7 @@ async function renderAssetInner(
   //           the candidate before it reaches the gallery.
   //   Default: logs the verdict as violations; downstream batch
   //           selection / rejection-rules do the filtering.
+  let marketplaceVerdict: MarketplaceVerdict | undefined;
   try {
     const buildContent = buildResult.content as SvgContent;
     const heroEl       = composition.elements.find(e => e.primary);
@@ -1010,6 +1037,7 @@ async function renderAssetInner(
           strict: strictGate,
         },
       );
+      marketplaceVerdict = verdict;
       recordMarketplaceVerdict(verdict.approved, verdict.failedCriteria);
       violations.push(
         `marketplace_gate:${verdict.approved ? "APPROVED" : "REJECTED"} ` +
@@ -1332,6 +1360,29 @@ async function renderAssetInner(
       designQualityScore: finalDesignQualityScore,
       themeId,
     },
+    // Strict quality verdict — gallery batch filter consumes this directly
+    // instead of re-scoring. Rejection and marketplace outcomes are
+    // combined into a single structured record.
+    ...(buildResult.content._selectedTheme ? (() => {
+      const theme   = buildResult.content._selectedTheme!;
+      const content = buildResult.content as SvgContent;
+      const rej     = (() => {
+        try { return evaluateRejection(theme, content); }
+        catch { return { accept: true, hardReasons: [], softReasons: [], score: null as any }; }
+      })();
+      return {
+        qualityVerdict: {
+          rulesAccepted:       rej.accept,
+          marketplaceApproved: marketplaceVerdict?.approved ?? false,
+          marketplaceScore:    marketplaceVerdict?.marketplaceScore ?? 0,
+          qualityScore:        finalQualityScore,
+          hardReasons:         rej.hardReasons,
+          softReasons:         rej.softReasons,
+          failedCriteria:      marketplaceVerdict?.failedCriteria ?? [],
+          themeId,
+        },
+      };
+    })() : {}),
     // Step 39: pack-style snapshot so the multi-output coordinator can
     // extract a PackAnchor and lock sibling variations to the same look.
     ...(buildResult.content._selectedTheme ? {

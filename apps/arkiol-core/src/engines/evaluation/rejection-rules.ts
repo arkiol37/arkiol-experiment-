@@ -82,14 +82,14 @@ export const REJECTION_RULES: RejectionRule[] = [
   {
     id:          "too_repetitive",
     severity:    "hard",
-    description: "One decoration kind dominates >40% of the decoration layer.",
+    description: "One decoration kind dominates >38% of the decoration layer.",
     evaluate(theme) {
       const decos = theme.decorations;
       if (decos.length < 4) return null;
       const counts = new Map<string, number>();
       for (const d of decos) counts.set(d.kind, (counts.get(d.kind) ?? 0) + 1);
       const maxShare = Math.max(...counts.values()) / decos.length;
-      if (maxShare > 0.40) return `too_repetitive:max_kind_share(${(maxShare * 100).toFixed(0)}%)`;
+      if (maxShare > 0.38) return `too_repetitive:max_kind_share(${(maxShare * 100).toFixed(0)}%)`;
       return null;
     },
   },
@@ -208,16 +208,40 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
-  // ── Sparse content (soft) ────────────────────────────────────────────────
+  // ── Single-text-block / sparse content (hard) ────────────────────────────
+  // The gallery must not surface templates whose composition is a single
+  // text block dropped onto a background. Elevated from soft to hard so
+  // it prevents shipment rather than just annotates the output. When
+  // content is not available (theme-only evaluation) the rule skips.
   {
     id:          "sparse_content",
-    severity:    "soft",
-    description: "Core text zones (headline / subhead / cta) under-populated.",
+    severity:    "hard",
+    description: "Template is a single text block — no real composition.",
     evaluate(_theme, content, _score) {
       if (!content) return null;
       const zones = content.textContents ?? [];
       const populated = zones.filter(z => z.text?.trim().length > 0);
       if (populated.length < 2) return `sparse_content:populated(${populated.length})`;
+      return null;
+    },
+  },
+
+  // ── Poor spacing / weak composition (hard) ───────────────────────────────
+  // Templates whose spacing is tight AND composition balance is flat read
+  // as cramped or lopsided even when richness looks fine. Combined floor
+  // so either signal alone doesn't disqualify — only the joint failure.
+  {
+    id:          "poor_spacing",
+    severity:    "hard",
+    description: "Composition spacing + balance fall below usable floor.",
+    evaluate(theme, _content, score) {
+      const s = score ?? scoreThemeQuality(theme);
+      // Readability tracks overlay / contrast / crowding. Balance tracks
+      // decoration spread. When both sink together, the visual reads as
+      // cramped + lopsided and the template isn't gallery-grade.
+      if (s.readability < 0.40 && s.compositionBalance < 0.32) {
+        return `poor_spacing:read=${s.readability.toFixed(2)},balance=${s.compositionBalance.toFixed(2)}`;
+      }
       return null;
     },
   },

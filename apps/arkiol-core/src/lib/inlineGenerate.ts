@@ -8,12 +8,17 @@
 // queue forever. This module runs the same pipeline inline so generation
 // works without an external worker.
 //
-// FIXES:
-//   1. thumbnailUrl stored in job result — GeneratePanel can show preview
-//      immediately after inline generation completes, without a second fetch.
-//   2. SVG data-URL fallback when S3 is not configured — the thumbnail is
-//      encoded as a base64 data URL so the <img> tag renders it inline.
-//   3. Credit deduction uses creditBalance decrement (matches schema).
+// STRICT CANDIDATE PIPELINE:
+//   Instead of persisting every rendered candidate, this module
+//   over-generates up to ~2x the requested count, evaluates each against
+//   the strict rejection rules + marketplace gate (already computed
+//   inside renderAsset as PipelineResult.qualityVerdict), and only
+//   admits strong, structured, visually rich templates into the gallery.
+//   Weak outputs (gradient-only, single text block, asset-poor, weak
+//   composition, poor spacing, repetitive) are discarded before the user
+//   sees them. If too few survive, a minimum floor is filled from the
+//   strongest rejected candidates so the gallery is never empty — those
+//   entries are tagged so the audit trail still knows why they shipped.
 // ─────────────────────────────────────────────────────────────────────────────
 import "server-only";
 import { prisma } from "./prisma";
@@ -95,17 +100,51 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       tone:           brand.voiceAttribs ? Object.keys(brand.voiceAttribs as object) : [],
     } : undefined;
 
-    // Generate each variation with a distinct variationIdx so the pipeline
-    // picks different themes, layouts, and copy per variation.
+    // Target: `totalVariations` accepted candidates, each strong enough
+    // for the gallery. We over-generate up to 2x attempts (bounded), run
+    // the strict rejection gate on every render, dedup near-clones by
+    // theme palette + typography, and only persist survivors.
     const totalVariations = Math.max(1, variations);
-    const allAssetIds: string[] = [];
-    let totalCreditCost = 0;
-    let lastThumbnailUrl: string | null = null;
-    let lastResult: any = null;
+    const MAX_ATTEMPTS    = Math.min(Math.max(totalVariations * 2, totalVariations + 3), 16);
+
+    interface RenderedCandidate {
+      vi:             number;
+      result:         any;
+      orchestrated:   any;
+      score:          number;
+      accepted:       boolean;
+      rejectReasons:  string[];
+      failedCriteria: string[];
+      themeId:        string;
+      paletteKey:     string;
+    }
+
+    const rendered: RenderedCandidate[] = [];
+    let attemptedCount = 0;
     let totalPipelineMs = 0;
 
-    for (let vi = 0; vi < totalVariations; vi++) {
-      const progressBase = 20 + Math.floor((vi / totalVariations) * 65);
+    // Signature used to greedy-dedup palette + typography twins. We treat
+    // two candidates as near-clones when theme id, primary colour, and
+    // surface match — this mirrors the looser `areTooSimilar` rule in
+    // candidate-quality but works off the lean snapshot the pipeline
+    // already returns. Undefined snapshot → unique-per-call key.
+    const paletteKeyOf = (r: any): string => {
+      const snap = r?.packStyleSnapshot;
+      if (!snap) return `raw:${r?.assetId ?? Math.random()}`;
+      return [
+        r?.evaluationSignals?.themeId ?? "?",
+        snap.primary, snap.surface, snap.ink,
+        snap.fontDisplay, snap.fontBody,
+      ].join("|").toLowerCase();
+    };
+
+    const acceptedCount = () => rendered.filter(r => r.accepted).length;
+
+    while (acceptedCount() < totalVariations && attemptedCount < MAX_ATTEMPTS) {
+      const vi = attemptedCount;
+      attemptedCount += 1;
+
+      const progressBase = 20 + Math.floor((Math.min(acceptedCount(), totalVariations) / totalVariations) * 65);
       await prisma.job.update({ where: { id: jobId }, data: { progress: progressBase } }).catch(() => {});
 
       const orchestrated = await runGenerationPipeline({
@@ -124,9 +163,83 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         maxAllowedVariations: totalVariations,
       });
 
-      const result  = orchestrated.render;
-      const assetId = result.assetId;
+      const result = orchestrated.render;
       totalPipelineMs += orchestrated.totalPipelineMs ?? 0;
+
+      const verdict = result.qualityVerdict;
+      const paletteKey = paletteKeyOf(result);
+      const priorPalette = rendered.some(r => r.accepted && r.paletteKey === paletteKey);
+
+      // Strict admission: must pass rejection rules AND not be a palette
+      // twin of a previously accepted candidate. Marketplace approval is
+      // preferred but not required — the rejection rules already enforce
+      // the hard quality floor. Missing verdict = degraded fallback
+      // render, which we reject.
+      const accepted =
+        !!verdict &&
+        verdict.rulesAccepted &&
+        !priorPalette;
+
+      const rejectReasons: string[] = [];
+      if (!verdict)                     rejectReasons.push("verdict_missing");
+      else {
+        if (!verdict.rulesAccepted)     rejectReasons.push(...verdict.hardReasons);
+        if (priorPalette)               rejectReasons.push(`near_duplicate:${paletteKey}`);
+      }
+
+      rendered.push({
+        vi,
+        result,
+        orchestrated,
+        score:          verdict?.marketplaceScore ?? verdict?.qualityScore ?? 0,
+        accepted,
+        rejectReasons,
+        failedCriteria: verdict?.failedCriteria ?? [],
+        themeId:        verdict?.themeId ?? result?.evaluationSignals?.themeId ?? "unknown",
+        paletteKey,
+      });
+
+      console.info(
+        `[inline-generate] vi=${vi} theme=${verdict?.themeId ?? "?"} ` +
+        `accepted=${accepted} score=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
+        (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : ""),
+      );
+    }
+
+    // Build the final admission list. Prefer accepted candidates; if we
+    // didn't reach the requested count after exhausting attempts, floor-
+    // fill with the strongest rejected candidates so the gallery isn't
+    // empty. Floor-fills carry their reject reasons into metadata so the
+    // ops channel still sees why they were weak.
+    type Admission = RenderedCandidate & { floorFill: boolean };
+    const admitted: Admission[] = rendered
+      .filter(r => r.accepted)
+      .slice(0, totalVariations)
+      .map(r => ({ ...r, floorFill: false }));
+
+    if (admitted.length < totalVariations) {
+      const needed = totalVariations - admitted.length;
+      const filler = rendered
+        .filter(r => !r.accepted)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, needed)
+        .map(r => ({ ...r, floorFill: true }));
+      admitted.push(...filler);
+    }
+
+    // Stable order by render index so the UI shows variation numbering
+    // in the order they were produced.
+    admitted.sort((a, b) => a.vi - b.vi);
+
+    const allAssetIds: string[] = [];
+    let totalCreditCost = 0;
+    let lastThumbnailUrl: string | null = null;
+    let lastResult: any = null;
+
+    for (let idx = 0; idx < admitted.length; idx++) {
+      const adm    = admitted[idx];
+      const result = adm.result;
+      const assetId = result.assetId;
 
       // Upload to S3 if configured
       let s3Key:  string | null = null;
@@ -160,7 +273,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(result.svgSource).toString("base64")}`;
       }
 
-      // Create asset record
+      // Credit only ACCEPTED admissions. Over-generated rejects are not
+      // charged — they never reach the user.
       const creditCost = getCreditCost(format, false);
       totalCreditCost += creditCost;
 
@@ -170,7 +284,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           userId,
           orgId,
           campaignId:   campaignId ?? null,
-          name:         `${format}-v${vi + 1}`,
+          name:         `${format}-v${idx + 1}`,
           format,
           category:     getCategoryLabel(format),
           mimeType:     "image/png",
@@ -188,12 +302,24 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             violations:       result.violations?.slice(0, 10) ?? [],
             svgKey:           svgKey ?? null,
             durationMs:       result.durationMs,
-            pipelineMs:       orchestrated.totalPipelineMs,
-            anyFallback:      orchestrated.anyFallback,
-            allStagesPassed:  orchestrated.allStagesPassed,
+            pipelineMs:       adm.orchestrated.totalPipelineMs,
+            anyFallback:      adm.orchestrated.anyFallback,
+            allStagesPassed:  adm.orchestrated.allStagesPassed,
             inlineGenerated:  true,
-            variationIdx:     vi,
+            variationIdx:     adm.vi,
             thumbnailUrl,
+            // Gallery-grade admission audit.
+            strictAdmission:  {
+              accepted:       adm.accepted,
+              floorFill:      adm.floorFill,
+              marketplaceScore: adm.score,
+              themeId:        adm.themeId,
+              rejectReasons:  adm.rejectReasons,
+              failedCriteria: adm.failedCriteria,
+              attemptsUsed:   attemptedCount,
+              acceptedCount:  acceptedCount(),
+              requested:      totalVariations,
+            },
           } as any,
         },
       });
@@ -202,6 +328,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       lastThumbnailUrl = thumbnailUrl;
       lastResult = result;
     }
+
+    console.info(
+      `[inline-generate] Job ${jobId} admission: ` +
+      `requested=${totalVariations} attempts=${attemptedCount} ` +
+      `accepted=${acceptedCount()} shipped=${admitted.length} ` +
+      `floorFilled=${admitted.filter(a => a.floorFill).length}`,
+    );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});
 
