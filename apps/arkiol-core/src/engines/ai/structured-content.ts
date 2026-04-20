@@ -419,45 +419,9 @@ export function buildFallbackStructuredContent(
   };
 }
 
-// ── Map structured content → zone text map ───────────────────────────────────
-//
-// Converts the StructuredContent into the `zoneId → text` pairs the existing
-// svg-builder pipeline expects. Only zones that actually exist on the canvas
-// are populated so the downstream code doesn't render ghost fields.
-
-export function structuredContentToTextMap(
-  content: StructuredContent, availableZoneIds: Set<string>,
-): Map<string, string> {
-  const map = new Map<string, string>();
-  const set = (zoneId: string, value: string | undefined) => {
-    if (!value) return;
-    if (!availableZoneIds.has(zoneId)) return;
-    const trimmed = value.trim();
-    if (trimmed) map.set(zoneId, trimmed);
-  };
-
-  set("headline",       content.headline);
-  set("subhead",        content.subhead);
-  set("cta",            content.cta);
-  set("badge",          content.badge);
-  set("eyebrow",        content.eyebrow);
-  set("section_header", content.eyebrow ?? content.supporting);
-  set("tagline",        content.supporting);
-  set("body",           content.supporting ?? content.subhead);
-
-  const bulletSlots = ["bullet_1", "bullet_2", "bullet_3"];
-  for (let i = 0; i < content.items.length && i < bulletSlots.length; i++) {
-    set(bulletSlots[i], content.items[i]);
-  }
-
-  // Quote: place the attribution in a support zone if one exists.
-  if (content.attribution) {
-    if (availableZoneIds.has("tagline") && !map.has("tagline")) map.set("tagline", `— ${content.attribution}`);
-    else if (availableZoneIds.has("name") && !map.has("name"))   map.set("name",    content.attribution);
-  }
-
-  return map;
-}
+// Note: the legacy `structuredContentToTextMap` greedy field-to-zone
+// mapper was replaced in Step 8 by the declarative, role-based
+// `mapContentToComponents` in engines/components/content-component-mapper.ts.
 
 // ── Audit helpers ────────────────────────────────────────────────────────────
 

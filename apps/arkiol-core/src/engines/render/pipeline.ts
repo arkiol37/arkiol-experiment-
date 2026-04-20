@@ -363,6 +363,17 @@ export interface PipelineResult {
      *  benefits / insights / list picks) the model delivered. Zero for
      *  quote / minimal templates which intentionally have no list. */
     structuredItemCount?: number;
+    /** Step 8 — per-role mapping of structured content onto zones.
+     *  The `unmapped_content` / `underfilled_components` /
+     *  `compressed_content` rejection rules read this. Surfaced here so
+     *  admission audits can describe *why* a template shipped with
+     *  scattered items or dropped required fields. */
+    mappingExpectedItems?:  number;
+    mappingPlacedItems?:    number;
+    mappingMissingRoles?:   string[];
+    mappingUnderfilled?:    boolean;
+    mappingCompressed?:     boolean;
+    mappingSlotCount?:      number;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1484,6 +1495,17 @@ async function renderAssetInner(
       const contentCov = (content as any)._contentCoverage as
         | { kind: string; populatedItems: number; required: number; satisfiesMinimum: boolean }
         | undefined;
+      const contentMap = (content as any)._contentMapping as
+        | {
+            slots:             Array<{ role: string }>;
+            placedRoles:       string[];
+            missingRequired:   string[];
+            expectedItemCount: number;
+            placedItemCount:   number;
+            compressed:        boolean;
+            underfilled:       boolean;
+          }
+        | undefined;
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1517,6 +1539,12 @@ async function renderAssetInner(
                  : "legacy_zone_text" as const;
           })(),
           structuredItemCount:      ((buildResult.content as any)._structuredContent?.items?.length ?? 0),
+          mappingExpectedItems:     contentMap?.expectedItemCount ?? 0,
+          mappingPlacedItems:       contentMap?.placedItemCount   ?? 0,
+          mappingMissingRoles:      contentMap?.missingRequired   ?? [],
+          mappingUnderfilled:       contentMap?.underfilled       ?? false,
+          mappingCompressed:        contentMap?.compressed        ?? false,
+          mappingSlotCount:         contentMap?.slots?.length     ?? 0,
         },
       };
     })() : {}),

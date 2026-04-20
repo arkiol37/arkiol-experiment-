@@ -157,6 +157,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       /** Distinct structured items delivered by the generator (tips /
        *  checklist rows / steps / benefits / insights / list picks). */
       structuredItemCount: number;
+      /** Step 8 — per-role mapping audit. Shows how many of the items
+       *  the generator produced actually landed in distinct zones, and
+       *  whether any required roles were dropped. */
+      mappingPlaced:     number;
+      mappingExpected:   number;
+      mappingSlots:      number;
+      mappingMissing:    string[];
+      mappingUnderfilled: boolean;
+      mappingCompressed:  boolean;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -250,6 +259,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         contentSatisfied: verdict?.contentSatisfied ?? true,
         contentSource:    verdict?.contentSource ?? "unknown",
         structuredItemCount: verdict?.structuredItemCount ?? 0,
+        mappingPlaced:       verdict?.mappingPlacedItems ?? 0,
+        mappingExpected:     verdict?.mappingExpectedItems ?? 0,
+        mappingSlots:        verdict?.mappingSlotCount ?? 0,
+        mappingMissing:      verdict?.mappingMissingRoles ?? [],
+        mappingUnderfilled:  verdict?.mappingUnderfilled ?? false,
+        mappingCompressed:   verdict?.mappingCompressed ?? false,
       });
 
       console.info(
@@ -259,6 +274,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         `components=${verdict?.componentCount ?? 0}/${verdict?.structuredComponentCount ?? 0}[${(verdict?.componentKinds ?? []).join("+")}] ` +
         `content=${verdict?.contentKind ?? "?"}×${verdict?.contentItems ?? 0} ` +
         `src=${verdict?.contentSource ?? "?"} items=${verdict?.structuredItemCount ?? 0} ` +
+        `map=${verdict?.mappingPlacedItems ?? 0}/${verdict?.mappingExpectedItems ?? 0}` +
+        `×${verdict?.mappingSlotCount ?? 0}` +
+        (verdict?.mappingMissingRoles?.length ? `[-${verdict.mappingMissingRoles.join(",")}]` : "") +
+        (verdict?.mappingCompressed  ? "!compressed"  : "") +
+        (verdict?.mappingUnderfilled ? "!underfilled" : "") + " " +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -449,6 +469,14 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const avgStructuredItems = admitted.length
       ? (admitted.reduce((s, a) => s + a.structuredItemCount, 0) / admitted.length).toFixed(1)
       : "0.0";
+    const avgMappingPlaced = admitted.length
+      ? (admitted.reduce((s, a) => s + a.mappingPlaced, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const avgMappingSlots = admitted.length
+      ? (admitted.reduce((s, a) => s + a.mappingSlots, 0) / admitted.length).toFixed(1)
+      : "0.0";
+    const mappingCompressedCount  = admitted.filter(a => a.mappingCompressed).length;
+    const mappingUnderfilledCount = admitted.filter(a => a.mappingUnderfilled).length;
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
@@ -458,7 +486,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `avgSections=${avgSections} sections=[${[...uniqueSections].join(",")}] ` +
       `avgComponents=${avgComponents} components=[${[...uniqueComponents].join(",")}] ` +
       `avgContentItems=${avgContentItems} contentKinds=[${[...uniqueContentKinds].join(",")}] ` +
-      `contentSources={${contentSourcesLabel}} avgStructuredItems=${avgStructuredItems}`,
+      `contentSources={${contentSourcesLabel}} avgStructuredItems=${avgStructuredItems} ` +
+      `avgMapping=${avgMappingPlaced}items×${avgMappingSlots}slots ` +
+      `compressed=${mappingCompressedCount} underfilled=${mappingUnderfilledCount}`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});

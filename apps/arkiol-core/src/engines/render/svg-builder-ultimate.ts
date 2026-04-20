@@ -41,6 +41,11 @@ import {
   type ComponentCoverageReport,
 } from "../components/component-system";
 import {
+  mapContentToComponents,
+  describeMappingReport,
+  type MappingCoverageReport,
+} from "../components/content-component-mapper";
+import {
   restructureTextMap,
   analyzeContentCoverage,
   type ContentCoverageReport,
@@ -49,7 +54,6 @@ import {
 import {
   generateStructuredContent,
   buildFallbackStructuredContent,
-  structuredContentToTextMap,
   describeStructuredContent,
   type StructuredContent,
 } from "../ai/structured-content";
@@ -138,6 +142,12 @@ export interface SvgContent {
    *  shape was actually requested from the model and how many items
    *  were delivered. */
   _structuredContent?: StructuredContent;
+  /** Step 8 — per-role mapping of structured content to canvas zones.
+   *  Lists expected vs placed roles, item counts, and whether the
+   *  mapper detected compressed / underfilled output. Consumed by the
+   *  `unmapped_content`, `underfilled_components` and
+   *  `compressed_content` rejection rules. */
+  _contentMapping?: MappingCoverageReport;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -446,10 +456,22 @@ export async function buildUltimateSvgContent(
   }
 
   let rawTextMap: Map<string, string>;
+  let contentMapping: MappingCoverageReport | undefined;
 
   if (structured && structured.headline) {
-    rawTextMap = structuredContentToTextMap(structured, availableZoneIdSet);
+    // Step 8 — explicit role → zone mapping. Each StructuredContent
+    // field lands in a specific zone following the per-template
+    // contract, and every item becomes its own distinct visual block.
+    const mapped = mapContentToComponents(structured, resolvedTemplateType, availableZoneIdSet);
+    rawTextMap     = mapped.textMap;
+    contentMapping = mapped.report;
     violations.push("content_source:structured:" + describeStructuredContent(structured));
+    violations.push("content_mapping:" + describeMappingReport(mapped.report));
+    if (mapped.report.missingRequired.length) {
+      violations.push("content_mapping:missing_required:[" + mapped.report.missingRequired.join(",") + "]");
+    }
+    if (mapped.report.compressed)  violations.push("content_mapping:compressed");
+    if (mapped.report.underfilled) violations.push("content_mapping:underfilled");
   } else {
     // Legacy path — retained as a graceful fallback when structured content
     // isn't available. Same chatJSON call as before; same fallback on
@@ -491,6 +513,14 @@ export async function buildUltimateSvgContent(
     if (!structured) {
       structured = buildFallbackStructuredContent(brief, resolvedTemplateType, variationIdx);
     }
+    // Step 8 — even on the legacy path, emit a best-effort mapping
+    // report from whatever StructuredContent we now hold so the three
+    // mapping-driven rejection rules still evaluate. The legacy
+    // rawTextMap remains the source of truth for rendering; the mapper
+    // report is audit-only here.
+    const legacyMapped = mapContentToComponents(structured, resolvedTemplateType, availableZoneIdSet);
+    contentMapping = legacyMapped.report;
+    violations.push("content_mapping:legacy:" + describeMappingReport(legacyMapped.report));
   }
 
   // ── Content-aware restructuring ──────────────────────────────────────────
@@ -584,6 +614,7 @@ export async function buildUltimateSvgContent(
     _contentCoverage: contentCoverage,
     _contentActions:  contentActions,
     _structuredContent: structured ?? undefined,
+    _contentMapping:    contentMapping,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────

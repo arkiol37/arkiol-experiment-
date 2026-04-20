@@ -30,6 +30,7 @@ import {
   expectsStructuredList,
   MIN_LIST_ITEMS,
 } from "../content/content-structure";
+import { MIN_COMPONENT_SLOTS } from "../components/content-component-mapper";
 import {
   scoreCandidateQuality,
   scoreThemeQuality,
@@ -365,6 +366,74 @@ export const REJECTION_RULES: RejectionRule[] = [
       // cramped + lopsided and the template isn't gallery-grade.
       if (s.readability < 0.40 && s.compositionBalance < 0.32) {
         return `poor_spacing:read=${s.readability.toFixed(2)},balance=${s.compositionBalance.toFixed(2)}`;
+      }
+      return null;
+    },
+  },
+
+  // ── Unmapped content (hard) ──────────────────────────────────────────────
+  // Step 8 floor: the structured content generator returned a payload
+  // (headline + items + CTA etc.) but the mapper couldn't place it into
+  // zones — usually because required roles were missing or the canvas
+  // exposed too few usable zones. When the mapping report is absent
+  // entirely we also reject, because every live path now stamps one.
+  {
+    id:          "unmapped_content",
+    severity:    "hard",
+    description: "Structured content exists but required roles never landed in zones.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const mapping = content._contentMapping;
+      if (!mapping) return null; // older cached renders with no mapping → skip
+      if (mapping.missingRequired.length > 0) {
+        return `unmapped_content:${mapping.templateType}:missing=[${mapping.missingRequired.join(",")}]`;
+      }
+      if (mapping.slots.length < MIN_COMPONENT_SLOTS) {
+        return `unmapped_content:${mapping.templateType}:slots=${mapping.slots.length}/${MIN_COMPONENT_SLOTS}`;
+      }
+      return null;
+    },
+  },
+
+  // ── Underfilled components (hard) ────────────────────────────────────────
+  // Step 8 floor: the structured content carried enough items to fill a
+  // list (checklist / tips / steps / list_based / educational) but the
+  // mapper placed fewer than the minimum — the template renders
+  // underfilled despite the data being available. Distinct from
+  // `unstructured_content` which catches the case where list data never
+  // came out of the content coverage analyzer; this one catches the
+  // mapping layer dropping items on the floor.
+  {
+    id:          "underfilled_components",
+    severity:    "hard",
+    description: "Content items were available but not placed into distinct components.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const mapping = content._contentMapping;
+      if (!mapping) return null;
+      if (mapping.underfilled) {
+        return `underfilled_components:${mapping.templateType}:items=${mapping.placedItemCount}/${mapping.expectedItemCount} missing=[${mapping.missingRequired.join(",")}]`;
+      }
+      return null;
+    },
+  },
+
+  // ── Compressed content (hard) ────────────────────────────────────────────
+  // Step 8 floor: the structured content produced ≥ 2 items but fewer
+  // than 2 of them landed in distinct zones — the classic "list
+  // collapses into one block" failure the Step 8 brief explicitly
+  // calls out. Fires even when required roles were all placed; the
+  // signal is specifically about item distribution.
+  {
+    id:          "compressed_content",
+    severity:    "hard",
+    description: "List content compressed into a single area instead of distinct visual items.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const mapping = content._contentMapping;
+      if (!mapping) return null;
+      if (mapping.compressed) {
+        return `compressed_content:${mapping.templateType}:items_placed=${mapping.placedItemCount}`;
       }
       return null;
     },
