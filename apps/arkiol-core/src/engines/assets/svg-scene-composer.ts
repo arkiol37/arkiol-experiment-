@@ -123,6 +123,69 @@ export function getScenePalette(category: string, variant: number = 0): ScenePal
 // Each part returns a string fragment (no wrapping <svg>) so scenes can
 // stack them in paint order.
 
+// Phase-1 quality lift: every scene now wraps its <defs> with a shared
+// effects library — drop-shadow filter, soft glow, inner-highlight
+// gradient, paper grain. These give each composition a depth + polish
+// pass that a flat-color SVG can't reach.
+function defsEffects(p: ScenePalette, id: string): string {
+  return (
+    `<filter id="ds-${id}" x="-25%" y="-25%" width="150%" height="150%">` +
+      `<feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="${p.ink}" flood-opacity="0.18"/>` +
+    `</filter>` +
+    `<filter id="dsLg-${id}" x="-30%" y="-30%" width="160%" height="160%">` +
+      `<feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="${p.ink}" flood-opacity="0.22"/>` +
+    `</filter>` +
+    `<filter id="glow-${id}" x="-40%" y="-40%" width="180%" height="180%">` +
+      `<feGaussianBlur stdDeviation="6"/>` +
+    `</filter>` +
+    `<radialGradient id="hl-${id}" cx="35%" cy="30%" r="65%">` +
+      `<stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.55"/>` +
+      `<stop offset="55%" stop-color="#FFFFFF" stop-opacity="0"/>` +
+    `</radialGradient>` +
+    `<radialGradient id="sh-${id}" cx="65%" cy="75%" r="55%">` +
+      `<stop offset="0%" stop-color="${p.ink}" stop-opacity="0"/>` +
+      `<stop offset="100%" stop-color="${p.ink}" stop-opacity="0.30"/>` +
+    `</radialGradient>` +
+    `<radialGradient id="sun-${id}" cx="50%" cy="50%" r="50%">` +
+      `<stop offset="0%" stop-color="#FFF8E1"/>` +
+      `<stop offset="60%" stop-color="${p.accent}"/>` +
+      `<stop offset="100%" stop-color="${p.accent}" stop-opacity="0.7"/>` +
+    `</radialGradient>` +
+    `<linearGradient id="subj-${id}" x1="0%" y1="0%" x2="0%" y2="100%">` +
+      `<stop offset="0%" stop-color="${lightenHex(p.subject, 0.18)}"/>` +
+      `<stop offset="60%" stop-color="${p.subject}"/>` +
+      `<stop offset="100%" stop-color="${darkenHex(p.subject, 0.20)}"/>` +
+    `</linearGradient>` +
+    `<linearGradient id="accent-${id}" x1="0%" y1="0%" x2="0%" y2="100%">` +
+      `<stop offset="0%" stop-color="${lightenHex(p.accent, 0.22)}"/>` +
+      `<stop offset="100%" stop-color="${p.accent}"/>` +
+    `</linearGradient>`
+  );
+}
+
+// Hex math helpers — small, no dependencies. Used to lighten / darken
+// fill stops for gradients without needing a color-space lib.
+function clamp255(n: number): number { return Math.max(0, Math.min(255, Math.round(n))); }
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace(/^#/, "");
+  const v = h.length === 3
+    ? h.split("").map(c => parseInt(c + c, 16))
+    : [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  return [v[0] || 0, v[1] || 0, v[2] || 0];
+}
+function rgbToHex(r: number, g: number, b: number): string {
+  const h = (n: number) => clamp255(n).toString(16).padStart(2, "0");
+  return `#${h(r)}${h(g)}${h(b)}`;
+}
+function lightenHex(hex: string, amount: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  return rgbToHex(r + (255 - r) * amount, g + (255 - g) * amount, b + (255 - b) * amount);
+}
+function darkenHex(hex: string, amount: number): string {
+  const [r, g, b] = hexToRgb(hex);
+  return rgbToHex(r * (1 - amount), g * (1 - amount), b * (1 - amount));
+}
+
 function defsGradients(p: ScenePalette, id: string): string {
   return (
     `<defs>` +
@@ -134,6 +197,7 @@ function defsGradients(p: ScenePalette, id: string): string {
         `<stop offset="0" stop-color="${p.ground[0]}"/>` +
         `<stop offset="1" stop-color="${p.ground[1]}"/>` +
       `</linearGradient>` +
+      defsEffects(p, id) +
     `</defs>`
   );
 }
@@ -143,15 +207,23 @@ function skyFlat(p: ScenePalette, id: string): string {
   return `<rect width="400" height="260" fill="url(%23sky-${id})"/>`;
 }
 function skyWithSun(p: ScenePalette, id: string): string {
+  // Warm radial sun with a real glow halo instead of two flat circles.
   return skyFlat(p, id) +
-    `<circle cx="320" cy="80" r="34" fill="${p.accent}" opacity="0.95"/>` +
-    `<circle cx="320" cy="80" r="48" fill="${p.accent}" opacity="0.25"/>`;
+    `<circle cx="320" cy="80" r="64" fill="url(%23sun-${id})" opacity="0.35" filter="url(%23glow-${id})"/>` +
+    `<circle cx="320" cy="80" r="38" fill="url(%23sun-${id})"/>` +
+    `<circle cx="314" cy="72" r="10" fill="#FFFFFF" opacity="0.55"/>`;
 }
 function skyWithClouds(p: ScenePalette, id: string): string {
+  // Layered cloud with subtle underside shading so they read volumetric.
   const cloud = (cx: number, cy: number, s: number) =>
-    `<ellipse cx="${cx}" cy="${cy}" rx="${36 * s}" ry="${14 * s}" fill="#FFFFFF" opacity="0.85"/>` +
-    `<ellipse cx="${cx - 20 * s}" cy="${cy + 4}" rx="${22 * s}" ry="${11 * s}" fill="#FFFFFF" opacity="0.75"/>`;
-  return skyFlat(p, id) + cloud(90, 70, 1) + cloud(260, 50, 0.8);
+    `<g opacity="0.92">` +
+      `<ellipse cx="${cx + 2}" cy="${cy + 2}" rx="${38 * s}" ry="${15 * s}" fill="${p.ink}" opacity="0.06"/>` +
+      `<ellipse cx="${cx}" cy="${cy}" rx="${36 * s}" ry="${14 * s}" fill="#FFFFFF"/>` +
+      `<ellipse cx="${cx - 20 * s}" cy="${cy + 4}" rx="${22 * s}" ry="${11 * s}" fill="#FFFFFF"/>` +
+      `<ellipse cx="${cx + 18 * s}" cy="${cy + 3}" rx="${20 * s}" ry="${10 * s}" fill="#FFFFFF"/>` +
+      `<ellipse cx="${cx - 10 * s}" cy="${cy + 8}" rx="${28 * s}" ry="${4 * s}" fill="#FFFFFF" opacity="0.55"/>` +
+    `</g>`;
+  return skyFlat(p, id) + cloud(90, 70, 1) + cloud(260, 50, 0.8) + cloud(180, 110, 0.5);
 }
 
 // Grounds ──────────────────────────────────────────────────────────────────
@@ -161,77 +233,157 @@ function groundFlat(id: string): string {
 function groundHills(p: ScenePalette, id: string): string {
   return groundFlat(id) +
     `<path d="M0 280 Q100 240 200 280 T400 280 L400 400 L0 400 Z" fill="${p.ground[1]}" opacity="0.7"/>` +
-    `<path d="M0 320 Q120 300 240 320 T400 320 L400 400 L0 400 Z" fill="${p.ground[0]}"/>`;
+    `<path d="M0 320 Q120 300 240 320 T400 320 L400 400 L0 400 Z" fill="${p.ground[0]}"/>` +
+    // Ground-to-sky haze strip — atmospheric depth
+    `<rect y="255" width="400" height="20" fill="url(%23ground-${id})" opacity="0.35"/>`;
 }
 
 // Mountains ────────────────────────────────────────────────────────────────
-function peaks(p: ScenePalette): string {
+function peaks(p: ScenePalette, id: string): string {
+  // Layered peaks with proper light-side / shadow-side + snow caps +
+  // atmospheric back-layer for real depth.
   return (
-    `<polygon points="40,260 130,140 220,260" fill="${p.subject}"/>` +
-    `<polygon points="130,140 160,175 180,170 200,195 175,220 130,180" fill="#FFFFFF" opacity="0.8"/>` +
-    `<polygon points="160,260 260,160 360,260" fill="${p.subject}" opacity="0.85"/>` +
-    `<polygon points="260,160 285,190 300,185 320,210 295,235 260,205" fill="#FFFFFF" opacity="0.7"/>`
+    // Back layer — atmospheric haze silhouette
+    `<polygon points="0,260 80,180 160,230 240,170 320,220 400,180 400,260" fill="${p.subject}" opacity="0.28"/>` +
+    // Right peak (back)
+    `<polygon points="160,260 260,160 360,260" fill="${darkenHex(p.subject, 0.10)}"/>` +
+    // Right peak shadow side
+    `<polygon points="260,160 290,200 260,260" fill="${darkenHex(p.subject, 0.25)}" opacity="0.55"/>` +
+    // Right peak snow
+    `<polygon points="260,160 280,185 295,180 310,205 282,228 260,200" fill="#FFFFFF" opacity="0.92"/>` +
+    `<polygon points="260,160 268,175 260,185" fill="#FFFFFF"/>` +
+    // Left peak (front)
+    `<polygon points="40,260 130,140 220,260" fill="url(%23subj-${id})"/>` +
+    // Left peak shadow side
+    `<polygon points="130,140 170,195 130,260 90,260" fill="${p.ink}" opacity="0.18"/>` +
+    // Left peak snow
+    `<polygon points="130,140 155,170 172,165 195,195 165,225 130,190" fill="#FFFFFF" opacity="0.95"/>` +
+    `<polygon points="130,140 140,158 130,170" fill="#FFFFFF"/>`
   );
 }
 
 // Plant / leaf ─────────────────────────────────────────────────────────────
-function pottedPlant(p: ScenePalette): string {
+function pottedPlant(p: ScenePalette, id: string): string {
+  const leaf = (cx: number, cy: number, rx: number, ry: number, rot: number, fill: string) =>
+    `<g transform="rotate(${rot} ${cx} ${cy})">` +
+      `<ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${fill}"/>` +
+      `<path d="M${cx - rx + 2} ${cy} Q${cx} ${cy - ry * 0.4} ${cx + rx - 2} ${cy}" ` +
+        `stroke="${darkenHex(fill, 0.25)}" stroke-width="1.4" fill="none" opacity="0.75"/>` +
+      `<ellipse cx="${cx - rx * 0.35}" cy="${cy - ry * 0.3}" rx="${rx * 0.35}" ry="${ry * 0.5}" fill="#FFFFFF" opacity="0.2"/>` +
+    `</g>`;
   return (
-    // Pot
-    `<path d="M140 310 L260 310 L245 390 L155 390 Z" fill="${p.subject}"/>` +
-    `<rect x="135" y="300" width="130" height="14" fill="${p.ink}" opacity="0.85"/>` +
-    // Stems + leaves
-    `<path d="M200 300 Q180 240 160 210 Q170 230 190 260 Q170 220 150 180 Q175 215 200 260 Q210 220 225 180 Q225 225 210 260 Q235 230 255 205 Q235 245 215 280" ` +
-      `stroke="${p.accent}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
-    `<ellipse cx="160" cy="200" rx="14" ry="24" fill="${p.accent}" transform="rotate(-35 160 200)"/>` +
-    `<ellipse cx="150" cy="170" rx="12" ry="22" fill="${p.accent}" transform="rotate(-20 150 170)"/>` +
-    `<ellipse cx="240" cy="210" rx="12" ry="22" fill="${p.accent}" transform="rotate(30 240 210)"/>` +
-    `<ellipse cx="255" cy="185" rx="14" ry="24" fill="${p.accent}" transform="rotate(25 255 185)"/>` +
-    `<ellipse cx="200" cy="160" rx="12" ry="22" fill="${p.accent}"/>`
+    // Pot shadow
+    `<ellipse cx="200" cy="398" rx="86" ry="8" fill="${p.ink}" opacity="0.2"/>` +
+    // Pot body + rim + highlight
+    `<path d="M140 310 L260 310 L245 390 L155 390 Z" fill="url(%23subj-${id})" filter="url(%23ds-${id})"/>` +
+    `<rect x="135" y="300" width="130" height="14" fill="${darkenHex(p.subject, 0.15)}"/>` +
+    `<rect x="138" y="302" width="124" height="4" fill="#FFFFFF" opacity="0.22"/>` +
+    `<rect x="148" y="316" width="6" height="65" fill="#FFFFFF" opacity="0.22"/>` +
+    // Stems
+    `<path d="M200 300 Q180 240 160 210" stroke="${darkenHex(p.accent, 0.25)}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+    `<path d="M200 300 Q210 240 230 200" stroke="${darkenHex(p.accent, 0.25)}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+    `<path d="M200 300 Q195 250 200 200" stroke="${darkenHex(p.accent, 0.25)}" stroke-width="3" fill="none" stroke-linecap="round"/>` +
+    // Leaves (with volumetric highlights)
+    leaf(160, 200, 14, 26, -35, p.accent) +
+    leaf(150, 170, 12, 24,  -20, lightenHex(p.accent, 0.10)) +
+    leaf(240, 210, 12, 24,   30, p.accent) +
+    leaf(255, 185, 14, 26,   25, lightenHex(p.accent, 0.10)) +
+    leaf(200, 160, 12, 24,    0, lightenHex(p.accent, 0.15)) +
+    leaf(185, 140, 10, 20,  -10, p.accent)
   );
 }
 
 // Heart ────────────────────────────────────────────────────────────────────
-function heartShape(p: ScenePalette): string {
+function heartShape(p: ScenePalette, id: string): string {
+  const d = "M200 350 Q90 280 90 200 A70 70 0 0 1 200 180 A70 70 0 0 1 310 200 Q310 280 200 350 Z";
   return (
-    `<path d="M200 350 Q90 280 90 200 A70 70 0 0 1 200 180 A70 70 0 0 1 310 200 Q310 280 200 350 Z" ` +
-      `fill="${p.subject}" stroke="${p.ink}" stroke-width="2"/>` +
-    `<path d="M150 210 Q170 180 200 190" stroke="#FFFFFF" stroke-width="5" fill="none" stroke-linecap="round" opacity="0.75"/>`
+    // Soft glow halo
+    `<g filter="url(%23glow-${id})" opacity="0.35"><path d="${d}" fill="${p.subject}"/></g>` +
+    // Main heart with gradient fill + drop shadow
+    `<path d="${d}" fill="url(%23subj-${id})" filter="url(%23dsLg-${id})"/>` +
+    // Top highlight (glossy sheen)
+    `<path d="${d}" fill="url(%23hl-${id})" opacity="0.7"/>` +
+    // Inner shadow at bottom
+    `<path d="${d}" fill="url(%23sh-${id})" opacity="0.5"/>` +
+    // Sparkle highlight
+    `<path d="M150 210 Q170 180 200 190" stroke="#FFFFFF" stroke-width="6" fill="none" stroke-linecap="round" opacity="0.8"/>` +
+    `<circle cx="225" cy="225" r="4" fill="#FFFFFF" opacity="0.85"/>`
   );
 }
 
 // Dumbbell ─────────────────────────────────────────────────────────────────
-function dumbbell(p: ScenePalette): string {
+function dumbbell(p: ScenePalette, id: string): string {
   return (
-    `<rect x="130" y="195" width="140" height="20" rx="4" fill="${p.ink}"/>` +
-    `<rect x="100" y="175" width="40" height="60" rx="8" fill="${p.subject}"/>` +
-    `<rect x="85"  y="185" width="20" height="40" rx="6" fill="${p.subject}"/>` +
-    `<rect x="260" y="175" width="40" height="60" rx="8" fill="${p.subject}"/>` +
-    `<rect x="295" y="185" width="20" height="40" rx="6" fill="${p.subject}"/>`
+    // Ground shadow
+    `<ellipse cx="200" cy="260" rx="150" ry="8" fill="${p.ink}" opacity="0.25"/>` +
+    // Bar
+    `<rect x="130" y="195" width="140" height="22" rx="6" fill="${darkenHex(p.ink, 0.0)}" filter="url(%23ds-${id})"/>` +
+    `<rect x="132" y="197" width="136" height="4" fill="#FFFFFF" opacity="0.25"/>` +
+    // Left plates (2 layered)
+    `<rect x="98"  y="170" width="44" height="70" rx="10" fill="url(%23subj-${id})" filter="url(%23ds-${id})"/>` +
+    `<rect x="82"  y="180" width="22" height="48" rx="7"  fill="url(%23subj-${id})" filter="url(%23ds-${id})"/>` +
+    `<rect x="100" y="172" width="4" height="66" fill="#FFFFFF" opacity="0.3"/>` +
+    // Right plates
+    `<rect x="258" y="170" width="44" height="70" rx="10" fill="url(%23subj-${id})" filter="url(%23ds-${id})"/>` +
+    `<rect x="296" y="180" width="22" height="48" rx="7"  fill="url(%23subj-${id})" filter="url(%23ds-${id})"/>` +
+    `<rect x="260" y="172" width="4" height="66" fill="#FFFFFF" opacity="0.3"/>` +
+    // Motion lines (energy)
+    `<path d="M30 150 L55 160 M40 200 L65 205 M35 250 L60 248" stroke="${p.accent}" stroke-width="3" stroke-linecap="round" opacity="0.7"/>` +
+    `<path d="M340 160 L365 150 M335 205 L360 200 M340 248 L365 250" stroke="${p.accent}" stroke-width="3" stroke-linecap="round" opacity="0.7"/>`
   );
 }
 
 // Trophy ───────────────────────────────────────────────────────────────────
-function trophy(p: ScenePalette): string {
+function trophy(p: ScenePalette, id: string): string {
   return (
-    `<path d="M150 120 L250 120 L245 220 A50 50 0 0 1 155 220 Z" fill="${p.accent}" stroke="${p.ink}" stroke-width="2"/>` +
-    `<path d="M150 140 Q120 140 120 170 Q120 200 155 210" stroke="${p.ink}" stroke-width="4" fill="none"/>` +
-    `<path d="M250 140 Q280 140 280 170 Q280 200 245 210" stroke="${p.ink}" stroke-width="4" fill="none"/>` +
-    `<rect x="175" y="225" width="50" height="30" fill="${p.accent}" stroke="${p.ink}" stroke-width="2"/>` +
-    `<rect x="150" y="255" width="100" height="18" rx="4" fill="${p.subject}" stroke="${p.ink}" stroke-width="2"/>` +
-    `<text x="200" y="180" text-anchor="middle" font-family="Inter, sans-serif" font-size="44" font-weight="900" fill="${p.ink}">1</text>`
+    // Glow halo
+    `<circle cx="200" cy="200" r="140" fill="${p.accent}" opacity="0.15" filter="url(%23glow-${id})"/>` +
+    // Base shadow
+    `<ellipse cx="200" cy="278" rx="70" ry="6" fill="${p.ink}" opacity="0.35"/>` +
+    // Cup with gradient
+    `<path d="M150 120 L250 120 L245 220 A50 50 0 0 1 155 220 Z" fill="url(%23accent-${id})" stroke="${darkenHex(p.accent, 0.3)}" stroke-width="2" filter="url(%23dsLg-${id})"/>` +
+    // Cup inner shadow + highlight
+    `<path d="M150 120 L250 120 L245 220 A50 50 0 0 1 155 220 Z" fill="url(%23hl-${id})" opacity="0.55"/>` +
+    // Handles
+    `<path d="M150 140 Q116 140 116 175 Q116 210 155 215" stroke="${darkenHex(p.accent, 0.2)}" stroke-width="5" fill="none" stroke-linecap="round"/>` +
+    `<path d="M250 140 Q284 140 284 175 Q284 210 245 215" stroke="${darkenHex(p.accent, 0.2)}" stroke-width="5" fill="none" stroke-linecap="round"/>` +
+    // Neck / stem
+    `<rect x="175" y="225" width="50" height="30" fill="url(%23accent-${id})" stroke="${darkenHex(p.accent, 0.3)}" stroke-width="2"/>` +
+    // Base
+    `<rect x="150" y="255" width="100" height="20" rx="4" fill="url(%23subj-${id})" stroke="${darkenHex(p.subject, 0.2)}" stroke-width="2"/>` +
+    `<rect x="152" y="257" width="96" height="4" fill="#FFFFFF" opacity="0.25"/>` +
+    // Gold shine strip + number
+    `<rect x="170" y="150" width="60" height="4" fill="#FFFFFF" opacity="0.5"/>` +
+    `<text x="200" y="190" text-anchor="middle" font-family="Inter, sans-serif" font-size="48" font-weight="900" fill="${p.ink}">1</text>`
   );
 }
 
 // Books stack ──────────────────────────────────────────────────────────────
-function booksStack(p: ScenePalette): string {
+function booksStack(p: ScenePalette, id: string): string {
+  const book = (y: number, w: number, fill: string, yOff: number = 0, skew: number = 0) => {
+    const x = (400 - w) / 2 + skew;
+    return (
+      `<rect x="${x}" y="${y + yOff}" width="${w}" height="30" rx="3" fill="${fill}" filter="url(%23ds-${id})"/>` +
+      // Pages (visible from side)
+      `<rect x="${x + 2}" y="${y + yOff + 4}" width="${w - 4}" height="3" fill="#FFFFFF" opacity="0.7"/>` +
+      `<rect x="${x + 2}" y="${y + yOff + 9}" width="${w - 4}" height="1" fill="#FFFFFF" opacity="0.35"/>` +
+      // Spine
+      `<rect x="${x}" y="${y + yOff}" width="6" height="30" fill="${darkenHex(fill, 0.25)}"/>` +
+      // Title band
+      `<rect x="${x + 15}" y="${y + yOff + 12}" width="${w * 0.4}" height="3" fill="#FFFFFF" opacity="0.55"/>` +
+      `<rect x="${x + 15}" y="${y + yOff + 18}" width="${w * 0.25}" height="2" fill="#FFFFFF" opacity="0.4"/>`
+    );
+  };
   return (
-    `<rect x="110" y="280" width="180" height="30" rx="3" fill="${p.subject}"/>` +
-    `<rect x="120" y="252" width="160" height="28" rx="3" fill="${p.accent}"/>` +
-    `<rect x="130" y="225" width="140" height="27" rx="3" fill="${p.ink}"/>` +
-    `<rect x="115" y="285" width="170" height="4" fill="#FFFFFF" opacity="0.5"/>` +
-    `<rect x="125" y="257" width="150" height="4" fill="#FFFFFF" opacity="0.45"/>` +
-    `<rect x="135" y="230" width="130" height="4" fill="#FFFFFF" opacity="0.45"/>`
+    // Shadow pool
+    `<ellipse cx="200" cy="320" rx="110" ry="6" fill="${p.ink}" opacity="0.25"/>` +
+    // 4 stacked books
+    book(280, 190, p.subject, 0,  -6) +
+    book(252, 170, p.accent,  0,   4) +
+    book(225, 180, lightenHex(p.subject, 0.25), 0, -2) +
+    book(197, 160, darkenHex(p.accent, 0.15),   0,  6) +
+    // Bookmark
+    `<path d="M195 160 L195 200 L202 192 L209 200 L209 160 Z" fill="#DC2626"/>`
   );
 }
 
@@ -455,37 +607,37 @@ const SCENES: Record<SceneKind, SceneBuilder> = {
   "mountain-sunrise": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyWithSun(p, id) + groundHills(p, id) + peaks(p) + sparkles(p);
+      return defsGradients(p, id) + skyWithSun(p, id) + groundHills(p, id) + peaks(p, id) + sparkles(p);
     },
   },
   "plant-potted": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + pottedPlant(p) + sparkles(p);
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + pottedPlant(p, id) + sparkles(p);
     },
   },
   "heart-centered": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + heartShape(p) + sparkles(p);
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + heartShape(p, id) + sparkles(p);
     },
   },
   "dumbbell-rack": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + dumbbell(p);
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + dumbbell(p, id);
     },
   },
   "trophy-podium": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyWithSun(p, id) + groundFlat(id) + trophy(p) + sparkles(p);
+      return defsGradients(p, id) + skyWithSun(p, id) + groundFlat(id) + trophy(p, id) + sparkles(p);
     },
   },
   "books-stack": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + booksStack(p) + sparkles(p);
+      return defsGradients(p, id) + skyFlat(p, id) + groundFlat(id) + booksStack(p, id) + sparkles(p);
     },
   },
   "water-bottle": {
@@ -532,7 +684,7 @@ const SCENES: Record<SceneKind, SceneBuilder> = {
   "cloudscape": {
     aspectRatio: 1,
     build(p, id) {
-      return defsGradients(p, id) + skyWithClouds(p, id) + groundHills(p, id) + peaks(p);
+      return defsGradients(p, id) + skyWithClouds(p, id) + groundHills(p, id) + peaks(p, id);
     },
   },
   "polaroid-mountain": {
