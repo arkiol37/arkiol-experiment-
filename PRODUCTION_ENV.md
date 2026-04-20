@@ -106,6 +106,8 @@ Everything is optional — sensible defaults apply when unset.
 | `REDIS_URL` | `rediss://default:TOKEN@host:6380` | Used when `ARKIOL_MEMORY_STORE=redis`. TLS endpoint recommended for cloud Redis. |
 | `ARKIOL_MEMORY_CAPACITY` | `2000` | Max records retained in the InMemoryStore ring buffer. Default 1,000. |
 | `ARKIOL_3D_ASSET_BASE` | `https://cdn.arkiol.ai/3d` | Base URL for the 3D asset manifest. Without it, `asset3dUrl()` returns undefined and the pipeline falls back to inline SVG scenes. |
-| `ARKIOL_3D_ASSET_EXT` | `png` (default), `webp`, `jpg` | File extension appended to each slug. |
+| `ARKIOL_3D_ASSET_EXT` | `png` (default), `webp`, `jpg` | File extension appended to each 3D slug. |
+| `ARKIOL_PHOTO_ASSET_BASE` | `https://cdn.arkiol.ai/photos` | Base URL for the licensed-photo manifest. Required for food / beauty / fashion archetypes. Without it, the library falls back to Unsplash-query URLs. |
+| `ARKIOL_PHOTO_ASSET_EXT` | `jpg` (default), `webp`, `avif`, `png` | File extension for photo slugs. Unsafe values fall back to `jpg`. |
 | `ARKIOL_PACK_ANCHOR_STRICT` | `true` / `false` | When `true`, downstream variations must inherit palette + typography from the first gallery render. Default: `true`. |
 | `ARKIOL_METRICS_WINDOW` | `200` | Rolling latency sample window used by `/api/health/generation`. Default: 200. |

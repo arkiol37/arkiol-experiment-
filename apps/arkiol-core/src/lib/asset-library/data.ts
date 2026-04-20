@@ -34,6 +34,27 @@ const tile = (size: number, body: string): string =>
 const photo = (query: string, w = 1600, h = 1600): string =>
   `https://source.unsplash.com/featured/${w}x${h}/?${encodeURIComponent(query)}`;
 
+// Step 45: photo asset slug helper. When ARKIOL_PHOTO_ASSET_BASE is set,
+// the library resolves each entry to `<base>/<slug>.<ext>` — a CDN-
+// hosted, licensed photograph. Without the env var, falls back to the
+// Unsplash-query path so dev and CI keep working. Mirrors render3d()
+// so ops can wire both CDNs with the same pattern.
+const renderPhoto = (slug: string, fallbackQuery: string, w = 1600, h = 1600): string => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const base = typeof process !== "undefined"
+    ? (process.env as any)?.ARKIOL_PHOTO_ASSET_BASE
+    : undefined;
+  if (typeof base === "string" && base.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const extEnv = (process.env as any)?.ARKIOL_PHOTO_ASSET_EXT;
+    const ext = typeof extEnv === "string" && /^(jpg|jpeg|png|webp|avif)$/i.test(extEnv)
+      ? extEnv.replace(/^\.+/, "").toLowerCase()
+      : "jpg";
+    return `${base.replace(/\/+$/, "")}/${slug}.${ext}`;
+  }
+  return photo(fallbackQuery, w, h);
+};
+
 // Step 36: 3D-render asset URL. Prefixes the query with "3d render
 // claymorphism" so the upstream image host returns consistent 3D /
 // claymorphic renders rather than ordinary photos. Ships as its own
@@ -207,30 +228,119 @@ const ILLUSTRATIONS: Asset[] = [
 // One representative query per category — library callers can request more.
 
 const PHOTOS: Asset[] = [
+  // ── Existing baseline (1 per category) ────────────────────────────
   { id: "photo.productivity.desk",   kind: "photo", category: "productivity", label: "Tidy desk",
     tags: ["desk", "workspace", "focus"], aspectRatio: 1,
-    payload: { format: "url", url: photo("minimal desk workspace"), width: 1600, height: 1600 } },
+    payload: { format: "url", url: renderPhoto("business-laptop-coffee", "minimal desk workspace"), width: 1600, height: 1600 } },
   { id: "photo.wellness.spa",        kind: "photo", category: "wellness", label: "Spa stones",
     tags: ["spa", "calm", "zen"], aspectRatio: 1,
-    payload: { format: "url", url: photo("spa stones water"), width: 1600, height: 1600 } },
+    payload: { format: "url", url: renderPhoto("beauty-spa-setup", "spa stones water"), width: 1600, height: 1600 } },
   { id: "photo.education.library",   kind: "photo", category: "education", label: "Library shelves",
     tags: ["library", "books", "study"], aspectRatio: 1,
-    payload: { format: "url", url: photo("library books shelves"), width: 1600, height: 1600 } },
+    payload: { format: "url", url: renderPhoto("lifestyle-person-reading", "library books shelves"), width: 1600, height: 1600 } },
   { id: "photo.business.city",       kind: "photo", category: "business", label: "City skyline",
     tags: ["city", "corporate", "skyline"], aspectRatio: 1.6,
-    payload: { format: "url", url: photo("city skyline dawn"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: renderPhoto("lifestyle-group-meeting", "city skyline dawn", 1920, 1200), width: 1920, height: 1200 } },
   { id: "photo.fitness.gym",         kind: "photo", category: "fitness", label: "Gym weights",
     tags: ["gym", "training"], aspectRatio: 1,
-    payload: { format: "url", url: photo("gym dumbbells training"), width: 1600, height: 1600 } },
+    payload: { format: "url", url: renderPhoto("fitness-gym-workout", "gym dumbbells training"), width: 1600, height: 1600 } },
   { id: "photo.beauty.skincare",     kind: "photo", category: "beauty", label: "Skincare flatlay",
-    tags: ["skincare", "beauty", "clean"], aspectRatio: 1,
-    payload: { format: "url", url: photo("skincare flatlay pastel"), width: 1600, height: 1600 } },
+    tags: ["skincare", "beauty", "clean", "self-care", "product"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("beauty-skincare-flatlay", "skincare flatlay pastel"), width: 1600, height: 1600 } },
   { id: "photo.travel.beach",        kind: "photo", category: "travel", label: "Beach horizon",
     tags: ["beach", "ocean", "vacation"], aspectRatio: 1.6,
-    payload: { format: "url", url: photo("beach ocean horizon"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: renderPhoto("travel-beach-sunset", "beach ocean horizon", 1920, 1200), width: 1920, height: 1200 } },
   { id: "photo.marketing.confetti",  kind: "photo", category: "marketing", label: "Launch confetti",
     tags: ["launch", "celebration", "promo"], aspectRatio: 1.6,
-    payload: { format: "url", url: photo("celebration confetti colorful"), width: 1920, height: 1200 } },
+    payload: { format: "url", url: renderPhoto("marketing-confetti-burst", "celebration confetti colorful", 1920, 1200), width: 1920, height: 1200 } },
+
+  // ── Step 45: food photography (closes "Healthy Eating Habits") ────
+  { id: "photo.wellness.salad",      kind: "photo", category: "wellness", label: "Fresh salad bowl",
+    extraCategories: ["education"], tags: ["food", "salad", "healthy", "greens", "meal", "nutrition", "diet"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("food-salad-bowl", "fresh salad bowl healthy"), width: 1600, height: 1600 } },
+  { id: "photo.wellness.healthy-plate", kind: "photo", category: "wellness", label: "Balanced plate",
+    extraCategories: ["education", "fitness"], tags: ["food", "plate", "balanced", "protein", "nutrition", "meal", "diet"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("food-healthy-plate", "balanced meal plate"), width: 1600, height: 1600 } },
+  { id: "photo.wellness.breakfast",  kind: "photo", category: "wellness", label: "Breakfast spread",
+    extraCategories: ["marketing"], tags: ["breakfast", "oats", "fruit", "coffee", "food", "morning"], aspectRatio: 1.6,
+    payload: { format: "url", url: renderPhoto("food-breakfast-spread", "breakfast spread oats fruit", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "photo.wellness.smoothie",   kind: "photo", category: "wellness", label: "Smoothie bowl",
+    extraCategories: ["fitness"], tags: ["smoothie", "bowl", "berries", "granola", "healthy"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("food-smoothie-bowl", "smoothie bowl berries"), width: 1600, height: 1600 } },
+  { id: "photo.wellness.fruit",      kind: "photo", category: "wellness", label: "Fruit platter",
+    tags: ["fruit", "platter", "colorful", "healthy", "diet"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("food-fruit-platter", "fruit platter colorful"), width: 1600, height: 1600 } },
+  { id: "photo.fitness.meal-prep",   kind: "photo", category: "fitness", label: "Meal prep containers",
+    extraCategories: ["wellness"], tags: ["meal prep", "containers", "fitness", "diet", "nutrition"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("food-meal-prep", "meal prep containers fitness"), width: 1600, height: 1600 } },
+
+  // ── Step 45: beauty / self-care products (closes "Self-Care Reminders") ─
+  { id: "photo.beauty.serum",        kind: "photo", category: "beauty", label: "Serum bottle",
+    tags: ["serum", "bottle", "skincare", "beauty", "product", "self-care"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("beauty-serum-bottle", "serum bottle skincare close"), width: 1600, height: 1600 } },
+  { id: "photo.wellness.candle",     kind: "photo", category: "wellness", label: "Lit candle",
+    extraCategories: ["beauty"], tags: ["candle", "self-care", "calm", "ambient", "cozy"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("beauty-candle-lit", "lit candle cozy warm"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.makeup",       kind: "photo", category: "beauty", label: "Makeup flatlay",
+    tags: ["makeup", "flatlay", "beauty", "cosmetics", "product"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("beauty-makeup-flatlay", "makeup flatlay cosmetics"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.bath",         kind: "photo", category: "beauty", label: "Bath essentials",
+    extraCategories: ["wellness"], tags: ["bath", "self-care", "bathroom", "essentials", "relax"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("beauty-bath-essentials", "bath essentials self-care"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.perfume",      kind: "photo", category: "beauty", label: "Perfume bottle",
+    tags: ["perfume", "fragrance", "bottle", "luxury", "beauty"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("beauty-perfume-bottle", "perfume bottle luxury"), width: 1600, height: 1600 } },
+  { id: "photo.wellness.spa-setup",  kind: "photo", category: "wellness", label: "Spa setup",
+    extraCategories: ["beauty"], tags: ["spa", "candle", "stones", "setup", "relax", "self-care"], aspectRatio: 1.6,
+    payload: { format: "url", url: renderPhoto("beauty-spa-setup", "spa setup candles stones", 1920, 1200), width: 1920, height: 1200 } },
+
+  // ── Step 45: fashion / lifestyle (closes "Style Guide") ───────────
+  { id: "photo.beauty.outfit",       kind: "photo", category: "beauty", label: "Outfit flatlay",
+    tags: ["outfit", "fashion", "style", "clothing", "flatlay", "wardrobe"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("fashion-outfit-flatlay", "outfit flatlay fashion"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.street-style", kind: "photo", category: "beauty", label: "Street style",
+    tags: ["street style", "fashion", "outfit", "portrait", "style"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("fashion-street-style", "street style fashion portrait"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.accessories",  kind: "photo", category: "beauty", label: "Accessories",
+    tags: ["accessories", "jewelry", "watch", "fashion", "flatlay"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("fashion-accessories", "fashion accessories flatlay"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.shoes",        kind: "photo", category: "beauty", label: "Shoes flatlay",
+    tags: ["shoes", "fashion", "flatlay", "footwear", "style"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("fashion-shoes-flatlay", "shoes flatlay fashion"), width: 1600, height: 1600 } },
+  { id: "photo.beauty.handbag",      kind: "photo", category: "beauty", label: "Handbag",
+    tags: ["handbag", "bag", "fashion", "luxury", "product"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("fashion-handbag", "handbag fashion luxury"), width: 1600, height: 1600 } },
+
+  // ── Step 45: people / lifestyle (various categories) ──────────────
+  { id: "photo.productivity.person-working", kind: "photo", category: "productivity", label: "Person at laptop",
+    extraCategories: ["business"], tags: ["working", "laptop", "focus", "remote", "lifestyle"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("lifestyle-person-working", "person working laptop"), width: 1600, height: 1600 } },
+  { id: "photo.wellness.person-yoga",kind: "photo", category: "wellness", label: "Yoga pose",
+    extraCategories: ["fitness"], tags: ["yoga", "pose", "mindful", "lifestyle", "wellbeing"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("lifestyle-person-yoga", "yoga pose mindful"), width: 1600, height: 1600 } },
+  { id: "photo.education.person-reading",kind: "photo", category: "education", label: "Person reading",
+    tags: ["reading", "book", "learning", "lifestyle", "study"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("lifestyle-person-reading", "person reading book"), width: 1600, height: 1600 } },
+  { id: "photo.business.team-meeting",kind: "photo", category: "business", label: "Team meeting",
+    tags: ["team", "meeting", "collaboration", "business", "office"], aspectRatio: 1.6,
+    payload: { format: "url", url: renderPhoto("lifestyle-group-meeting", "team meeting collaboration", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "photo.fitness.running",     kind: "photo", category: "fitness", label: "Outdoor running",
+    tags: ["running", "outdoor", "exercise", "cardio", "lifestyle"], aspectRatio: 1.6,
+    payload: { format: "url", url: renderPhoto("fitness-running-outdoor", "outdoor running exercise", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "photo.fitness.yoga-mat",    kind: "photo", category: "fitness", label: "Yoga mat",
+    tags: ["yoga mat", "fitness", "equipment", "home workout"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("fitness-yoga-mat", "yoga mat equipment"), width: 1600, height: 1600 } },
+
+  // ── Step 45: travel scenes ────────────────────────────────────────
+  { id: "photo.travel.mountain-vista", kind: "photo", category: "travel", label: "Mountain vista",
+    tags: ["mountain", "vista", "travel", "adventure", "landscape"], aspectRatio: 1.6,
+    payload: { format: "url", url: renderPhoto("travel-mountain-vista", "mountain vista landscape", 1920, 1200), width: 1920, height: 1200 } },
+  { id: "photo.travel.cafe",         kind: "photo", category: "travel", label: "Café scene",
+    extraCategories: ["marketing"], tags: ["cafe", "coffee", "travel", "scene", "interior"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("travel-cafe-scene", "cafe coffee scene interior"), width: 1600, height: 1600 } },
+  { id: "photo.travel.passport",     kind: "photo", category: "travel", label: "Passport and map",
+    tags: ["passport", "map", "travel", "journey", "documents"], aspectRatio: 1,
+    payload: { format: "url", url: renderPhoto("travel-passport", "passport map journey"), width: 1600, height: 1600 } },
 ];
 
 // ── Decorative shapes ─────────────────────────────────────────────────────────

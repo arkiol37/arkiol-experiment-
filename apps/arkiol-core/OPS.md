@@ -23,7 +23,9 @@ Short reference:
 | `REDIS_URL` | unset | Required only when `ARKIOL_MEMORY_STORE=redis`. |
 | `ARKIOL_MEMORY_CAPACITY` | `1000` | Older records are evicted sooner. |
 | `ARKIOL_3D_ASSET_BASE` | unset | 3D-asset slugs resolve to `undefined`; SVG scenes still render. |
-| `ARKIOL_3D_ASSET_EXT` | `png` | Slug URLs use a different file extension. |
+| `ARKIOL_3D_ASSET_EXT` | `png` | File extension for 3D slugs. |
+| `ARKIOL_PHOTO_ASSET_BASE` | unset | Food / beauty / fashion templates fall back to Unsplash-query URLs (dev-friendly, not license-safe for prod). |
+| `ARKIOL_PHOTO_ASSET_EXT` | `jpg` | File extension for photo slugs. Allowed: `jpg`, `jpeg`, `png`, `webp`, `avif`. |
 | `ARKIOL_METRICS_WINDOW` | `200` | Percentiles are computed over a smaller / larger window. |
 
 ---
@@ -106,7 +108,47 @@ non-default driver is configured.)*
 
 ---
 
-## 4. 3D asset CDN
+## 4a. Photo asset CDN
+
+Three template archetypes genuinely need licensed photography:
+**food-forward** (healthy eating, recipes), **beauty/self-care**
+(skincare flatlays, candles), and **fashion/lifestyle** (outfits,
+portraits). The photo-asset manifest in
+`src/engines/assets/photo-asset-manifest.ts` enumerates 40 slugs that
+close those gaps.
+
+When the env is unset, the library falls back to Unsplash-query URLs
+— fine for dev, **not** license-safe for production social posts.
+
+### Setup
+
+1. License one photo per slug from Unsplash+, Pexels, or in-house
+   photography. Match the `suggestedSize` + `aspectRatio` in the
+   manifest; notes on framing are included per slug.
+2. Upload to S3 / Cloudflare R2 / any public bucket at
+   `<prefix>/<slug>.<ext>`. Example:
+   ```
+   https://cdn.arkiol.ai/photos/food-salad-bowl.jpg
+   https://cdn.arkiol.ai/photos/beauty-skincare-flatlay.jpg
+   https://cdn.arkiol.ai/photos/fashion-outfit-flatlay.jpg
+   ```
+3. Set:
+   ```bash
+   ARKIOL_PHOTO_ASSET_BASE=https://cdn.arkiol.ai/photos
+   ARKIOL_PHOTO_ASSET_EXT=jpg   # or webp / avif
+   ```
+4. Redeploy. `/api/health/generation` starts returning:
+   ```json
+   "photo": { "configured": true, "totalSlugs": 40, "byRealm": { ... } }
+   ```
+
+**Fallback:** if a slug 404s at the CDN, the template picks an
+alternate asset of the same category via the library's recipe engine.
+No pipeline failure; just lower visual fidelity for that one candidate.
+
+---
+
+## 4b. 3D asset CDN
 
 The pipeline prefers inline SVG scenes by default (deterministic,
 offline-safe, ~5 KB each). For high-fidelity 3D PNGs, point

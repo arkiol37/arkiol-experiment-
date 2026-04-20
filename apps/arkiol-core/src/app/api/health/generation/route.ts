@@ -11,10 +11,20 @@
 
 import { NextResponse } from "next/server";
 import { snapshot } from "../../../../lib/generation-metrics";
+import { asset3dManifestStats } from "../../../../engines/assets/3d-asset-manifest";
+import { photoAssetManifestStats } from "../../../../engines/assets/photo-asset-manifest";
 
 export async function GET() {
   try {
-    return NextResponse.json({ ok: true, ...snapshot() });
+    return NextResponse.json({
+      ok: true,
+      ...snapshot(),
+      // Static-config sidecars: CDN-backed asset manifests. Ops can see
+      // at a glance whether 3D / photo CDNs are wired without shelling
+      // into the deploy.
+      assets3d: asset3dManifestStats(),
+      photo:    photoAssetManifestStats(),
+    });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: err?.message ?? "metrics snapshot failed" },

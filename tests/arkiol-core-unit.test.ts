@@ -436,9 +436,9 @@ async function run() {
 
   section("library · integration with new breadth scenes");
 
-  test("library total is at least 200 after Step 44 additions", () => {
+  test("library total is at least 225 after Step 45 photo expansion", () => {
     const stats = lib.libraryStats();
-    assert(stats.total >= 200, `library total ${stats.total} < 200`);
+    assert(stats.total >= 225, `library total ${stats.total} < 225`);
   });
 
   test("every category's recipe yields >= 4 assets", () => {
@@ -473,6 +473,87 @@ async function run() {
     metrics.__resetMetrics();
     const s = metrics.snapshot();
     assertEq(s.successRate, 0, "empty successRate");
+  });
+
+  section("engines/assets · photo-asset-manifest");
+
+  const photoMan = await import("../apps/arkiol-core/src/engines/assets/photo-asset-manifest");
+
+  test("photo manifest has >= 35 slugs covering gap archetypes", () => {
+    assert(photoMan.PHOTO_ASSET_MANIFEST.length >= 35,
+      `photo manifest only has ${photoMan.PHOTO_ASSET_MANIFEST.length} slugs`);
+  });
+
+  test("photo manifest slugs are unique", () => {
+    const seen = new Set<string>();
+    for (const m of photoMan.PHOTO_ASSET_MANIFEST) {
+      assert(!seen.has(m.slug), `duplicate slug ${m.slug}`);
+      seen.add(m.slug);
+    }
+  });
+
+  test("photo manifest covers food / beauty / fashion gap realms", () => {
+    const realms = new Set(photoMan.PHOTO_ASSET_MANIFEST.map(m => m.realm));
+    for (const r of ["food", "beauty", "fashion", "lifestyle"]) {
+      assert(realms.has(r as any), `missing gap realm ${r}`);
+    }
+  });
+
+  test("photoAssetUrl returns undefined without base configured", () => {
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_BASE;
+    assertEq(photoMan.photoAssetUrl("food-salad-bowl"), undefined as any, "undefined when unset");
+  });
+
+  test("photoAssetUrl builds URL with configured base + default jpg ext", () => {
+    (process.env as any).ARKIOL_PHOTO_ASSET_BASE = "https://cdn.test.com/photos";
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_EXT;
+    assertEq(
+      photoMan.photoAssetUrl("food-salad-bowl"),
+      "https://cdn.test.com/photos/food-salad-bowl.jpg",
+      "default jpg url",
+    );
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_BASE;
+  });
+
+  test("photoAssetUrl honors ARKIOL_PHOTO_ASSET_EXT=webp", () => {
+    (process.env as any).ARKIOL_PHOTO_ASSET_BASE = "https://cdn.test.com/photos";
+    (process.env as any).ARKIOL_PHOTO_ASSET_EXT  = "webp";
+    assertEq(
+      photoMan.photoAssetUrl("beauty-skincare-flatlay"),
+      "https://cdn.test.com/photos/beauty-skincare-flatlay.webp",
+      "webp url",
+    );
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_BASE;
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_EXT;
+  });
+
+  test("photoAssetUrl rejects unsafe extensions and falls back to jpg", () => {
+    (process.env as any).ARKIOL_PHOTO_ASSET_BASE = "https://cdn.test.com/photos";
+    (process.env as any).ARKIOL_PHOTO_ASSET_EXT  = "exe";
+    assertEq(
+      photoMan.photoAssetUrl("food-salad-bowl"),
+      "https://cdn.test.com/photos/food-salad-bowl.jpg",
+      "unsafe ext coerced",
+    );
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_BASE;
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_EXT;
+  });
+
+  test("photoAssetManifestStats reports configured=false with no env", () => {
+    delete (process.env as any).ARKIOL_PHOTO_ASSET_BASE;
+    const s = photoMan.photoAssetManifestStats();
+    assertEq(s.configured, false, "configured");
+    assert(s.totalSlugs >= 35, "totalSlugs");
+    assert(s.byRealm.food >= 6, `food realm ${s.byRealm.food}`);
+    assert(s.byRealm.beauty >= 6, `beauty realm ${s.byRealm.beauty}`);
+    assert(s.byRealm.fashion >= 4, `fashion realm ${s.byRealm.fashion}`);
+  });
+
+  test("getPhotoAssetSlug round-trips by slug", () => {
+    const entry = photoMan.getPhotoAssetSlug("food-salad-bowl");
+    assert(entry !== undefined, "lookup missed");
+    assertEq(entry!.realm, "food", "realm");
+    assertEq(photoMan.getPhotoAssetSlug("no-such-slug"), undefined as any, "miss returns undefined");
   });
 
   section("3d-asset-manifest · realm distribution");
