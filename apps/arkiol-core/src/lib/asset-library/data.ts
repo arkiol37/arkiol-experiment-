@@ -1199,6 +1199,74 @@ const INLINE_SCENE_ASSETS: Asset[] = [
     label: "Nutrition education plate",
     tags: ["food", "nutrition", "learn", "education", "healthy"],
   }),
+
+  // ── Step 43: Premium scene kinds ─────────────────────────────────────
+  sceneAsset({
+    id: "scene.wellness.yoga", sceneKind: "yoga-pose",
+    category: "wellness", extraCategories: ["fitness", "motivation"],
+    label: "Yoga pose scene",
+    tags: ["yoga", "pose", "balance", "calm", "meditation", "wellness"],
+  }),
+  sceneAsset({
+    id: "scene.fitness.yoga", sceneKind: "yoga-pose",
+    category: "fitness", extraCategories: ["wellness"],
+    label: "Fitness yoga pose",
+    tags: ["yoga", "stretch", "fitness", "flexibility"],
+  }),
+  sceneAsset({
+    id: "scene.productivity.coffee", sceneKind: "coffee-mug",
+    category: "productivity", extraCategories: ["marketing", "wellness"],
+    label: "Coffee mug with steam",
+    tags: ["coffee", "morning", "mug", "steam", "fuel", "ritual"],
+  }),
+  sceneAsset({
+    id: "scene.marketing.coffee", sceneKind: "coffee-mug",
+    category: "marketing", extraCategories: ["productivity"],
+    label: "Marketing café mug",
+    tags: ["coffee", "cafe", "cozy", "drink"],
+  }),
+  sceneAsset({
+    id: "scene.productivity.calendar", sceneKind: "calendar-day",
+    category: "productivity", extraCategories: ["business", "education"],
+    label: "Calendar day card",
+    tags: ["calendar", "date", "schedule", "today", "plan", "task"],
+  }),
+  sceneAsset({
+    id: "scene.business.calendar", sceneKind: "calendar-day",
+    category: "business", extraCategories: ["productivity"],
+    label: "Business deadline",
+    tags: ["calendar", "deadline", "schedule", "business"],
+  }),
+  sceneAsset({
+    id: "scene.education.brain", sceneKind: "brain-sparks",
+    category: "education", extraCategories: ["productivity", "motivation"],
+    label: "Brain with sparks",
+    tags: ["brain", "think", "smart", "learn", "idea", "mind"],
+  }),
+  sceneAsset({
+    id: "scene.productivity.brain", sceneKind: "brain-sparks",
+    category: "productivity", extraCategories: ["education"],
+    label: "Productive brain",
+    tags: ["brain", "focus", "think", "mental", "cognition"],
+  }),
+  sceneAsset({
+    id: "scene.marketing.confetti", sceneKind: "confetti-burst",
+    category: "marketing", extraCategories: ["business", "motivation"],
+    label: "Confetti burst celebration",
+    tags: ["confetti", "celebrate", "launch", "promo", "announce", "burst"],
+  }),
+  sceneAsset({
+    id: "scene.motivation.confetti", sceneKind: "confetti-burst",
+    category: "motivation", extraCategories: ["marketing"],
+    label: "Achievement confetti",
+    tags: ["confetti", "win", "achieve", "celebrate", "success"],
+  }),
+  sceneAsset({
+    id: "scene.travel.map-compass", sceneKind: "map-compass",
+    category: "travel", extraCategories: ["motivation", "education"],
+    label: "Map with compass",
+    tags: ["map", "compass", "travel", "journey", "explore", "direction"],
+  }),
 ];
 
 // ── Public seed ───────────────────────────────────────────────────────────────
