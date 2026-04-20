@@ -439,6 +439,29 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
+  // ── Missing subject image (hard) ─────────────────────────────────────────
+  // Step 9 floor: when the brief's imageStyle declared a photo-style
+  // intent (photography / product / lifestyle) and the canvas has an
+  // image zone, the builder MUST place a real subject photo in that
+  // zone. "Shapes + gradient only" is not meaningful visual content for
+  // a photo brief — it's exactly the failure mode the Step 9 charter
+  // calls out. Briefs that opted for abstract / geometric / illustration
+  // / none styles are exempt; they skip the rule via the
+  // `_photoSubjectExpected` flag.
+  {
+    id:          "missing_subject_image",
+    severity:    "hard",
+    description: "Photo-style brief shipped without a real subject image — template reads as shapes on a gradient.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const expected = (content as any)._photoSubjectExpected as boolean | undefined;
+      if (!expected) return null;
+      if ((content as any)._subjectImage) return null;
+      // Fallback path — if the flag was never stamped, skip.
+      return `missing_subject_image:photo_expected_but_no_subject`;
+    },
+  },
+
   // ── Low diversity (soft) ─────────────────────────────────────────────────
   {
     id:          "low_diversity",

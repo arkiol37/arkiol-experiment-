@@ -374,6 +374,18 @@ export interface PipelineResult {
     mappingUnderfilled?:    boolean;
     mappingCompressed?:     boolean;
     mappingSlotCount?:      number;
+    /** Step 9 — real visual subject selected for the image zone.
+     *  Populated when the brief's imageStyle expects a photo and a
+     *  manifest entry matched the brief's category. Consumed by the
+     *  `missing_subject_image` rejection rule and surfaced here so
+     *  admission logs can show which photo slug landed on each
+     *  variation. */
+    subjectImageSlug?:      string;
+    subjectImageCategory?:  string;
+    subjectImageRealm?:     string;
+    subjectImagePlacement?: string;
+    subjectImageLicensed?:  boolean;
+    subjectImageExpected?:  boolean;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1506,6 +1518,10 @@ async function renderAssetInner(
             underfilled:       boolean;
           }
         | undefined;
+      const subject = (content as any)._subjectImage as
+        | { slug: string; category: string; realm: string; placement: string; licensed: boolean }
+        | undefined;
+      const subjectExpected = (content as any)._photoSubjectExpected as boolean | undefined;
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1545,6 +1561,12 @@ async function renderAssetInner(
           mappingUnderfilled:       contentMap?.underfilled       ?? false,
           mappingCompressed:        contentMap?.compressed        ?? false,
           mappingSlotCount:         contentMap?.slots?.length     ?? 0,
+          subjectImageSlug:         subject?.slug,
+          subjectImageCategory:     subject?.category,
+          subjectImageRealm:        subject?.realm,
+          subjectImagePlacement:    subject?.placement,
+          subjectImageLicensed:     subject?.licensed,
+          subjectImageExpected:     subjectExpected ?? false,
         },
       };
     })() : {}),

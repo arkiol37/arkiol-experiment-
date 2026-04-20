@@ -166,6 +166,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       mappingMissing:    string[];
       mappingUnderfilled: boolean;
       mappingCompressed:  boolean;
+      /** Step 9 — real visual subject. Slug / category / placement
+       *  summarise the photo the renderer painted into the image zone
+       *  (or blank when no photo was selected). `subjectExpected`
+       *  tracks whether a photo was expected by the brief's intent. */
+      subjectSlug:       string;
+      subjectCategory:   string;
+      subjectPlacement:  string;
+      subjectLicensed:   boolean;
+      subjectExpected:   boolean;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -265,6 +274,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         mappingMissing:      verdict?.mappingMissingRoles ?? [],
         mappingUnderfilled:  verdict?.mappingUnderfilled ?? false,
         mappingCompressed:   verdict?.mappingCompressed ?? false,
+        subjectSlug:         verdict?.subjectImageSlug ?? "",
+        subjectCategory:     verdict?.subjectImageCategory ?? "",
+        subjectPlacement:    verdict?.subjectImagePlacement ?? "",
+        subjectLicensed:     verdict?.subjectImageLicensed ?? false,
+        subjectExpected:     verdict?.subjectImageExpected ?? false,
       });
 
       console.info(
@@ -279,6 +293,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         (verdict?.mappingMissingRoles?.length ? `[-${verdict.mappingMissingRoles.join(",")}]` : "") +
         (verdict?.mappingCompressed  ? "!compressed"  : "") +
         (verdict?.mappingUnderfilled ? "!underfilled" : "") + " " +
+        `subject=${verdict?.subjectImageSlug || (verdict?.subjectImageExpected ? "MISSING" : "n/a")} ` +
+        (verdict?.subjectImagePlacement ? `@${verdict.subjectImagePlacement} ` : "") +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -477,6 +493,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       : "0.0";
     const mappingCompressedCount  = admitted.filter(a => a.mappingCompressed).length;
     const mappingUnderfilledCount = admitted.filter(a => a.mappingUnderfilled).length;
+    const subjectCount       = admitted.filter(a => a.subjectSlug).length;
+    const subjectExpectedCount = admitted.filter(a => a.subjectExpected).length;
+    const subjectLicensedCount = admitted.filter(a => a.subjectLicensed).length;
+    const subjectSlugs = [...new Set(admitted.filter(a => a.subjectSlug).map(a => a.subjectSlug))];
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
@@ -488,7 +508,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `avgContentItems=${avgContentItems} contentKinds=[${[...uniqueContentKinds].join(",")}] ` +
       `contentSources={${contentSourcesLabel}} avgStructuredItems=${avgStructuredItems} ` +
       `avgMapping=${avgMappingPlaced}items×${avgMappingSlots}slots ` +
-      `compressed=${mappingCompressedCount} underfilled=${mappingUnderfilledCount}`,
+      `compressed=${mappingCompressedCount} underfilled=${mappingUnderfilledCount} ` +
+      `subjects=${subjectCount}/${subjectExpectedCount}expected licensed=${subjectLicensedCount} ` +
+      `slugs=[${subjectSlugs.join(",")}]`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});

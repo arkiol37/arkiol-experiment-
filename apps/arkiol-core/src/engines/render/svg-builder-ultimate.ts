@@ -46,6 +46,12 @@ import {
   type MappingCoverageReport,
 } from "../components/content-component-mapper";
 import {
+  selectSubjectImage,
+  describeSubjectImage,
+  photoSubjectExpected,
+  type SubjectImage,
+} from "../assets/subject-image-selector";
+import {
   restructureTextMap,
   analyzeContentCoverage,
   type ContentCoverageReport,
@@ -148,6 +154,17 @@ export interface SvgContent {
    *  `unmapped_content`, `underfilled_components` and
    *  `compressed_content` rejection rules. */
   _contentMapping?: MappingCoverageReport;
+  /** Step 9 — real visual subject selected for the image zone. When
+   *  populated, the renderer emits an `<image>` element clipped to
+   *  the zone's rect. The `missing_subject_image` rejection rule
+   *  fires when the brief's imageStyle expects photography, the
+   *  canvas has an image zone, but this field stayed null. */
+  _subjectImage?: SubjectImage;
+  /** Whether the brief's imageStyle declared a photo subject as
+   *  expected (photography / product / lifestyle). Surfaced so the
+   *  rejection rule can distinguish "photo missing" from "abstract
+   *  brief, no photo expected". */
+  _photoSubjectExpected?: boolean;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -600,6 +617,28 @@ export async function buildUltimateSvgContent(
     violations.push(`content_coverage:below_minimum(${contentCoverage.populatedItems}/${contentCoverage.required})`);
   }
 
+  // ── Step 9: Real visual subject selection ────────────────────────────────
+  // Pick a category-relevant photo from PHOTO_ASSET_MANIFEST when the brief
+  // declares a photo-style intent and the canvas exposes an image zone.
+  // The renderer paints the URL into that zone as an <image> element;
+  // the `missing_subject_image` rejection rule enforces that photo-style
+  // briefs ship with a real subject rather than a bare gradient.
+  const photoExpected = photoSubjectExpected(brief);
+  const subjectImage  = selectSubjectImage({
+    brief,
+    templateType:  resolvedTemplateType,
+    variationIdx,
+    zones,
+    categoryPack,
+  });
+  if (subjectImage) {
+    violations.push("subject_image:" + describeSubjectImage(subjectImage));
+  } else if (photoExpected && zones.some(z => z.id === "image")) {
+    violations.push(`subject_image:missing expected_mode=photo category=${categoryPack?.id ?? "none"}`);
+  } else {
+    violations.push(`subject_image:skipped expected=${photoExpected} has_image_zone=${zones.some(z => z.id === "image")}`);
+  }
+
   const content: SvgContent = {
     backgroundColor:primaryBgColor, backgroundGradient:gradient, textContents,
     ctaStyle:{ backgroundColor:theme.ctaStyle.backgroundColor, textColor:theme.ctaStyle.textColor,
@@ -615,6 +654,8 @@ export async function buildUltimateSvgContent(
     _contentActions:  contentActions,
     _structuredContent: structured ?? undefined,
     _contentMapping:    contentMapping,
+    _subjectImage:         subjectImage ?? undefined,
+    _photoSubjectExpected: photoExpected,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────
@@ -836,6 +877,28 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
   // Mesh overlay layers
   const meshOv = renderMeshOverlay(theme.background, width, height);
   if (meshOv) layers += "\n  " + meshOv;
+
+  // ── Subject image (Step 9) ───────────────────────────────────────────────
+  // Paints the selected photo into the image zone as an SVG <image>
+  // element clipped to the zone's rect. Uses preserveAspectRatio="slice"
+  // so the photo always fills the zone without letterboxing; the
+  // subject-image selector is responsible for preferring aspect-close
+  // manifest entries so the crop stays sensible.
+  const subject = content._subjectImage;
+  if (subject) {
+    const sZone = zones.find(z => z.id === subject.zoneId);
+    if (sZone) {
+      const sx = px(sZone.x, width);
+      const sy = px(sZone.y, height);
+      const sw = px(sZone.width, width);
+      const sh = px(sZone.height, height);
+      const clipId = `subject_clip_${subject.slug.replace(/[^a-z0-9]/gi, "_")}`;
+      // Emit the clipPath inline under the <image>. Kept as a sibling
+      // <defs> so repeated builds don't stomp each other's ids.
+      layers += `\n  <defs><clipPath id="${clipId}"><rect x="${f(sx)}" y="${f(sy)}" width="${f(sw)}" height="${f(sh)}"/></clipPath></defs>`;
+      layers += `\n  <image href="${escAttr(subject.url)}" x="${f(sx)}" y="${f(sy)}" width="${f(sw)}" height="${f(sh)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})"><title>${escSvg(subject.label)}</title></image>`;
+    }
+  }
 
   // Full-canvas overlay (darkens behind text when image zone exists)
   if ((content.overlayOpacity ?? 0) > 0) {
