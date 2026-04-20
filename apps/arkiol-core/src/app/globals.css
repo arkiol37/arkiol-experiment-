@@ -601,8 +601,40 @@ a:hover { color: var(--accent-light); }
   transition: transform 220ms cubic-bezier(0.4,0,0.2,1);
   display: flex; flex-direction: column;
   box-shadow: 0 20px 56px rgba(0,0,0,0.7);
+  /* Content inside scrolls via the inner <nav>; the drawer itself
+     clips so the border-right stays crisp and the top-bar doesn't
+     bleed past the rounded corners of the scrim. */
+  overflow: hidden;
+  /* Avoid horizontal rubber-band scroll on iOS when the user flicks
+     inside the drawer near its edge. */
+  overscroll-behavior: contain;
+  /* Honor notched devices so the drawer respects the safe area on
+     phones with a home indicator / status bar. */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.ak-drawer[aria-hidden="true"] { transform: translateX(-100%); pointer-events: none; }
+/* Slightly tighter drawer for tiny phones; slightly wider ceiling
+   on tablets so section labels don't feel cramped at 820×1180. */
+@media (min-width: 600px) and (max-width: 900px) {
+  .ak-drawer { max-width: 360px; }
+}
+.ak-drawer[aria-hidden="true"] {
+  transform: translateX(-100%);
+  pointer-events: none;
+  /* Keep the drawer off the a11y tree and out of tab order while
+     closed; `transition` on transform still animates the slide. */
+  visibility: hidden;
+  transition: transform 220ms cubic-bezier(0.4,0,0.2,1), visibility 0s linear 220ms;
+}
+.ak-drawer { visibility: visible; transition: transform 220ms cubic-bezier(0.4,0,0.2,1), visibility 0s linear 0s; }
+
+/* Larger tap targets for sidebar nav items when the drawer is the
+   active navigation surface. Desktop sidebar is unaffected. */
+@media (max-width: 900px) {
+  .ak-drawer nav a > div,
+  .ak-drawer nav button { min-height: 44px; }
+  .ak-drawer nav { -webkit-overflow-scrolling: touch; }
+}
 
 /* Editor top bar — compacts padding/title on small screens so the
    zoom and export controls don't wrap onto two rows. The .ak-hide-sm

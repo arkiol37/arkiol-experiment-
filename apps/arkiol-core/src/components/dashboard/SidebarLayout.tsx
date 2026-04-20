@@ -119,7 +119,26 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   // sit at their normal readable size and the drawer fills 82vw.
   const col = isMobile ? false : rawCol;
   const W = col ? 60 : 232;
-  const sidebarWidth = isMobile ? "100%" : W;
+
+  // Lock body scroll while the drawer is open so the page underneath
+  // doesn't pan around when the user scrolls inside the drawer.
+  useEffect(() => {
+    if (!isMobile) return;
+    if (drawerOpen) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [isMobile, drawerOpen]);
+
+  // Escape key closes the drawer — matches modal conventions and keeps
+  // keyboard users unblocked if the scrim is offscreen.
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDrawerOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawerOpen]);
 
   return (
     <div style={{ display: isMobile ? "block" : "flex", minHeight: "100vh", background: "#06070d", fontFamily: "var(--font-body)", position: "relative" }}>
@@ -136,8 +155,9 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           <button
             className="ak-mobile-topbar-btn"
             onClick={() => setDrawerOpen(o => !o)}
-            aria-label="Open navigation"
+            aria-label={drawerOpen ? "Close navigation" : "Open navigation"}
             aria-expanded={drawerOpen}
+            aria-controls="ak-primary-nav"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <path d="M3 6h18M3 12h18M3 18h18"/>
@@ -164,27 +184,37 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         <div className="ak-drawer-scrim" onClick={() => setDrawerOpen(false)} />
       )}
 
-      {/* ── Sidebar ── */}
+      {/* ── Sidebar ──
+          On mobile, the `.ak-drawer` CSS class owns layout (fixed
+          position, 82vw width, translateX hide/show). Inline styles
+          here only cover surface styling shared with the desktop
+          sidebar so they don't fight the CSS class for width. */}
       <aside
+        id="ak-primary-nav"
         className={isMobile ? "ak-drawer" : undefined}
         aria-hidden={isMobile ? !drawerOpen : false}
-        style={{
-          width: sidebarWidth, minHeight: isMobile ? undefined : "100vh",
+        aria-label="Primary navigation"
+        style={isMobile ? {
+          // Intentionally minimal — CSS class handles position/width.
+        } : {
+          width: W, minHeight: "100vh",
           background: "rgba(6,7,13,0.95)",
           borderRight: "1px solid rgba(255,255,255,0.068)",
           backdropFilter: "blur(20px)",
           display: "flex", flexDirection: "column",
-          transition: isMobile ? undefined : "width 220ms cubic-bezier(0.4,0,0.2,1)",
-          position: isMobile ? "fixed" : "sticky",
+          transition: "width 220ms cubic-bezier(0.4,0,0.2,1)",
+          position: "sticky",
           top: 0, alignSelf: "flex-start",
-          zIndex: isMobile ? 101 : 50,
+          zIndex: 50,
           flexShrink: 0, overflowX: "hidden",
-      }}>
+        }}
+      >
         {/* Logo — gradient version matching homepage */}
         <div style={{
           height: 64, display: "flex", alignItems: "center",
           padding: col ? "0" : "0 18px",
           justifyContent: col ? "center" : "flex-start",
+          gap: 8,
           borderBottom: "1px solid rgba(255,255,255,0.068)",
           flexShrink: 0,
         }}>
@@ -192,6 +222,26 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             ? <ArkiolMark px={30} animate variant="default" />
             : <ArkiolLogo size="sm" animate variant="default" />
           }
+          {isMobile && (
+            <button
+              onClick={() => setDrawerOpen(false)}
+              aria-label="Close navigation"
+              style={{
+                marginLeft: "auto",
+                width: 36, height: 36,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.068)",
+                borderRadius: 8,
+                color: "#eaedf5",
+                cursor: "pointer",
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M18 6 6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* New Design button — blue gradient matching homepage primary CTA */}
