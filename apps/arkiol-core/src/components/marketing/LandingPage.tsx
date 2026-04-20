@@ -386,7 +386,7 @@ function PromptBar() {
     return()=>clearInterval(t);
   },[idx]);
   return (
-    <div style={{ display:"flex", alignItems:"center", background:"rgba(255,255,255,0.04)", backdropFilter:"blur(28px)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:14, padding:"6px 6px 6px 24px", boxShadow:"0 8px 32px rgba(0,0,0,0.3),0 1px 0 rgba(255,255,255,0.05) inset", maxWidth:600, width:"100%" }}>
+    <div className="prompt-bar" style={{ display:"flex", alignItems:"center", background:"rgba(255,255,255,0.04)", backdropFilter:"blur(28px)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:14, padding:"6px 6px 6px 24px", boxShadow:"0 8px 32px rgba(0,0,0,0.3),0 1px 0 rgba(255,255,255,0.05) inset", maxWidth:600, width:"100%" }}>
       <div style={{ flex:1, fontSize:15, color:C.textPrimary, display:"flex", alignItems:"center", minHeight:28, letterSpacing:"-0.01em" }}>
         <span style={{ opacity:text?0.9:0.32 }}>{text||"Describe your creative vision..."}</span>
         <span style={{ display:"inline-block", width:1.5, height:17, background:C.accent, marginLeft:3, animation:"cursor-blink 1s step-end infinite", borderRadius:1, verticalAlign:"middle" }}/>
@@ -451,14 +451,31 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
         @media(max-width:900px){
           .hero-cards .float-tl,.hero-cards .float-tr,.hero-cards .float-bl,.hero-cards .float-br{display:none!important;}
           .entry-grid{grid-template-columns:repeat(2,1fr)!important;}
+          .lp-nav{padding:0 20px!important;}
+          .lp-nav-links{display:none!important;}
+          .lp-section{padding:64px 24px!important;}
+          .lp-footer{padding:22px 24px!important;}
+          .features-grid{grid-template-columns:1fr!important;}
         }
         @media(max-width:600px){
           .entry-grid{grid-template-columns:1fr!important;}
-          .mod-grid{grid-template-columns:repeat(3,1fr)!important;}
+          .mod-grid{grid-template-columns:repeat(3,1fr)!important;padding:0 16px!important;}
           .plan-grid{grid-template-columns:repeat(2,1fr)!important;}
+          .lp-nav{padding:0 16px!important;}
+          .lp-nav-cta{padding:8px 14px!important;font-size:12.5px!important;}
+          .lp-section{padding:48px 18px!important;}
+          .hero-cards{min-height:0!important;margin-bottom:16px!important;}
+          .lp-hero-headline{padding:32px 20px 0!important;}
+          .lp-footer{flex-direction:column!important;align-items:flex-start!important;gap:12px!important;padding:20px 18px!important;}
+          .lp-footer-links{gap:14px!important;}
+          .prompt-bar-wrap{padding:0 16px!important;}
+          .prompt-bar{padding:6px 6px 6px 16px!important;border-radius:12px!important;}
+          .prompt-bar input{font-size:13.5px!important;}
+          .prompt-bar button{padding:10px 16px!important;font-size:13px!important;}
         }
         @media(max-width:400px){
           .plan-grid{grid-template-columns:1fr!important;}
+          .mod-grid{grid-template-columns:repeat(2,1fr)!important;}
         }
       `}</style>
 
@@ -470,9 +487,9 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
       </div>
 
       {/* ── NAV ─────────────────────────────────────────────────────────────── */}
-      <nav style={{ position:"sticky", top:0, zIndex:200, height:60, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 56px", background:scrolled?"rgba(6,7,13,0.95)":"rgba(6,7,13,0.15)", backdropFilter:"blur(28px)", borderBottom:`1px solid ${scrolled?C.border:"transparent"}`, transition:"all 0.28s" }}>
+      <nav className="lp-nav" style={{ position:"sticky", top:0, zIndex:200, height:60, display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 56px", background:scrolled?"rgba(6,7,13,0.95)":"rgba(6,7,13,0.15)", backdropFilter:"blur(28px)", borderBottom:`1px solid ${scrolled?C.border:"transparent"}`, transition:"all 0.28s" }}>
         <ArkiolLogo size="sm" animate />
-        <div style={{ display:"flex", gap:32 }}>
+        <div className="lp-nav-links" style={{ display:"flex", gap:32 }}>
           <a href="#features" className="nav-lnk">Features</a>
           <a href="#product"  className="nav-lnk">Product</a>
           <a href="#pricing"  className="nav-lnk">Pricing</a>
@@ -520,7 +537,7 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
         </div>
 
         {/* Headline */}
-        <div style={{ textAlign:"center", maxWidth:680, padding:"0 28px", marginTop:-18, animation:"fade-in-up 0.9s 0.15s ease both" }}>
+        <div className="lp-hero-headline" style={{ textAlign:"center", maxWidth:680, padding:"0 28px", marginTop:-18, animation:"fade-in-up 0.9s 0.15s ease both" }}>
           <h1 style={{ fontFamily:"'Instrument Serif',Georgia,serif", fontSize:"clamp(42px,5.5vw,68px)", fontWeight:400, lineHeight:1.04, letterSpacing:"-0.03em", color:C.textPrimary, marginBottom:20 }}>
             Design at the<br/>speed of <em style={{ color:C.accent, fontStyle:"italic" }}>intent.</em>
           </h1>
@@ -564,7 +581,7 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
         </div>
 
         {/* Prompt bar */}
-        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, padding:"0 28px", marginBottom:52, width:"100%", animation:"fade-in-up 0.9s 0.22s ease both" }}>
+        <div className="prompt-bar-wrap" style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, padding:"0 28px", marginBottom:52, width:"100%", animation:"fade-in-up 0.9s 0.22s ease both" }}>
           <PromptBar/>
           <p style={{ fontSize:12, color:C.textMuted, margin:0 }}>Try it — clicking Generate → takes you to the app</p>
         </div>
@@ -591,7 +608,7 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
       </section>
 
       {/* ── PRODUCT ENTRY SECTION ───────────────────────────────────────────── */}
-      <section id="product" style={{ position:"relative", zIndex:1, padding:"96px 56px" }}>
+      <section id="product" className="lp-section" style={{ position:"relative", zIndex:1, padding:"96px 56px" }}>
         <div style={{ maxWidth:1040, margin:"0 auto" }}>
           <div style={{ marginBottom:52 }}>
             <div style={{ fontSize:11, fontWeight:700, letterSpacing:"0.13em", textTransform:"uppercase", color:C.accent, marginBottom:14, opacity:0.72 }}>Product Areas</div>
@@ -700,7 +717,7 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
       </section>
 
       {/* ── FEATURES ────────────────────────────────────────────────────────── */}
-      <section id="features" style={{ position:"relative", zIndex:1, padding:"96px 56px", borderTop:`1px solid ${C.border}` }}>
+      <section id="features" className="lp-section" style={{ position:"relative", zIndex:1, padding:"96px 56px", borderTop:`1px solid ${C.border}` }}>
         <div style={{ position:"absolute", inset:0, background:"linear-gradient(180deg,transparent 0%,rgba(59,130,246,0.016) 50%,transparent 100%)", pointerEvents:"none" }}/>
         <div style={{ maxWidth:1040, margin:"0 auto", position:"relative" }}>
           <div style={{ marginBottom:52 }}>
@@ -709,7 +726,7 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
               Every format.<br/><em>Perfectly composed.</em>
             </h2>
           </div>
-          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:1.5, background:C.border, borderRadius:18, overflow:"hidden", border:`1px solid ${C.border}` }}>
+          <div className="features-grid" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:1.5, background:C.border, borderRadius:18, overflow:"hidden", border:`1px solid ${C.border}` }}>
             {[
               { n:"01", title:"One prompt,\nevery format", body:"From a single brief, Arkiol generates every ad format sized for every platform simultaneously. No rework, no resizing.", route:"/campaign-director" },
               { n:"02", title:"Always\non-brand",       body:"Upload your brand identity once — colors, fonts, logo. Every output respects your system automatically.",                     route:"/brand" },
@@ -727,7 +744,7 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
       </section>
 
       {/* ── PRICING ─────────────────────────────────────────────────────────── */}
-      <section id="pricing" style={{ position:"relative", zIndex:1, padding:"96px 56px", borderTop:`1px solid ${C.border}` }}>
+      <section id="pricing" className="lp-section" style={{ position:"relative", zIndex:1, padding:"96px 56px", borderTop:`1px solid ${C.border}` }}>
         <div style={{ position:"absolute", inset:0, background:"linear-gradient(180deg,rgba(255,255,255,0.008) 0%,transparent 100%)", pointerEvents:"none" }}/>
         <div style={{ maxWidth:1040, margin:"0 auto", position:"relative" }}>
           <div style={{ marginBottom:52 }}>
@@ -763,9 +780,9 @@ export function LandingPage({ isLoggedIn = false }: { isLoggedIn?: boolean }) {
       </section>
 
       {/* ── FOOTER ──────────────────────────────────────────────────────────── */}
-      <footer style={{ position:"relative", zIndex:1, borderTop:`1px solid ${C.border}`, padding:"28px 56px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:16 }}>
+      <footer className="lp-footer" style={{ position:"relative", zIndex:1, borderTop:`1px solid ${C.border}`, padding:"28px 56px", display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:16 }}>
         <ArkiolLogo size="sm" animate={false} />
-        <div style={{ display:"flex", gap:24, flexWrap:"wrap", alignItems:"center" }}>
+        <div className="lp-footer-links" style={{ display:"flex", gap:24, flexWrap:"wrap", alignItems:"center" }}>
           <Link href="/dashboard" style={{ color:C.textMuted, textDecoration:"none", fontSize:12.5, transition:"color 0.14s" }} onMouseEnter={e=>e.currentTarget.style.color=C.textSecondary} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}>Dashboard</Link>
           <Link href="/gallery"   style={{ color:C.textMuted, textDecoration:"none", fontSize:12.5, transition:"color 0.14s" }} onMouseEnter={e=>e.currentTarget.style.color=C.textSecondary} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}>Gallery</Link>
           <Link href="/billing"   style={{ color:C.textMuted, textDecoration:"none", fontSize:12.5, transition:"color 0.14s" }} onMouseEnter={e=>e.currentTarget.style.color=C.textSecondary} onMouseLeave={e=>e.currentTarget.style.color=C.textMuted}>Pricing</Link>

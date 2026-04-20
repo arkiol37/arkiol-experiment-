@@ -60,10 +60,16 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const pathname          = usePathname();
   const router            = useRouter();
   const { data: session } = useSession();
-  const [col,       setCol]       = useState(false);
+  const [rawCol,    setCol]       = useState(false);
   const [gen,       setGen]       = useState(false);
   const [menu,      setMenu]      = useState(false);
   const [canStudio, setCanStudio] = useState<boolean | null>(null);
+  // Responsive state — below 900px the sidebar becomes a drawer that
+  // opens from the mobile top bar. `isMobile` drives layout choice;
+  // `drawerOpen` drives visibility. Both reset on viewport changes so
+  // rotating a device doesn't leave the drawer stuck open.
+  const [isMobile,    setIsMobile]    = useState(false);
+  const [drawerOpen,  setDrawerOpen]  = useState(false);
 
   const user    = session?.user as any;
   const isAdmin = user && new Set(["ADMIN","SUPER_ADMIN"]).has(user?.role);
@@ -75,6 +81,22 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
       .then(d => setCanStudio(d.canUseStudioVideo === true))
       .catch(() => setCanStudio(false));
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 900px)");
+    const sync = () => {
+      setIsMobile(mql.matches);
+      if (!mql.matches) setDrawerOpen(false);
+    };
+    sync();
+    mql.addEventListener?.("change", sync);
+    return () => mql.removeEventListener?.("change", sync);
+  }, []);
+
+  // Close drawer on route change so tapping a nav link doesn't leave
+  // the drawer open over the newly navigated page.
+  useEffect(() => { setDrawerOpen(false); }, [pathname]);
 
   useEffect(() => {
     if (!menu) return;
@@ -92,10 +114,15 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     router.push(canStudio === true ? "/animation-studio" : "/animation-studio/upgrade");
   }
 
+  // On mobile the sidebar always renders expanded inside a drawer —
+  // the desktop collapse toggle (`rawCol`) is ignored so labels/icons
+  // sit at their normal readable size and the drawer fills 82vw.
+  const col = isMobile ? false : rawCol;
   const W = col ? 60 : 232;
+  const sidebarWidth = isMobile ? "100%" : W;
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: "#06070d", fontFamily: "var(--font-body)", position: "relative" }}>
+    <div style={{ display: isMobile ? "block" : "flex", minHeight: "100vh", background: "#06070d", fontFamily: "var(--font-body)", position: "relative" }}>
       {/* Atmospheric background — matches homepage */}
       <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0 }}>
         <div style={{ position: "absolute", top: "-10%", left: "15%", width: 600, height: 600, background: "radial-gradient(circle,rgba(59,130,246,0.055) 0%,transparent 55%)", borderRadius: "50%" }} />
@@ -103,16 +130,55 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
         <div style={{ position: "absolute", inset: 0, backgroundImage: "linear-gradient(rgba(255,255,255,0.011) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.011) 1px,transparent 1px)", backgroundSize: "80px 80px" }} />
       </div>
 
+      {/* ── Mobile top bar ── */}
+      {isMobile && (
+        <header className="ak-mobile-topbar">
+          <button
+            className="ak-mobile-topbar-btn"
+            onClick={() => setDrawerOpen(o => !o)}
+            aria-label="Open navigation"
+            aria-expanded={drawerOpen}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 6h18M3 12h18M3 18h18"/>
+            </svg>
+          </button>
+          <div style={{ flex: 1, display: "flex", justifyContent: "center", pointerEvents: "none" }}>
+            <ArkiolLogo size="sm" animate={false} variant="default" />
+          </div>
+          <button
+            className="ak-mobile-topbar-btn"
+            onClick={() => setGen(true)}
+            aria-label="New design"
+            style={{ background: "linear-gradient(135deg,#4f8ef7,#2460e8)", border: "none", color: "#fff" }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+        </header>
+      )}
+
+      {/* Scrim (mobile only, drawer open) */}
+      {isMobile && drawerOpen && (
+        <div className="ak-drawer-scrim" onClick={() => setDrawerOpen(false)} />
+      )}
+
       {/* ── Sidebar ── */}
-      <aside style={{
-        width: W, minHeight: "100vh",
-        background: "rgba(6,7,13,0.95)",
-        borderRight: "1px solid rgba(255,255,255,0.068)",
-        backdropFilter: "blur(20px)",
-        display: "flex", flexDirection: "column",
-        transition: "width 220ms cubic-bezier(0.4,0,0.2,1)",
-        position: "sticky", top: 0, alignSelf: "flex-start",
-        zIndex: 50, flexShrink: 0, overflowX: "hidden",
+      <aside
+        className={isMobile ? "ak-drawer" : undefined}
+        aria-hidden={isMobile ? !drawerOpen : false}
+        style={{
+          width: sidebarWidth, minHeight: isMobile ? undefined : "100vh",
+          background: "rgba(6,7,13,0.95)",
+          borderRight: "1px solid rgba(255,255,255,0.068)",
+          backdropFilter: "blur(20px)",
+          display: "flex", flexDirection: "column",
+          transition: isMobile ? undefined : "width 220ms cubic-bezier(0.4,0,0.2,1)",
+          position: isMobile ? "fixed" : "sticky",
+          top: 0, alignSelf: "flex-start",
+          zIndex: isMobile ? 101 : 50,
+          flexShrink: 0, overflowX: "hidden",
       }}>
         {/* Logo — gradient version matching homepage */}
         <div style={{
@@ -359,30 +425,39 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
             </div>
           )}
 
-          <button
-            onClick={() => setCol(c => !c)}
-            style={{
-              width: "100%", padding: "6px", fontSize: 11,
-              color: "rgba(115,122,150,0.4)", background: "none", border: "none",
-              borderRadius: 7, cursor: "pointer", fontFamily: "var(--font-body)",
-              display: "flex", alignItems: "center",
-              justifyContent: col ? "center" : "flex-start", gap: 5,
-              transition: "color 140ms ease",
-            }}
-            onMouseEnter={e => (e.currentTarget.style.color = "#737a96")}
-            onMouseLeave={e => (e.currentTarget.style.color = "rgba(115,122,150,0.4)")}
-            title={col ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              {col ? <path d="M13 17l5-5-5-5M6 17l5-5-5-5"/> : <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/>}
-            </svg>
-            {!col && <span>Collapse</span>}
-          </button>
+          {!isMobile && (
+            <button
+              onClick={() => setCol(c => !c)}
+              style={{
+                width: "100%", padding: "6px", fontSize: 11,
+                color: "rgba(115,122,150,0.4)", background: "none", border: "none",
+                borderRadius: 7, cursor: "pointer", fontFamily: "var(--font-body)",
+                display: "flex", alignItems: "center",
+                justifyContent: col ? "center" : "flex-start", gap: 5,
+                transition: "color 140ms ease",
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = "#737a96")}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(115,122,150,0.4)")}
+              title={col ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                {col ? <path d="M13 17l5-5-5-5M6 17l5-5-5-5"/> : <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5"/>}
+              </svg>
+              {!col && <span>Collapse</span>}
+            </button>
+          )}
         </div>
       </aside>
 
       {/* ── Main content ── */}
-      <main style={{ flex: 1, minWidth: 0, overflow: "auto", position: "relative", zIndex: 1 }}>
+      <main style={{
+        flex: isMobile ? undefined : 1,
+        width: isMobile ? "100%" : undefined,
+        minWidth: 0,
+        overflow: "auto",
+        position: "relative",
+        zIndex: 1,
+      }}>
         {children}
       </main>
 

@@ -122,7 +122,11 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
 
 body {
   margin: 0; padding: 0;
@@ -132,7 +136,19 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
+  /* Prevent horizontal page scroll caused by stray overflow on mobile */
+  overflow-x: hidden;
 }
+
+/* Touch devices: remove 300ms tap delay and improve tap feedback.
+   Buttons/links still use their own cursors/styles. */
+button, a, [role="button"], input[type="submit"], input[type="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Media avoids overflowing flex/grid children on narrow widths. */
+img, video, svg, canvas { max-width: 100%; }
 
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 11px; height: 11px; }
@@ -489,5 +505,126 @@ a:hover { color: var(--accent-light); }
 }
 
 @media (max-width: 640px) {
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+}
+
+/* ============================================================
+   RESPONSIVE UTILITIES — mobile-first touch-friendly breakpoints
+   ============================================================ */
+
+/* Shared page-content container with fluid side-padding that tracks
+   desktop → tablet → phone. Pages use this to wrap their primary
+   scroll column so layout math (max-width + padding) stays in one
+   place and adapts consistently across routes. */
+.ak-view-pad { padding: 36px 44px; }
+@media (max-width: 900px) { .ak-view-pad { padding: 24px 20px; } }
+@media (max-width: 520px) { .ak-view-pad { padding: 18px 14px; } }
+
+/* Touch targets: buttons ≥44px on primary breakpoints. Internal size
+   buttons (icon chrome) keep their compact sizes; only the generic
+   `ak-btn` family bumps up. */
+@media (max-width: 900px) {
+  .ak-btn { min-height: 40px; }
+  .ak-btn-lg { min-height: 48px; }
+  .ak-btn-icon { min-height: 40px; min-width: 40px; }
+}
+
+/* Inputs: keep ≥16px font-size on mobile so iOS doesn't auto-zoom
+   when the field is focused. */
+@media (max-width: 640px) {
+  .ak-input, input, textarea, select { font-size: 16px; }
+}
+
+/* Modal: fill most of the viewport on phones, keep rounded corners
+   but shrink padding so long forms don't clip off-screen. */
+@media (max-width: 640px) {
+  .ak-modal { padding: 20px; max-width: 100%; width: calc(100% - 20px); max-height: calc(100vh - 40px); overflow-y: auto; }
+}
+
+/* Responsive grid helpers used by view-level components so a single
+   class cascades across all breakpoints without sprinkling inline
+   media queries. Auto-fit falls back when gap math forces the last
+   row to look sparse. */
+.ak-grid-responsive { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+@media (max-width: 900px) { .ak-grid-responsive { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; } }
+@media (max-width: 520px) { .ak-grid-responsive { grid-template-columns: 1fr; gap: 12px; } }
+
+/* Utility: stack a row into a column on mobile. Consumers still set
+   gap / wrap on the row. */
+@media (max-width: 640px) {
+  .ak-stack-sm { flex-direction: column !important; align-items: stretch !important; }
+  .ak-stack-sm > * { width: 100%; }
+  .ak-hide-sm { display: none !important; }
+}
+@media (min-width: 641px) {
+  .ak-only-sm { display: none !important; }
+}
+
+/* Mobile top bar the SidebarLayout renders below 900px; height is
+   matched by the main-content top offset so nothing sits beneath. */
+.ak-mobile-topbar {
+  position: sticky; top: 0; z-index: 60;
+  height: 56px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 14px; gap: 10px;
+  background: rgba(6,7,13,0.95);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(20px);
+}
+.ak-mobile-topbar-btn {
+  width: 40px; height: 40px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.ak-mobile-topbar-btn:hover { background: rgba(255,255,255,0.08); }
+
+/* Drawer the SidebarLayout uses as its mobile nav surface. Slides in
+   from the left over the content; closed-state translateX hides it
+   off-screen so pointer events don't block the main content. */
+.ak-drawer-scrim {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(6,7,13,0.70);
+  backdrop-filter: blur(6px);
+  animation: ak-fade-in-fast 140ms ease both;
+}
+.ak-drawer {
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 101;
+  width: 82vw; max-width: 320px;
+  background: rgba(6,7,13,0.98);
+  border-right: 1px solid var(--border);
+  backdrop-filter: blur(24px);
+  transform: translateX(0);
+  transition: transform 220ms cubic-bezier(0.4,0,0.2,1);
+  display: flex; flex-direction: column;
+  box-shadow: 0 20px 56px rgba(0,0,0,0.7);
+}
+.ak-drawer[aria-hidden="true"] { transform: translateX(-100%); pointer-events: none; }
+
+/* Editor top bar — compacts padding/title on small screens so the
+   zoom and export controls don't wrap onto two rows. The .ak-hide-sm
+   utility hides inline labels (Dashboard / Export / dimensions)
+   below 640px to keep the bar legible at phone widths. */
+@media (max-width: 640px) {
+  .ak-editor-topbar { padding: 0 10px !important; gap: 6px !important; }
+  .ak-editor-title { font-size: 12px !important; max-width: 40vw; }
+  .ak-editor-back { padding: 4px 6px !important; }
+  .ak-editor-export { padding: 8px 10px !important; min-height: 36px; }
+  .ak-editor-zoom { gap: 0 !important; }
+}
+
+/* Canvas viewport must honor touch pan/zoom on phones — the wheel
+   listener uses ctrl+wheel for desktop zoom, but on touch devices we
+   let the browser handle pinch-zoom and two-finger pan natively. */
+@media (pointer: coarse) {
+  .ak-editor-topbar .ak-editor-zoom button { min-width: 32px; min-height: 32px; }
+}
+
+/* Stack GeneratePanel's two-column Archetype/Style grid into a single
+   column on narrow phones so the select controls don't get clipped. */
+@media (max-width: 520px) {
+  .ak-generate-two-col { grid-template-columns: 1fr !important; gap: 12px !important; }
 }

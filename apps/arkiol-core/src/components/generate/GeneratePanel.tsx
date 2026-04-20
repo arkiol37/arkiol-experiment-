@@ -173,7 +173,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
             </div>
 
             {/* Archetype + Style */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <div className="ak-generate-two-col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
               <div className="ak-form-group">
                 <label className="ak-form-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   Archetype <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>AI-powered</span>

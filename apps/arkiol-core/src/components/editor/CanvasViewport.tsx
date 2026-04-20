@@ -171,6 +171,8 @@ export function CanvasViewport({
         // canvas area is aggressively zoomed in.
         minWidth: 0,
         minHeight: 0,
+        // Allow native pinch-zoom + two-finger pan on touch devices.
+        touchAction: "pan-x pan-y pinch-zoom",
       }}
     >
       {/* Center-flex wrapper:

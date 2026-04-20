@@ -145,9 +145,39 @@ export function DashboardHome({ user }: { user?: any }) {
         .dh-btn-secondary:hover { background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.18); transform: translateY(-1px); color: #eaedf5; }
         .dh-progress { height: 4px; background: rgba(255,255,255,0.06); border-radius: 99px; overflow: hidden; }
         .dh-progress-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
+
+        .dh-container { max-width: 1160px; margin: 0 auto; padding: 0 32px 64px; }
+        .dh-hero { padding: 56px 0 44px; }
+        .dh-hero-headline { font-size: 48px; }
+        .dh-stat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 14px; margin-bottom: 40px; }
+        .dh-steps-grid { display: grid; grid-template-columns: repeat(4,1fr); border-top: 1px solid rgba(255,255,255,0.068); }
+        .dh-stat-value { font-size: 42px; }
+
+        @media (max-width: 900px) {
+          .dh-container { padding: 0 20px 48px; }
+          .dh-hero { padding: 36px 0 28px; }
+          .dh-hero-headline { font-size: 36px; }
+          .dh-stat-grid { grid-template-columns: repeat(2,1fr); gap: 12px; margin-bottom: 28px; }
+          .dh-stat-value { font-size: 34px; }
+          .dh-steps-grid { grid-template-columns: repeat(2,1fr); }
+          .dh-steps-grid > * { border-right: none !important; border-top: 1px solid rgba(255,255,255,0.068); }
+          .dh-steps-grid > *:nth-child(odd) { border-right: 1px solid rgba(255,255,255,0.068) !important; }
+        }
+        @media (max-width: 520px) {
+          .dh-container { padding: 0 14px 40px; }
+          .dh-hero { padding: 28px 0 22px; }
+          .dh-hero-headline { font-size: 28px; }
+          .dh-stat-grid { grid-template-columns: 1fr; gap: 10px; }
+          .dh-stat-value { font-size: 30px; }
+          .dh-steps-grid { grid-template-columns: 1fr; }
+          .dh-steps-grid > * { border-right: none !important; border-top: 1px solid rgba(255,255,255,0.068); }
+          .dh-steps-grid > *:first-child { border-top: none; }
+          .dh-action { padding: 14px 12px !important; }
+          .dh-job { padding: 11px 12px !important; gap: 10px !important; }
+        }
       `}</style>
 
-      <div style={{ maxWidth: 1160, margin: "0 auto", padding: "0 32px 64px" }}>
+      <div className="dh-container">
 
         {/* ── Past-due alert ── */}
         {isPastDue && (
@@ -158,7 +188,7 @@ export function DashboardHome({ user }: { user?: any }) {
         )}
 
         {/* ── Hero ── */}
-        <div style={{ padding: "56px 0 44px", animation: "dh-fade 340ms ease both" }}>
+        <div className="dh-hero" style={{ animation: "dh-fade 340ms ease both" }}>
           {/* Greeting */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
             <div style={{ width: 36, height: 36, borderRadius: "50%", background: `linear-gradient(135deg,${planAccent},${planAccent}88)`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0, boxShadow: `0 0 0 3px ${planAccent}22` }}>
@@ -175,7 +205,7 @@ export function DashboardHome({ user }: { user?: any }) {
           </div>
 
           {/* Headline — Instrument Serif matching homepage */}
-          <h1 style={{ fontFamily: "var(--font-display)", fontSize: 48, fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1.06, margin: "0 0 16px", color: "#eaedf5" }}>
+          <h1 className="dh-hero-headline" style={{ fontFamily: "var(--font-display)", fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1.06, margin: "0 0 16px", color: "#eaedf5" }}>
             Create designs that<br />
             <em style={{ background: "linear-gradient(90deg,#4f8ef7,#60a5fa,#2DD4BF)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", fontStyle: "italic" }}>
               actually convert.
@@ -201,11 +231,11 @@ export function DashboardHome({ user }: { user?: any }) {
 
         {/* ── Stat cards ── */}
         {loading ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 40 }}>
+          <div className="dh-stat-grid">
             {[0,1,2].map(i => <div key={i} className="dh-shimmer" style={{ height: 118 }} />)}
           </div>
         ) : billing ? (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 40, animation: "dh-fade 380ms 60ms ease both" }}>
+          <div className="dh-stat-grid" style={{ animation: "dh-fade 380ms 60ms ease both" }}>
 
             {/* Credits */}
             <div className="dh-card" style={{ padding: "22px 24px" }}>
@@ -215,7 +245,7 @@ export function DashboardHome({ user }: { user?: any }) {
                   {creditPct < 15 ? "⚠ Low" : creditPct < 40 ? "Moderate" : "Healthy"}
                 </span>
               </div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 400, letterSpacing: "-0.03em", color: "#eaedf5", lineHeight: 1, marginBottom: 12 }}>
+              <div className="dh-stat-value" style={{ fontFamily: "var(--font-display)", fontWeight: 400, letterSpacing: "-0.03em", color: "#eaedf5", lineHeight: 1, marginBottom: 12 }}>
                 {billing.credits.remaining.toLocaleString()}
               </div>
               <div className="dh-progress" style={{ marginBottom: 8 }}>
@@ -227,7 +257,7 @@ export function DashboardHome({ user }: { user?: any }) {
             {/* Plan */}
             <div className="dh-card" style={{ padding: "22px 24px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "#3e4358", marginBottom: 14 }}>Current Plan</div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 12, color: planAccent }}>
+              <div className="dh-stat-value" style={{ fontFamily: "var(--font-display)", fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 12, color: planAccent }}>
                 {PLAN_LABEL[plan] ?? plan}
               </div>
               <div style={{ fontSize: 12, color: "#3e4358" }}>
@@ -241,7 +271,7 @@ export function DashboardHome({ user }: { user?: any }) {
             {/* Activity */}
             <div className="dh-card" style={{ padding: "22px 24px" }}>
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: "#3e4358", marginBottom: 14 }}>This Week</div>
-              <div style={{ fontFamily: "var(--font-display)", fontSize: 42, fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 12, color: "#eaedf5" }}>
+              <div className="dh-stat-value" style={{ fontFamily: "var(--font-display)", fontWeight: 400, letterSpacing: "-0.03em", lineHeight: 1, marginBottom: 12, color: "#eaedf5" }}>
                 {weekJobs}
                 <span style={{ fontSize: 14, fontWeight: 400, color: "#3e4358", marginLeft: 8, fontFamily: "var(--font-body)" }}>jobs</span>
               </div>
@@ -331,7 +361,7 @@ export function DashboardHome({ user }: { user?: any }) {
                   <a href="/canvas" className="dh-btn-secondary">✏ Open Canvas</a>
                 </div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", borderTop: "1px solid rgba(255,255,255,0.068)" }}>
+              <div className="dh-steps-grid">
                 {[
                   { n: "01", label: "Enter your prompt",   icon: "◎", color: "#4f8ef7" },
                   { n: "02", label: "Generate designs",    icon: "✦", color: "#60a5fa" },

@@ -92,16 +92,21 @@ export function FullPageEditor() {
   return (
     <>
       {/* ── Top bar ────────────────────────────────────────────── */}
-      <div style={{
-        height: 48, flexShrink: 0,
-        display: "flex", alignItems: "center", gap: 10, padding: "0 16px",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--bg-surface)",
-        zIndex: 100,
-      }}>
+      <div
+        className="ak-editor-topbar"
+        style={{
+          height: 48, flexShrink: 0,
+          display: "flex", alignItems: "center", gap: 10, padding: "0 16px",
+          borderBottom: "1px solid var(--border)",
+          background: "var(--bg-surface)",
+          zIndex: 100,
+        }}
+      >
         {/* Back */}
         <Link
           href="/dashboard"
+          aria-label="Back to dashboard"
+          className="ak-editor-back"
           style={{
             display: "flex", alignItems: "center", gap: 5,
             fontSize: 12, color: "var(--text-muted)", textDecoration: "none",
@@ -112,23 +117,31 @@ export function FullPageEditor() {
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = "var(--text-muted)"; }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M19 12H5M12 5l-7 7 7 7" /></svg>
-          Dashboard
+          <span className="ak-hide-sm">Dashboard</span>
         </Link>
 
-        <div style={{ width: 1, height: 20, background: "var(--border)" }} />
+        <div className="ak-hide-sm" style={{ width: 1, height: 20, background: "var(--border)" }} />
 
         {/* Title */}
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
+        <span
+          className="ak-editor-title"
+          style={{
+            fontSize: 13, fontWeight: 600, color: "var(--text-primary)",
+            letterSpacing: "-0.01em",
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            minWidth: 0,
+          }}
+        >
           {title}
         </span>
-        <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+        <span className="ak-hide-sm" style={{ fontSize: 11, color: "var(--text-muted)" }}>
           {dims.width}×{dims.height}
         </span>
 
         <div style={{ flex: 1 }} />
 
         {/* Zoom controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+        <div className="ak-editor-zoom" style={{ display: "flex", alignItems: "center", gap: 2 }}>
           <ZoomBtn onClick={() => setZoom(z => zoomStepDown(z))} title="Zoom out">−</ZoomBtn>
           <span
             onClick={() => { const atFull = Math.abs(zoom - 1) < 0.02; if (atFull) doFit(); else setZoom(1); }}
@@ -142,14 +155,18 @@ export function FullPageEditor() {
             {Math.round(zoom * 100)}%
           </span>
           <ZoomBtn onClick={() => setZoom(z => zoomStepUp(z))} title="Zoom in">+</ZoomBtn>
-          <ZoomBtn onClick={doFit} title="Fit to screen">⊡</ZoomBtn>
+          <span className="ak-hide-sm" style={{ display: "inline-flex" }}>
+            <ZoomBtn onClick={doFit} title="Fit to screen">⊡</ZoomBtn>
+          </span>
         </div>
 
-        <div style={{ width: 1, height: 20, background: "var(--border)" }} />
+        <div className="ak-hide-sm" style={{ width: 1, height: 20, background: "var(--border)" }} />
 
         {/* Export button */}
         <button
           onClick={() => setShowExportModal(true)}
+          aria-label="Export"
+          className="ak-editor-export"
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 16px", borderRadius: 8,
@@ -161,7 +178,7 @@ export function FullPageEditor() {
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = "1"; }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" /></svg>
-          Export
+          <span className="ak-hide-sm">Export</span>
         </button>
       </div>
 

@@ -254,20 +254,16 @@ export function ArkiolArtView() {
   const highConfidence = assets.filter(a => (a.brandScore ?? 0) >= 65);
   const experimental   = assets.filter(a => (a.brandScore ?? 0) < 65);
 
-  const gridStyle: React.CSSProperties = {
-    display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 18,
-  };
-
   return (
-    <div className="ak-fade-in" style={{ padding: "36px 44px", maxWidth: 1440 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 28, fontWeight: 400, fontFamily: "var(--font-display)", letterSpacing: "-0.045em" }}>Arkiol Art</h1>
+    <div className="ak-fade-in ak-view-pad" style={{ maxWidth: 1440 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, gap: 12, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(22px,4.5vw,28px)", fontWeight: 400, fontFamily: "var(--font-display)", letterSpacing: "-0.045em" }}>Arkiol Art</h1>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--text-secondary)", letterSpacing: "-0.01em" }}>
             {assets.length} design{assets.length !== 1 ? "s" : ""} generated
           </p>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           {selected.size > 0 && (
             <>
               <span className="ak-badge ak-badge-accent">{selected.size} selected</span>
@@ -281,8 +277,8 @@ export function ArkiolArtView() {
 
       <div style={{ display: "flex", gap: 10, marginBottom: 28, alignItems: "center", flexWrap: "wrap" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} className="ak-input"
-          placeholder="Search designs…" style={{ maxWidth: 220 }} />
-        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+          placeholder="Search designs…" style={{ flex: "1 1 200px", maxWidth: 260, minWidth: 0 }} />
+        <div style={{ display: "flex", gap: 5, flexWrap: "wrap", flex: "1 1 auto", minWidth: 0, overflowX: "auto" }}>
           <button className={`ak-pill${filter === "all" ? " active" : ""}`} onClick={() => setFilter("all")}>All</button>
           {ARKIOL_CATEGORIES.map(c => (
             <button key={c} className={`ak-pill${filter === c ? " active" : ""}`} onClick={() => setFilter(c)}>{CATEGORY_LABELS[c]}</button>
@@ -296,7 +292,7 @@ export function ArkiolArtView() {
       </div>
 
       {loading && assets.length === 0 ? (
-        <div style={gridStyle}>
+        <div className="ak-grid-responsive">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="ak-shimmer" style={{ borderRadius: "var(--radius-2xl)", aspectRatio: "4/3" }} />
           ))}
@@ -320,7 +316,7 @@ export function ArkiolArtView() {
           {highConfidence.length > 0 && (
             <div>
               <SectionHeader label="High Confidence Designs" count={highConfidence.length} variant="high" />
-              <div style={gridStyle}>
+              <div className="ak-grid-responsive">
                 {highConfidence.map((asset, i) => (
                   <div key={asset.id} style={{ animation: `ak-slide-up-stagger ${280 + i * 40}ms ease both`, animationDelay: `${i * 30}ms` }}>
                     <DesignCard asset={asset} selected={selected.has(asset.id)} onSelect={() => toggleSelect(asset.id)} onGenSimilar={() => setGenSimilarAsset(asset)} />
@@ -332,7 +328,7 @@ export function ArkiolArtView() {
           {experimental.length > 0 && (
             <div>
               <SectionHeader label="Experimental Ideas" count={experimental.length} variant="experimental" />
-              <div style={gridStyle}>
+              <div className="ak-grid-responsive">
                 {experimental.map((asset, i) => (
                   <div key={asset.id} style={{ animation: `ak-slide-up-stagger ${280 + i * 40}ms ease both`, animationDelay: `${i * 30}ms` }}>
                     <DesignCard asset={asset} selected={selected.has(asset.id)} onSelect={() => toggleSelect(asset.id)} onGenSimilar={() => setGenSimilarAsset(asset)} isExperimental />
