@@ -335,6 +335,15 @@ export interface PipelineResult {
     sectionCount?:       number;
     sectionAnchorCount?: number;
     sectionsSatisfied?:  boolean;
+    /** Structured component mix used by the renderer (checklist_item /
+     *  tip_card / step_block / quote_box / content_card / cta_button /
+     *  badge / labeled_section). Surfaces the distinct kinds and their
+     *  total coverage so audit logs can explain *how* the template was
+     *  composed — the `no_components` rejection rule guards the floor. */
+    componentKinds?:     string[];
+    componentCount?:     number;
+    structuredComponentCount?: number;
+    componentsSatisfied?: boolean;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1447,6 +1456,12 @@ async function renderAssetInner(
         .filter((z: any) => typeof z?.text === "string" && z.text.trim().length > 0)
         .map((z: any) => ({ zoneId: z.zoneId as string, text: z.text as string }));
       const populatedSectionReport = analyzePopulatedSections(populatedZones);
+      // Component coverage — read the report the SVG builder stamped on
+      // content (`_componentReport`); zero-fallback when the builder
+      // fell through to the basic renderer.
+      const compReport = (content as any)._componentReport as
+        | { assignments: Array<{ kind: string }>; componentCount: number; distinctKinds: string[]; structuredCount: number; hasStructuredComponents: boolean }
+        | undefined;
       return {
         qualityVerdict: {
           rulesAccepted:       rej.accept,
@@ -1464,6 +1479,10 @@ async function renderAssetInner(
           sectionCount:        populatedSectionReport.count,
           sectionAnchorCount:  populatedSectionReport.anchorCount,
           sectionsSatisfied:   populatedSectionReport.satisfiesMinimum,
+          componentKinds:           compReport?.distinctKinds ?? [],
+          componentCount:           compReport?.componentCount ?? 0,
+          structuredComponentCount: compReport?.structuredCount ?? 0,
+          componentsSatisfied:      compReport?.hasStructuredComponents ?? false,
         },
       };
     })() : {}),

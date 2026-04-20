@@ -21,6 +21,11 @@ import {
   MIN_SECTIONS,
 } from "../layout/section-structure";
 import {
+  assignComponents,
+  analyzeComponents,
+  MIN_STRUCTURED_COMPONENTS,
+} from "../components/component-system";
+import {
   scoreCandidateQuality,
   scoreThemeQuality,
   areTooSimilar,
@@ -259,6 +264,35 @@ export const REJECTION_RULES: RejectionRule[] = [
       }
       if (rep.anchorCount < 1) {
         return `no_anchor_section:[${rep.populatedSections.join(",")}]`;
+      }
+      return null;
+    },
+  },
+
+  // ── No structured components (hard) ──────────────────────────────────────
+  // Step 5's floor: every template must render its text through at least
+  // one structured component (checklist_item / tip_card / step_block /
+  // quote_box / content_card / labeled_section). cta_button and badge
+  // alone don't satisfy the rule because they don't organize body content
+  // — they're widgets, not containers. Prefers the pre-computed report
+  // stamped by the SVG builder; falls back to recomputing from populated
+  // zones + templateType so older cached renders still get gated.
+  {
+    id:          "no_components",
+    severity:    "hard",
+    description: "Populated zones are not wrapped in any structured component — text floats on the background.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const report = content._componentReport ?? (() => {
+        const ids = (content.textContents ?? [])
+          .filter(z => z.text?.trim().length > 0)
+          .map(z => z.zoneId);
+        if (ids.length === 0) return null;
+        return analyzeComponents(assignComponents(content._templateType, ids), ids);
+      })();
+      if (!report) return null;
+      if (report.structuredCount < MIN_STRUCTURED_COMPONENTS) {
+        return `no_components:populated=${report.assignments.length} structured=${report.structuredCount}`;
       }
       return null;
     },

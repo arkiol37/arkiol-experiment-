@@ -33,6 +33,13 @@ import {
   shapeThemeForTemplateType,
   type TemplateType,
 } from "../templates/template-types";
+import {
+  assignComponents,
+  analyzeComponents,
+  renderComponentBackplates,
+  type ComponentAssignment,
+  type ComponentCoverageReport,
+} from "../components/component-system";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { evaluateRejection } from "../evaluation/rejection-rules";
 import { passesMarketplaceStandard, describeMarketplaceVerdict } from "../evaluation/marketplace-gate";
@@ -98,6 +105,14 @@ export interface SvgContent {
   _selectedTheme?: DesignTheme;
   /** Template type the composer shaped the theme for (checklist, tips, quote, ...). */
   _templateType?: TemplateType;
+  /** Component assignments — every populated zone is mapped to a
+   *  reusable visual block (checklist_item, tip_card, step_block,
+   *  quote_box, content_card, cta_button, badge, labeled_section)
+   *  so the renderer can emit backplates instead of floating text. */
+  _components?: ComponentAssignment[];
+  /** Coverage summary derived from `_components`. Used by the rejection
+   *  gate and the quality verdict. */
+  _componentReport?: ComponentCoverageReport;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -447,6 +462,21 @@ export async function buildUltimateSvgContent(
 
   const {primaryBgColor, gradient} = extractBgFromTheme(theme);
 
+  // ── Component assignment ──────────────────────────────────────────────────
+  // Map every populated zone to a component kind (checklist_item, tip_card,
+  // step_block, quote_box, content_card, cta_button, badge, labeled_section)
+  // using the template-type-specific rules. The SVG layer will draw
+  // backplates for these; the rejection gate reads the report to verify
+  // the template is composed rather than floating text.
+  const populatedZoneIds = textContents
+    .filter(tc => tc.text?.trim().length > 0)
+    .map(tc => tc.zoneId);
+  const componentAssignments = assignComponents(resolvedTemplateType, populatedZoneIds);
+  const componentReport      = analyzeComponents(componentAssignments, populatedZoneIds);
+  if (!componentReport.hasStructuredComponents) {
+    violations.push(`components:no_structured_components_populated=${populatedZoneIds.length}`);
+  }
+
   const content: SvgContent = {
     backgroundColor:primaryBgColor, backgroundGradient:gradient, textContents,
     ctaStyle:{ backgroundColor:theme.ctaStyle.backgroundColor, textColor:theme.ctaStyle.textColor,
@@ -456,6 +486,8 @@ export async function buildUltimateSvgContent(
     accentShape:{ type:"none", color:"#000000", x:0, y:0, w:0, h:0 },
     _selectedTheme:theme,
     _templateType: resolvedTemplateType,
+    _components:   componentAssignments,
+    _componentReport: componentReport,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────
@@ -694,6 +726,18 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
   // surface.
   const sectionFrames = buildSectionFrames(zones, theme, format);
   if (sectionFrames.trim()) layers += `\n  <g class="sections" aria-hidden="true">\n    ${sectionFrames}\n  </g>`;
+
+  // ── Component backplates (per-zone visual blocks) ───────────────────────────
+  // Turns each populated zone into a real component — checklist items get
+  // checkmark badges, step blocks get numbered circles, tip cards get
+  // accent rails, quote boxes get large quote glyphs, and generic content
+  // cards get a surface-tinted rounded rect. Renders above section frames
+  // and below decorations + text so it reads as the component surface
+  // that holds the type.
+  if (content._components && content._components.length > 0) {
+    const backplates = renderComponentBackplates(content._components, zones, theme, width, height);
+    if (backplates.trim()) layers += `\n  <g class="components" aria-hidden="true">\n    ${backplates}\n  </g>`;
+  }
 
   // ── Decorations (below text) ─────────────────────────────────────────────────
   if (cleanDecor.trim()) layers += `\n  <g class="decor" aria-hidden="true">\n    ${cleanDecor}\n  </g>`;

@@ -139,6 +139,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
        *  multi-section structural floor held. */
       sections:       string[];
       sectionCount:   number;
+      /** Component mix the renderer composed the template from
+       *  (checklist_item / tip_card / step_block / quote_box /
+       *  content_card / cta_button / badge / labeled_section). */
+      componentKinds: string[];
+      componentCount: number;
+      structuredComponentCount: number;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -224,12 +230,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         templateType:   verdict?.templateType ?? "unknown",
         sections:       verdict?.sections ?? [],
         sectionCount:   verdict?.sectionCount ?? 0,
+        componentKinds: verdict?.componentKinds ?? [],
+        componentCount: verdict?.componentCount ?? 0,
+        structuredComponentCount: verdict?.structuredComponentCount ?? 0,
       });
 
       console.info(
         `[inline-generate] vi=${vi} theme=${verdict?.themeId ?? "?"} ` +
         `type=${verdict?.templateType ?? "?"} ` +
         `sections=${verdict?.sectionCount ?? 0}[${(verdict?.sections ?? []).join("+")}] ` +
+        `components=${verdict?.componentCount ?? 0}/${verdict?.structuredComponentCount ?? 0}[${(verdict?.componentKinds ?? []).join("+")}] ` +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -376,6 +386,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               templateType:     adm.templateType,
               sections:         adm.sections,
               sectionCount:     adm.sectionCount,
+              componentKinds:   adm.componentKinds,
+              componentCount:   adm.componentCount,
+              structuredComponentCount: adm.structuredComponentCount,
               rejectReasons:    adm.rejectReasons,
               failedCriteria:   adm.failedCriteria,
               attemptsUsed:     attemptedCount,
@@ -395,14 +408,19 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const avgSections = admitted.length
       ? (admitted.reduce((s, a) => s + a.sectionCount, 0) / admitted.length).toFixed(1)
       : "0.0";
-    const uniqueSections = new Set(admitted.flatMap(a => a.sections));
+    const uniqueSections   = new Set(admitted.flatMap(a => a.sections));
+    const uniqueComponents = new Set(admitted.flatMap(a => a.componentKinds));
+    const avgComponents    = admitted.length
+      ? (admitted.reduce((s, a) => s + a.componentCount, 0) / admitted.length).toFixed(1)
+      : "0.0";
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
       `accepted=${acceptedCount()} shipped=${admitted.length} ` +
       `floorFilled=${admitted.filter(a => a.floorFill).length} ` +
       `types=[${[...uniqueTypes].join(",")}] ` +
-      `avgSections=${avgSections} sections=[${[...uniqueSections].join(",")}]`,
+      `avgSections=${avgSections} sections=[${[...uniqueSections].join(",")}] ` +
+      `avgComponents=${avgComponents} components=[${[...uniqueComponents].join(",")}]`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});
