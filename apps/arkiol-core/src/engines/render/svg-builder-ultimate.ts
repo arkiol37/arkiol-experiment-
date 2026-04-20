@@ -46,6 +46,13 @@ import {
   type ContentCoverageReport,
   type RestructureAction,
 } from "../content/content-structure";
+import {
+  generateStructuredContent,
+  buildFallbackStructuredContent,
+  structuredContentToTextMap,
+  describeStructuredContent,
+  type StructuredContent,
+} from "../ai/structured-content";
 import { pickBestTheme, scoreCandidateQuality, scoreThemeQuality, recordOutputFingerprint, isRecentDuplicate, isBlandCandidate, checkMarketplaceQuality } from "../evaluation/candidate-quality";
 import { evaluateRejection } from "../evaluation/rejection-rules";
 import { passesMarketplaceStandard, describeMarketplaceVerdict } from "../evaluation/marketplace-gate";
@@ -126,6 +133,11 @@ export interface SvgContent {
    *  single paragraph. */
   _contentCoverage?: ContentCoverageReport;
   _contentActions?: RestructureAction[];
+  /** Structured-content payload used to populate the zones. Retained on
+   *  the content object so the admission audit can log which template
+   *  shape was actually requested from the model and how many items
+   *  were delivered. */
+  _structuredContent?: StructuredContent;
 }
 
 export interface BuildResult { content: SvgContent; violations: string[]; }
@@ -411,34 +423,75 @@ export async function buildUltimateSvgContent(
     "Respond ONLY with valid JSON. No markdown, no explanation.",
   ].join("\n");
 
-  let raw: unknown;
+  // ── Step 7: Template-type-aware structured content ──────────────────────
+  // Ask OpenAI for a STRUCTURED payload (headline + subhead + CTA + N items
+  // shaped for the template type — tips, checklist rows, steps, benefits,
+  // insights, or list entries). The response is mapped directly onto the
+  // canvas zones. When OPENAI_API_KEY is absent or the call fails we fall
+  // back to the legacy zone-text path so the gallery still renders.
+  const availableZoneIdSet = new Set(zones.map(z => z.id as string));
+  let structured: StructuredContent | null = null;
   try {
-    raw = await withRetry(
-      () => chatJSON(
-        [{role:"system",content:systemPrompt},{role:"user",content:"Generate text content as JSON."}],
-        {model:"gpt-4o",temperature:0.7,max_tokens:800}
-      ),
-      {maxAttempts:3}
-    );
+    structured = await generateStructuredContent({
+      brief,
+      templateType:  resolvedTemplateType,
+      variationIdx,
+      format,
+      categoryName:  categoryPack?.name,
+      availableZoneIds: availableZoneIdSet,
+    });
   } catch (e: any) {
-    violations.push("AI failed: " + e.message);
-    raw = buildFallbackTextContent(zones, brief);
+    violations.push("structured_content_failed:" + (e?.message ?? "unknown"));
+    structured = null;
   }
 
-  const parsed  = TextOnlySchema.safeParse(raw);
-  if (!parsed.success) violations.push("Schema validation failed");
-  const aiText  = parsed.success ? parsed.data : buildFallbackTextContent(zones, brief) as any;
+  let rawTextMap: Map<string, string>;
 
-  if (aiText.themeOverride && aiText.themeOverride !== "auto") {
-    const ov = THEMES.find(t => t.id === aiText.themeOverride);
-    if (ov) {
-      let overridden = brand ? applyBrandColors(ov,{primaryColor:brand.primaryColor,secondaryColor:brand.secondaryColor}) : ov;
-      if (categoryPack) overridden = applyCategoryPackOverrides(overridden, categoryPack, brand);
-      theme = overridden;
+  if (structured && structured.headline) {
+    rawTextMap = structuredContentToTextMap(structured, availableZoneIdSet);
+    violations.push("content_source:structured:" + describeStructuredContent(structured));
+  } else {
+    // Legacy path — retained as a graceful fallback when structured content
+    // isn't available. Same chatJSON call as before; same fallback on
+    // failure. Nothing below this block knows which branch ran.
+    let raw: unknown;
+    try {
+      raw = await withRetry(
+        () => chatJSON(
+          [{ role: "system", content: systemPrompt }, { role: "user", content: "Generate text content as JSON." }],
+          { model: "gpt-4o", temperature: 0.7, max_tokens: 800 },
+        ),
+        { maxAttempts: 3 },
+      );
+    } catch (e: any) {
+      violations.push("AI failed: " + e.message);
+      raw = buildFallbackTextContent(zones, brief);
+    }
+
+    const parsed = TextOnlySchema.safeParse(raw);
+    if (!parsed.success) violations.push("Schema validation failed");
+    const aiText = parsed.success ? parsed.data : (buildFallbackTextContent(zones, brief) as any);
+
+    if (aiText.themeOverride && aiText.themeOverride !== "auto") {
+      const ov = THEMES.find(t => t.id === aiText.themeOverride);
+      if (ov) {
+        let overridden = brand ? applyBrandColors(ov, { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor }) : ov;
+        if (categoryPack) overridden = applyCategoryPackOverrides(overridden, categoryPack, brand);
+        theme = overridden;
+      }
+    }
+
+    rawTextMap = new Map<string, string>(aiText.textContents.map((tc: any) => [tc.zoneId as string, tc.text as string]));
+    violations.push("content_source:legacy_zone_text");
+
+    // If the legacy path returned an empty bullet set for a list-style
+    // template, synthesize a fallback StructuredContent so downstream
+    // audits (and inlineGenerate's per-candidate log) still see a coherent
+    // template shape instead of a ghost.
+    if (!structured) {
+      structured = buildFallbackStructuredContent(brief, resolvedTemplateType, variationIdx);
     }
   }
-
-  const rawTextMap  = new Map<string, string>(aiText.textContents.map((tc: any) => [tc.zoneId as string, tc.text as string]));
 
   // ── Content-aware restructuring ──────────────────────────────────────────
   // When the composer populated `body` (or subhead/tagline) with a
@@ -448,8 +501,7 @@ export async function buildUltimateSvgContent(
   // items across bullet_1 / bullet_2 / bullet_3 zones so each one
   // renders as its own component row. Source zone is cleared when its
   // entire text was the list; otherwise it stays as a lead line.
-  const availableZoneIds = new Set(zones.map(z => z.id as string));
-  const restructure      = restructureTextMap(rawTextMap, availableZoneIds, resolvedTemplateType);
+  const restructure      = restructureTextMap(rawTextMap, availableZoneIdSet, resolvedTemplateType);
   const textMap          = restructure.textMap;
   const contentActions   = restructure.actions;
   for (const a of contentActions) {
@@ -531,6 +583,7 @@ export async function buildUltimateSvgContent(
     _componentReport: componentReport,
     _contentCoverage: contentCoverage,
     _contentActions:  contentActions,
+    _structuredContent: structured ?? undefined,
   };
 
   // ── Post-build marketplace quality gate ──────────────────────────────

@@ -149,6 +149,14 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       contentKind:    string;
       contentItems:   number;
       contentSatisfied: boolean;
+      /** Where the body text came from — openai_structured means the
+       *  template-type-aware generator produced the copy; legacy_zone_text
+       *  means the generic zone prompt ran; fallback means we had no AI
+       *  and populated from the brief alone. */
+      contentSource:  string;
+      /** Distinct structured items delivered by the generator (tips /
+       *  checklist rows / steps / benefits / insights / list picks). */
+      structuredItemCount: number;
     }
 
     const rendered: RenderedCandidate[] = [];
@@ -240,6 +248,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         contentKind:      verdict?.contentKind ?? "prose",
         contentItems:     verdict?.contentItems ?? 0,
         contentSatisfied: verdict?.contentSatisfied ?? true,
+        contentSource:    verdict?.contentSource ?? "unknown",
+        structuredItemCount: verdict?.structuredItemCount ?? 0,
       });
 
       console.info(
@@ -248,6 +258,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         `sections=${verdict?.sectionCount ?? 0}[${(verdict?.sections ?? []).join("+")}] ` +
         `components=${verdict?.componentCount ?? 0}/${verdict?.structuredComponentCount ?? 0}[${(verdict?.componentKinds ?? []).join("+")}] ` +
         `content=${verdict?.contentKind ?? "?"}×${verdict?.contentItems ?? 0} ` +
+        `src=${verdict?.contentSource ?? "?"} items=${verdict?.structuredItemCount ?? 0} ` +
         `accepted=${accepted} rank=${(verdict?.rankScore ?? 0).toFixed(2)} ` +
         `market=${(verdict?.marketplaceScore ?? 0).toFixed(2)}` +
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
@@ -428,6 +439,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const avgContentItems    = admitted.length
       ? (admitted.reduce((s, a) => s + a.contentItems, 0) / admitted.length).toFixed(1)
       : "0.0";
+    const contentSources = admitted.reduce<Record<string, number>>((acc, a) => {
+      const k = a.contentSource || "unknown";
+      acc[k] = (acc[k] ?? 0) + 1;
+      return acc;
+    }, {});
+    const contentSourcesLabel = Object.entries(contentSources)
+      .map(([k, v]) => `${k}:${v}`).join(",") || "none";
+    const avgStructuredItems = admitted.length
+      ? (admitted.reduce((s, a) => s + a.structuredItemCount, 0) / admitted.length).toFixed(1)
+      : "0.0";
     console.info(
       `[inline-generate] Job ${jobId} admission: ` +
       `requested=${totalVariations} attempts=${attemptedCount} ` +
@@ -436,7 +457,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `types=[${[...uniqueTypes].join(",")}] ` +
       `avgSections=${avgSections} sections=[${[...uniqueSections].join(",")}] ` +
       `avgComponents=${avgComponents} components=[${[...uniqueComponents].join(",")}] ` +
-      `avgContentItems=${avgContentItems} contentKinds=[${[...uniqueContentKinds].join(",")}]`,
+      `avgContentItems=${avgContentItems} contentKinds=[${[...uniqueContentKinds].join(",")}] ` +
+      `contentSources={${contentSourcesLabel}} avgStructuredItems=${avgStructuredItems}`,
     );
 
     await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});

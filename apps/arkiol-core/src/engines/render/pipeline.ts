@@ -354,6 +354,15 @@ export interface PipelineResult {
     contentItems?:       number;
     contentItemsRequired?: number;
     contentSatisfied?:   boolean;
+    /** Where the zone text came from — `openai_structured` when the
+     *  template-type-aware generator produced the headline + items,
+     *  `legacy_zone_text` when the generic zone-text fallback ran,
+     *  `fallback` when no AI was available and we used the brief alone. */
+    contentSource?:      "openai_structured" | "legacy_zone_text" | "fallback";
+    /** Count of distinct structured items (tips / checklist rows / steps /
+     *  benefits / insights / list picks) the model delivered. Zero for
+     *  quote / minimal templates which intentionally have no list. */
+    structuredItemCount?: number;
   };
 
   // Step 39 wiring: optional pack-style snapshot so the multi-output
@@ -1500,6 +1509,14 @@ async function renderAssetInner(
           contentItems:             contentCov?.populatedItems ?? 0,
           contentItemsRequired:     contentCov?.required ?? 0,
           contentSatisfied:         contentCov?.satisfiesMinimum ?? true,
+          contentSource:            (() => {
+            const s = (buildResult.content as any)._structuredContent as { meta?: { source?: string } } | undefined;
+            if (!s?.meta) return undefined;
+            return s.meta.source === "openai" ? "openai_structured" as const
+                 : s.meta.source === "fallback" ? "fallback" as const
+                 : "legacy_zone_text" as const;
+          })(),
+          structuredItemCount:      ((buildResult.content as any)._structuredContent?.items?.length ?? 0),
         },
       };
     })() : {}),
