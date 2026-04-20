@@ -5,6 +5,18 @@
 // generations so future selection and scoring can nudge toward proven
 // combinations without becoming deterministic.
 
+// Persistence abstraction — swap InMemoryStore ↔ RedisMemoryStore at
+// boot without touching the ledger / visual-patterns call sites.
+export {
+  InMemoryStore,
+  RedisMemoryStore,
+  configureMemoryStore,
+  getMemoryStore,
+  createMemoryStoreFromEnv,
+  type MemoryStore,
+  type StoredPattern,
+} from "./store";
+
 export {
   themeFingerprint,
   recordOutputFingerprint,

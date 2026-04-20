@@ -303,19 +303,16 @@ export async function generateVariations(
   let bestScore = -1;
   let bestIndex = 0;
 
-  // Step 41: parallel candidate generation. Previously the loop ran
-  // renders sequentially (N × single-render latency). All variations
-  // share the same brief and format — the only thing that varies is
-  // variationIdx — so we can fire them in parallel and collect as
-  // they resolve. For a 6-candidate gallery this drops wall-clock
-  // time from ~N×t to ~1×t + overhead.
-  //
-  // Pack anchor: the first variation renders without an anchor (it
-  // IS the anchor source). Remaining variations run with the anchor
-  // threaded in via brand hints. To keep parallelism, we still fire
-  // all N at once — subsequent renders just don't see the anchor
-  // this round. The anchor is surfaced on VariationResult so the
-  // gallery + editor can enforce consistency at render-time instead.
+  // Step 42: two-phase generation for real pack coherence.
+  //   Phase A — render variation 0 alone. It establishes the pack
+  //             anchor (palette, typography, corner radius).
+  //   Phase B — render variations 1..N-1 in parallel WITH the
+  //             captured anchor applied via input.packAnchor. Every
+  //             sibling ends up on the same palette + fonts while
+  //             per-variation layout / composition / decoration
+  //             stay free.
+  // For N=6 the total wall-clock is 1 × render + 1 × parallel-render
+  // ≈ 2× single-render latency (was 6× sequential before Step 41).
   let packAnchorCaptured:
     | NonNullable<PipelineResult["packStyleSnapshot"]>
     | null = null;
@@ -331,9 +328,24 @@ export async function generateVariations(
     outputFormat,
     personalization: request.personalization,
     assetEngine: request.assetEngine,
+    // Siblings receive the anchor; variation 0 captures it.
+    packAnchor: packAnchorCaptured ?? undefined,
   });
 
-  const renderPromises = Array.from({ length: count }, (_, i) => {
+  // ── Phase A: variation 0 alone to capture the anchor ─────────────────
+  const anchorStart = Date.now();
+  const anchorInput = buildInput(0);
+  const anchorOutcome = await renderFn(anchorInput).then(
+    result => ({ kind: "ok" as const, i: 0, input: anchorInput, result, durationMs: Date.now() - anchorStart }),
+    err    => ({ kind: "err" as const, i: 0, input: anchorInput, error: (err as any)?.message ?? "unknown", durationMs: Date.now() - anchorStart }),
+  );
+  if (anchorOutcome.kind === "ok" && anchorOutcome.result.packStyleSnapshot) {
+    packAnchorCaptured = anchorOutcome.result.packStyleSnapshot;
+  }
+
+  // ── Phase B: remaining variations in parallel with anchor applied ───
+  const siblingPromises = Array.from({ length: Math.max(0, count - 1) }, (_, j) => {
+    const i = j + 1;
     const renderStart = Date.now();
     const input = buildInput(i);
     return renderFn(input).then(
@@ -342,7 +354,8 @@ export async function generateVariations(
     );
   });
 
-  const settled = await Promise.all(renderPromises);
+  const siblingResults = await Promise.all(siblingPromises);
+  const settled = [anchorOutcome, ...siblingResults];
 
   // Post-parallel pass: sort into deterministic variationIndex order
   // and populate the renders array + pack anchor + bestIndex.

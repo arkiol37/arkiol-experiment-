@@ -45,6 +45,14 @@ import {
 import { buildUltimateSvgContent, renderUltimateSvg, type SvgContent, type BuildResult } from "./svg-builder-ultimate";
 import { scoreCandidateQuality, scoreThemeQuality } from "../evaluation/candidate-quality";
 import { enforceMarketplaceStandard } from "../evaluation/marketplace-gate";
+import {
+  recordGenerationStart,
+  recordGenerationSuccess,
+  recordGenerationFailure,
+  recordMarketplaceVerdict,
+  recordHeroMissing,
+  recordRecoveryActions,
+} from "../../lib/generation-metrics";
 import { assessDesignQuality, refineDesign, runRefinementPasses } from "../evaluation/candidate-refinement";
 import { polishOutput } from "../evaluation/output-polish";
 import { assessProductionReadiness, type ProductionReadinessReport } from "../evaluation/production-readiness";
@@ -173,6 +181,23 @@ export interface PipelineInput {
 
   // Personalization — user style profile context
   personalization?: PersonalizationContext;
+
+  // Step 42: pack anchor — when set, biases theme selection so all
+  // variations in a gallery batch share palette + typography + corner
+  // radius. Captured by the coordinator from the first successful
+  // render and threaded into subsequent inputs. Subset mirrors
+  // PipelineResult.packStyleSnapshot so round-tripping is clean.
+  packAnchor?: {
+    primary:      string;
+    accent:       string;
+    surface:      string;
+    ink:          string;
+    fontDisplay:  string;
+    fontBody:     string;
+    cornerRadius: number;
+    ctaShadow:    boolean;
+    firstTone?:   string;
+  };
 
   // ── On-Demand Asset Engine context ──────────────────────────────────────
   // Must be populated by the orchestrator from org/plan DB data.
@@ -334,18 +359,28 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
   const violations = ctx.violations;
   const recoveryLog: RecoveryAction[] = [];
 
+  // Metrics: tick generation-start counter. Success / failure / latency
+  // are recorded on the way out.
+  recordGenerationStart();
+
   // Top-level safety net — guarantees a result even on catastrophic failure.
   // Hard failures (KillSwitchError, SpendGuardError, AssetPresenceError) are
   // re-thrown so the worker can handle billing / rejection correctly.
   // Everything else returns a degraded result.
   try {
-  return await renderAssetInner(input, ctx, violations, recoveryLog);
+    const result = await renderAssetInner(input, ctx, violations, recoveryLog);
+    recordGenerationSuccess(Date.now() - startMs);
+    if (recoveryLog.length > 0) recordRecoveryActions(recoveryLog.length);
+    return result;
   } catch (err: any) {
     if (err?.name === "KillSwitchError" ||
         err?.name === "SpendGuardError" ||
         err?.name === "AssetPresenceError" ||
         err?.name === "LayoutConstraintError" ||
-        err?.name === "MarketplaceQualityError") throw err;
+        err?.name === "MarketplaceQualityError") {
+      recordGenerationFailure(err?.name ?? "unknown");
+      throw err;
+    }
 
     const durationMs = Date.now() - startMs;
     logger.error(
@@ -360,6 +395,7 @@ export async function renderAsset(input: PipelineInput): Promise<PipelineResult>
       timestamp: Date.now(),
     });
 
+    recordGenerationFailure(err?.message ?? "unknown");
     const degraded = buildDegradedResult(input, recoveryLog);
     degraded.durationMs = durationMs;
     logGenerationEvent(input.format, input.stylePreset, durationMs, false);
@@ -562,6 +598,7 @@ async function renderAssetInner(
   const heroIssues = validateHeroComposition(composition, spec.activeZoneIds);
   for (const h of heroIssues) {
     violations.push(`hero_composition:${h.rule}[${h.severity}]: ${h.message}`);
+    if (h.rule === "hero_missing") recordHeroMissing();
   }
 
   ctx.currentStage = "composition";
@@ -822,6 +859,7 @@ async function renderAssetInner(
         variationIdx,
         agentResult?.plan.themePreferences,
         input.personalization,
+        input.packAnchor,
       );
       return { result };
     },
@@ -892,6 +930,7 @@ async function renderAssetInner(
           input.variationIdx + 13337,
           agentResult?.plan.themePreferences,
           input.personalization,
+          input.packAnchor,
         );
         const retryTheme = retryResult.content._selectedTheme;
         if (retryTheme) {
@@ -971,6 +1010,7 @@ async function renderAssetInner(
           strict: strictGate,
         },
       );
+      recordMarketplaceVerdict(verdict.approved, verdict.failedCriteria);
       violations.push(
         `marketplace_gate:${verdict.approved ? "APPROVED" : "REJECTED"} ` +
         `score=${verdict.marketplaceScore.toFixed(2)}` +

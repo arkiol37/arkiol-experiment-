@@ -137,3 +137,13 @@ export {
   type RetrievalContext,
   type RetrievedAsset,
 } from "./asset-library";
+
+// ── 3D asset manifest (deployment contract) ──────────────────────────────
+export {
+  ASSET_3D_MANIFEST,
+  asset3dBaseUrl,
+  asset3dUrl,
+  isAsset3dConfigured,
+  asset3dManifestStats,
+  type Asset3DSlug,
+} from "./3d-asset-manifest";

@@ -44,6 +44,16 @@ export interface GenerationRecord {
 }
 
 // ── Ledger storage ──────────────────────────────────────────────────────────
+// Delegates to the configured MemoryStore (default InMemoryStore, or
+// RedisMemoryStore when ARKIOL_MEMORY_STORE=redis). The legacy private
+// array below is kept as a fast synchronous mirror for callers that
+// can't await (e.g. existing sync loops inside the pipeline). When a
+// real async store is wired in, consumers that need persistence should
+// move to the async store API directly.
+
+// store.ts uses `import type` from this file so the static import here
+// doesn't create a runtime cycle.
+import { getMemoryStore } from "./store";
 
 const _ledger: GenerationRecord[] = [];
 
@@ -52,6 +62,15 @@ export function recordGeneration(record: GenerationRecord): void {
   if (_ledger.length > MAX_RECORDS) {
     _ledger.length = MAX_RECORDS;
   }
+  // Mirror to the configured store. For InMemoryStore this is a
+  // cheap sync call; for RedisMemoryStore it fires-and-forgets a
+  // Promise that writes through in the background.
+  try {
+    const maybe = getMemoryStore().pushRecord(record);
+    if (maybe && typeof (maybe as Promise<void>).catch === "function") {
+      (maybe as Promise<void>).catch(() => { /* non-fatal */ });
+    }
+  } catch { /* non-fatal — store is optional */ }
 }
 
 export function recordFeedback(

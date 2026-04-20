@@ -156,6 +156,17 @@ export async function buildUltimateSvgContent(
   variationIdx = 0,
   themePreferences?: string[],
   personalization?: PersonalizationContext,
+  // Step 42: when present, the selected theme is post-locked to this
+  // anchor via lockThemeToAnchor so every variation in a gallery batch
+  // shares palette + typography + corner-radius. Per-variation
+  // composition / decoration / layout stay free — only the shared
+  // style traits are pinned. Passed transparently from PipelineInput
+  // by the coordinator after the first successful render.
+  packAnchor?: {
+    primary: string; accent: string; surface: string; ink: string;
+    fontDisplay: string; fontBody: string;
+    cornerRadius: number; ctaShadow: boolean;
+  },
 ): Promise<BuildResult> {
   const violations: string[] = [];
   const dims   = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
@@ -225,6 +236,35 @@ export async function buildUltimateSvgContent(
   const styleIntent = analyzeStyleIntent(brief, categoryPack?.id);
   const styleDirective = deriveStyleDirective(styleIntent, categoryPack, brand ? { primaryColor: brand.primaryColor, secondaryColor: brand.secondaryColor } : undefined);
   theme = applyStyleDirective(theme, styleDirective, !!brand);
+
+  // Step 42: pack-anchor override. Locks palette + typography +
+  // corner-radius + CTA shadow so every variation in the gallery
+  // batch reads as one pack. Runs after style intelligence (so
+  // user-brief intent still informs the candidate pool) but before
+  // inspiration / personalization which tune details the anchor
+  // doesn't touch (headline size, decoration kinds, etc.).
+  if (packAnchor) {
+    theme = {
+      ...theme,
+      palette: {
+        ...theme.palette,
+        primary:    packAnchor.primary,
+        secondary:  packAnchor.accent,
+        background: packAnchor.surface,
+        text:       packAnchor.ink,
+      },
+      typography: {
+        ...theme.typography,
+        display: packAnchor.fontDisplay as typeof theme.typography.display,
+        body:    packAnchor.fontBody    as typeof theme.typography.body,
+      },
+      ctaStyle: {
+        ...theme.ctaStyle,
+        borderRadius: packAnchor.cornerRadius,
+        shadow:       packAnchor.ctaShadow,
+      },
+    };
+  }
 
   // ── Inspiration pattern intelligence — apply real-world pattern overrides
   const inspirationMatch = matchPatternToBrief(brief, format);
