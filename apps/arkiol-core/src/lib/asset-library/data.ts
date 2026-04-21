@@ -1603,6 +1603,158 @@ const REAL_WORLD_ASSETS: Asset[] = [
     payload: { format: "url", url: render3d("scene-urban-street", "3d isometric urban street morning", 1920, 1200), width: 1920, height: 1200 } },
 ];
 
+// ── Step 54: 3D decorative & structural kit ──────────────────────────────────
+// Mirrors the `decorative` realm of the 3D manifest. These are layout-shaping
+// units (ribbons, badges, stickers, dividers, framed cards, paper notes,
+// checklist blocks, quote cards, labels, banners, textures, patterned
+// overlays) delivered as premium 3D renders. Every entry resolves via
+// render3d(), so ARKIOL_3D_ASSET_BASE points the whole kit at a curated CDN
+// in production. The library kind tracks the unit's structural role
+// (ribbon / badge / sticker / divider / frame / texture) so the selector
+// can still filter the old way; realm="decorative" groups them into the
+// reusable decorative catalog.
+const DECORATIVE_3D_ASSETS: Asset[] = [
+  // Ribbons
+  { id: "real.decorative.ribbon-title",     kind: "ribbon",      realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["motivation", "business"], label: "Title ribbon (3D)",
+    tags: ["ribbon", "banner", "title", "header", "3d"],
+    aspectRatio: 2.4,
+    payload: { format: "url", url: render3d("decorative-ribbon-title", "3d claymorphic title ribbon banner", 1920, 800), width: 1920, height: 800 } },
+  { id: "real.decorative.ribbon-wave",      kind: "ribbon",      realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["beauty"], label: "Wavy ribbon (3D)",
+    tags: ["ribbon", "wave", "banner", "callout", "3d"],
+    aspectRatio: 2.4,
+    payload: { format: "url", url: render3d("decorative-ribbon-wave", "3d claymorphic wavy ribbon banner", 1920, 800), width: 1920, height: 800 } },
+
+  // Badges
+  { id: "real.decorative.badge-circle",     kind: "badge",       realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["business"], label: "Circle badge (3D)",
+    tags: ["badge", "seal", "circle", "emblem", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-badge-circle", "3d claymorphic circle badge emblem", 1200, 1200), width: 1200, height: 1200 } },
+  { id: "real.decorative.badge-star",       kind: "badge",       realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["motivation"], label: "Star badge (3D)",
+    tags: ["badge", "star", "award", "emblem", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-badge-star", "3d claymorphic star badge award", 1200, 1200), width: 1200, height: 1200 } },
+  { id: "real.decorative.badge-seal",       kind: "badge",       realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "business",
+    extraCategories: ["marketing"], label: "Verified seal (3D)",
+    tags: ["badge", "seal", "verified", "certified", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-badge-seal", "3d claymorphic verified seal certification", 1200, 1200), width: 1200, height: 1200 } },
+
+  // Stickers
+  { id: "real.decorative.sticker-star",     kind: "sticker",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "motivation",
+    extraCategories: ["marketing"], label: "Star sticker (3D)",
+    tags: ["sticker", "star", "accent", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-sticker-star", "3d claymorphic star sticker glossy", 1200, 1200), width: 1200, height: 1200 } },
+  { id: "real.decorative.sticker-heart",    kind: "sticker",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "beauty",
+    extraCategories: ["wellness"], label: "Heart sticker (3D)",
+    tags: ["sticker", "heart", "accent", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-sticker-heart", "3d claymorphic heart sticker glossy", 1200, 1200), width: 1200, height: 1200 } },
+
+  // Dividers
+  { id: "real.decorative.divider-wave",     kind: "divider",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "wellness",
+    extraCategories: ["beauty"], label: "Wavy divider (3D)",
+    tags: ["divider", "wave", "separator", "3d"],
+    aspectRatio: 6,
+    payload: { format: "url", url: render3d("decorative-divider-wave", "3d claymorphic wavy divider separator", 2400, 400), width: 2400, height: 400 } },
+  { id: "real.decorative.divider-leaf",     kind: "divider",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "wellness",
+    extraCategories: ["beauty"], label: "Leaf divider (3D)",
+    tags: ["divider", "leaf", "separator", "botanical", "3d"],
+    aspectRatio: 6,
+    payload: { format: "url", url: render3d("decorative-divider-leaf", "3d claymorphic leaf divider separator botanical", 2400, 400), width: 2400, height: 400 } },
+
+  // Frames
+  { id: "real.decorative.frame-rounded",    kind: "frame",       realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["productivity"], label: "Rounded frame card (3D)",
+    tags: ["frame", "card", "rounded", "container", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-frame-rounded", "3d claymorphic rounded frame card container", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.decorative.frame-polaroid",   kind: "frame",       realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "motivation",
+    extraCategories: ["travel"], label: "Polaroid frame (3D)",
+    tags: ["frame", "polaroid", "photo", "memory", "3d"],
+    aspectRatio: 0.8,
+    payload: { format: "url", url: render3d("decorative-frame-polaroid", "3d claymorphic polaroid photo frame", 1200, 1500), width: 1200, height: 1500 } },
+  { id: "real.decorative.frame-arch",       kind: "frame",       realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "beauty",
+    extraCategories: ["wellness"], label: "Arch frame card (3D)",
+    tags: ["frame", "arch", "card", "container", "3d"],
+    aspectRatio: 0.8,
+    payload: { format: "url", url: render3d("decorative-frame-arch", "3d claymorphic arch frame card", 1200, 1500), width: 1200, height: 1500 } },
+
+  // Paper notes & structured cards
+  { id: "real.decorative.sticky-note",      kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "productivity",
+    extraCategories: ["education"], label: "Sticky note (3D)",
+    tags: ["sticky", "note", "paper", "reminder", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-sticky-note", "3d claymorphic sticky note paper reminder", 1200, 1200), width: 1200, height: 1200 } },
+  { id: "real.decorative.paper-note",       kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "education",
+    extraCategories: ["productivity"], label: "Paper note card (3D)",
+    tags: ["paper", "note", "card", "memo", "3d"],
+    aspectRatio: 1.3,
+    payload: { format: "url", url: render3d("decorative-paper-note", "3d claymorphic paper note card memo", 1600, 1200), width: 1600, height: 1200 } },
+  { id: "real.decorative.checklist-card",   kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "productivity",
+    extraCategories: ["business"], label: "Checklist card (3D)",
+    tags: ["checklist", "todo", "card", "list", "3d"],
+    aspectRatio: 0.8,
+    payload: { format: "url", url: render3d("decorative-checklist-card", "3d claymorphic checklist todo card", 1200, 1500), width: 1200, height: 1500 } },
+  { id: "real.decorative.quote-card",       kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "motivation",
+    extraCategories: ["marketing"], label: "Quote card (3D)",
+    tags: ["quote", "card", "inspiration", "testimonial", "3d"],
+    aspectRatio: 1.3,
+    payload: { format: "url", url: render3d("decorative-quote-card", "3d claymorphic quote card inspirational", 1600, 1200), width: 1600, height: 1200 } },
+
+  // Labels & tags
+  { id: "real.decorative.label-tag",        kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["business"], label: "Label tag (3D)",
+    tags: ["label", "tag", "marker", "3d"],
+    aspectRatio: 1.6,
+    payload: { format: "url", url: render3d("decorative-label-tag", "3d claymorphic label tag marker", 1600, 1000), width: 1600, height: 1000 } },
+  { id: "real.decorative.price-label",      kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["business"], label: "Price label (3D)",
+    tags: ["label", "price", "tag", "sale", "3d"],
+    aspectRatio: 1.6,
+    payload: { format: "url", url: render3d("decorative-price-label", "3d claymorphic price label tag", 1600, 1000), width: 1600, height: 1000 } },
+
+  // Banners
+  { id: "real.decorative.banner-hero",      kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["motivation"], label: "Hero banner (3D)",
+    tags: ["banner", "hero", "announcement", "3d"],
+    aspectRatio: 3,
+    payload: { format: "url", url: render3d("decorative-banner-hero", "3d claymorphic hero banner announcement", 2400, 800), width: 2400, height: 800 } },
+  { id: "real.decorative.banner-ribbon",    kind: "illustration",realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["business"], label: "Ribbon banner (3D)",
+    tags: ["banner", "ribbon", "announcement", "3d"],
+    aspectRatio: 3,
+    payload: { format: "url", url: render3d("decorative-banner-ribbon", "3d claymorphic ribbon banner", 2400, 800), width: 2400, height: 800 } },
+
+  // Surface textures
+  { id: "real.decorative.texture-grain",    kind: "texture",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "beauty",
+    extraCategories: ["motivation"], label: "Grain texture (3D)",
+    tags: ["texture", "grain", "surface", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-texture-grain", "3d claymorphic grainy surface texture", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.decorative.texture-paper",    kind: "texture",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "education",
+    extraCategories: ["motivation"], label: "Paper texture (3D)",
+    tags: ["texture", "paper", "surface", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-texture-paper", "3d claymorphic paper surface texture", 1600, 1600), width: 1600, height: 1600 } },
+
+  // Patterned overlays
+  { id: "real.decorative.overlay-dots",     kind: "texture",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "marketing",
+    extraCategories: ["motivation"], label: "Dot pattern overlay (3D)",
+    tags: ["overlay", "pattern", "dots", "polka", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-overlay-dots", "3d claymorphic polka dot pattern overlay", 1600, 1600), width: 1600, height: 1600 } },
+  { id: "real.decorative.overlay-geometric",kind: "texture",     realm: "decorative", visualStyle: "3d", qualityTier: "premium", category: "business",
+    extraCategories: ["marketing"], label: "Geometric overlay (3D)",
+    tags: ["overlay", "pattern", "geometric", "grid", "3d"],
+    aspectRatio: 1,
+    payload: { format: "url", url: render3d("decorative-overlay-geometric", "3d claymorphic geometric pattern overlay", 1600, 1600), width: 1600, height: 1600 } },
+];
+
 // ── Step 40: Inline-SVG illustration catalog ─────────────────────────────────
 // Self-contained scene illustrations composed via svg-scene-composer. No
 // external image service required — every asset renders offline from a
@@ -2002,6 +2154,8 @@ export const ASSETS: readonly Asset[] = Object.freeze([
   ...MOTIVATION_ASSETS,
   // Step 35 additions
   ...REAL_WORLD_ASSETS,
+  // Step 54 — 3D decorative & structural kit
+  ...DECORATIVE_3D_ASSETS,
   // Step 40 — inline-SVG scene illustrations (no CDN / AI needed)
   ...INLINE_SCENE_ASSETS,
 ]);

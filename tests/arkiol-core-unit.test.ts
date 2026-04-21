@@ -70,8 +70,8 @@ async function run() {
     for (const k of expected) assert(lib.ASSET_KINDS.includes(k as any), `missing kind ${k}`);
   });
 
-  test("ASSET_REALMS contains all 5 realms", () => {
-    const expected = ["nature", "animal", "lifestyle", "object", "scene"];
+  test("ASSET_REALMS contains all 6 realms", () => {
+    const expected = ["nature", "animal", "lifestyle", "object", "scene", "decorative"];
     for (const r of expected) assert(lib.ASSET_REALMS.includes(r as any), `missing realm ${r}`);
   });
 
@@ -300,9 +300,9 @@ async function run() {
 
   const manifest = await import("../apps/arkiol-core/src/engines/assets/3d-asset-manifest");
 
-  test("manifest has 130 slugs", () => {
-    // 32 nature + 5 animal + 29 lifestyle + 59 object + 5 scene = 130
-    assertEq(manifest.ASSET_3D_MANIFEST.length, 130, "manifest size");
+  test("manifest has 154 slugs", () => {
+    // 32 nature + 5 animal + 29 lifestyle + 59 object + 5 scene + 24 decorative = 154
+    assertEq(manifest.ASSET_3D_MANIFEST.length, 154, "manifest size");
   });
 
   test("every manifest slug maps to a library asset id pattern", () => {
@@ -318,10 +318,11 @@ async function run() {
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
     const s = manifest.asset3dManifestStats();
     assertEq(s.configured, false, "configured");
-    assertEq(s.totalSlugs, 130, "totalSlugs");
+    assertEq(s.totalSlugs, 154, "totalSlugs");
     assertEq(s.byRealm.nature, 32, "nature count");
     assertEq(s.byRealm.lifestyle, 29, "lifestyle count");
     assertEq(s.byRealm.object, 59, "object count");
+    assertEq(s.byRealm.decorative, 24, "decorative count");
   });
 
   test("asset3dUrl returns undefined without base configured", () => {
@@ -433,6 +434,43 @@ async function run() {
     for (const m of manifest.objectAsset3dSlugs()) {
       const suffix = m.slug.replace(/^object-/, "");
       const expectedId = `real.object.${suffix}`;
+      assert(libIds.has(expectedId),
+        `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
+    }
+  });
+
+  test("decorativeAsset3dSlugs returns the decorative realm group", () => {
+    const deco = manifest.decorativeAsset3dSlugs();
+    assertEq(deco.length, 24, "decorative count");
+    const slugs = new Set(deco.map(n => n.slug));
+    for (const s of deco) assertEq(s.realm, "decorative" as const, `realm:${s.slug}`);
+    // Spot-check Step 54 additions across all structural sub-groups
+    // (ribbons / badges / stickers / dividers / frames / cards / labels /
+    // banners / textures / overlays).
+    for (const expected of [
+      "decorative-ribbon-title", "decorative-ribbon-wave",
+      "decorative-badge-circle", "decorative-badge-star", "decorative-badge-seal",
+      "decorative-sticker-star", "decorative-sticker-heart",
+      "decorative-divider-wave", "decorative-divider-leaf",
+      "decorative-frame-rounded", "decorative-frame-polaroid", "decorative-frame-arch",
+      "decorative-sticky-note", "decorative-paper-note",
+      "decorative-checklist-card", "decorative-quote-card",
+      "decorative-label-tag", "decorative-price-label",
+      "decorative-banner-hero", "decorative-banner-ribbon",
+      "decorative-texture-grain", "decorative-texture-paper",
+      "decorative-overlay-dots", "decorative-overlay-geometric",
+    ]) {
+      assert(slugs.has(expected), `missing decorative slug ${expected}`);
+    }
+  });
+
+  test("every decorative manifest slug has a matching library Asset", async () => {
+    const lib2 = await import("../apps/arkiol-core/src/lib/asset-library");
+    const libDeco = lib2.getAssetsByRealm("decorative");
+    const libIds = new Set(libDeco.map(a => a.id));
+    for (const m of manifest.decorativeAsset3dSlugs()) {
+      const suffix = m.slug.replace(/^decorative-/, "");
+      const expectedId = `real.decorative.${suffix}`;
       assert(libIds.has(expectedId),
         `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
     }

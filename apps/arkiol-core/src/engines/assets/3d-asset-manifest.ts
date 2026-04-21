@@ -30,7 +30,13 @@ export interface Asset3DSlug {
   slug:        string;
   label:       string;
   category:    string;     // primary library category this asset serves
-  realm:       "nature" | "animal" | "lifestyle" | "object" | "scene";
+  // Step 54: `decorative` is the sixth realm — premium 3D structural /
+  // decorative units (ribbons, badges, dividers, framed cards, paper
+  // notes, quote cards, labels, banners, textures, patterned overlays).
+  // Keeping it as a first-class realm means the selector can query the
+  // whole decorative kit with the same realm-indexed API it uses for
+  // nature / lifestyle / object catalogs.
+  realm:       "nature" | "animal" | "lifestyle" | "object" | "scene" | "decorative";
   aspectRatio: number;     // w / h
   suggestedSize: { w: number; h: number };
   notes?:      string;
@@ -258,6 +264,52 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "scene-cafe-interior",   label: "Café interior",     category: "marketing",   realm: "scene",     aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "scene-living-room",     label: "Living room",       category: "wellness",    realm: "scene",     aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "scene-urban-street",    label: "Urban street",      category: "marketing",   realm: "scene",     aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+
+  // ── Decorative (24) ────────────────────────────────────────────────
+  // Step 54: 3D decorative & structural kit — the layout-shaping units
+  // that wrap, label, and section content (ribbons, badges, stickers,
+  // dividers, framed cards, paper notes, checklist blocks, quote cards,
+  // labels, banners, textures, patterned overlays). Every slug is a
+  // premium claymorphic 3D render with soft consistent lighting and a
+  // transparent / clean backdrop so the unit composites cleanly onto
+  // any template. These are *structural* assets — intended to add
+  // hierarchy and rhythm to a composition, not decorative noise.
+  // Grouped by role (ribbons / badges / stickers / dividers / frames /
+  // cards / labels / banners / surface) so the diff is reviewable.
+  // Ribbons
+  { slug: "decorative-ribbon-title",     label: "Title ribbon",       category: "marketing",   realm: "decorative", aspectRatio: 2.4, suggestedSize: { w: 1920, h: 800  }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-ribbon-wave",      label: "Wavy ribbon",        category: "marketing",   realm: "decorative", aspectRatio: 2.4, suggestedSize: { w: 1920, h: 800  }, qualityTier: "premium", visualStyle: "3d" },
+  // Badges
+  { slug: "decorative-badge-circle",     label: "Circle badge",       category: "marketing",   realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1200, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-badge-star",       label: "Star badge",         category: "marketing",   realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1200, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-badge-seal",       label: "Verified seal",      category: "business",    realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1200, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Stickers
+  { slug: "decorative-sticker-star",     label: "Star sticker",       category: "motivation",  realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1200, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-sticker-heart",    label: "Heart sticker",      category: "beauty",      realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1200, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Dividers
+  { slug: "decorative-divider-wave",     label: "Wavy divider",       category: "wellness",    realm: "decorative", aspectRatio: 6.0, suggestedSize: { w: 2400, h: 400  }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-divider-leaf",     label: "Leaf divider",       category: "wellness",    realm: "decorative", aspectRatio: 6.0, suggestedSize: { w: 2400, h: 400  }, qualityTier: "premium", visualStyle: "3d" },
+  // Frames
+  { slug: "decorative-frame-rounded",    label: "Rounded frame card", category: "marketing",   realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-frame-polaroid",   label: "Polaroid frame",     category: "motivation",  realm: "decorative", aspectRatio: 0.8, suggestedSize: { w: 1200, h: 1500 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-frame-arch",       label: "Arch frame card",    category: "beauty",      realm: "decorative", aspectRatio: 0.8, suggestedSize: { w: 1200, h: 1500 }, qualityTier: "premium", visualStyle: "3d" },
+  // Paper notes & cards
+  { slug: "decorative-sticky-note",      label: "Sticky note",        category: "productivity",realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1200, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-paper-note",       label: "Paper note card",    category: "education",   realm: "decorative", aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-checklist-card",   label: "Checklist card",     category: "productivity",realm: "decorative", aspectRatio: 0.8, suggestedSize: { w: 1200, h: 1500 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-quote-card",       label: "Quote card",         category: "motivation",  realm: "decorative", aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Labels & tags
+  { slug: "decorative-label-tag",        label: "Label tag",          category: "marketing",   realm: "decorative", aspectRatio: 1.6, suggestedSize: { w: 1600, h: 1000 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-price-label",      label: "Price label",        category: "marketing",   realm: "decorative", aspectRatio: 1.6, suggestedSize: { w: 1600, h: 1000 }, qualityTier: "premium", visualStyle: "3d" },
+  // Banners
+  { slug: "decorative-banner-hero",      label: "Hero banner",        category: "marketing",   realm: "decorative", aspectRatio: 3.0, suggestedSize: { w: 2400, h: 800  }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-banner-ribbon",    label: "Ribbon banner",      category: "marketing",   realm: "decorative", aspectRatio: 3.0, suggestedSize: { w: 2400, h: 800  }, qualityTier: "premium", visualStyle: "3d" },
+  // Surface textures
+  { slug: "decorative-texture-grain",    label: "Grain texture",      category: "beauty",      realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-texture-paper",    label: "Paper texture",      category: "education",   realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Patterned overlays
+  { slug: "decorative-overlay-dots",     label: "Dot pattern overlay", category: "marketing",  realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "decorative-overlay-geometric",label: "Geometric overlay",  category: "business",    realm: "decorative", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
 ]);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -374,4 +426,15 @@ export function lifestyleAsset3dSlugs(): readonly Asset3DSlug[] {
  */
 export function objectAsset3dSlugs(): readonly Asset3DSlug[] {
   return asset3dSlugsByRealm("object");
+}
+
+/**
+ * Decorative / structural asset group (Step 54) — 3D ribbons, badges,
+ * stickers, dividers, framed cards, paper notes, checklist blocks,
+ * quote cards, labels, banners, textures, and patterned overlays. These
+ * aren't subjects, they're layout-shaping units that structure the
+ * composition. Convenience alias for `asset3dSlugsByRealm("decorative")`.
+ */
+export function decorativeAsset3dSlugs(): readonly Asset3DSlug[] {
+  return asset3dSlugsByRealm("decorative");
 }

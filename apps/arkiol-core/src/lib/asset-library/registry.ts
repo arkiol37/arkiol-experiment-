@@ -23,9 +23,11 @@ export const ASSET_KINDS: readonly AssetKind[] = Object.freeze([
   "sticker", "badge", "ribbon", "frame", "divider",
 ]);
 
-// Step 35: real-world subject realms.
+// Step 35: real-world subject realms. Step 54: added the "decorative"
+// realm for premium 3D structural / decorative units (ribbons, badges,
+// dividers, framed cards, paper notes, quote cards, textures, overlays).
 export const ASSET_REALMS: readonly AssetRealm[] = Object.freeze([
-  "nature", "animal", "lifestyle", "object", "scene",
+  "nature", "animal", "lifestyle", "object", "scene", "decorative",
 ]);
 
 // ── Lazy indexes ──────────────────────────────────────────────────────────────

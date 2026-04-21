@@ -151,6 +151,7 @@ export {
   natureAsset3dSlugs,
   lifestyleAsset3dSlugs,
   objectAsset3dSlugs,
+  decorativeAsset3dSlugs,
   getAsset3dSlug,
   type Asset3DSlug,
 } from "./3d-asset-manifest";

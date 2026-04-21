@@ -41,20 +41,29 @@ export type AssetStyle = "outline" | "filled" | "duotone";
 // surfaces it for the right briefs. Realms group photos / illustrations
 // by *what the asset depicts*, not *what context it serves*.
 //
-//   nature     mountains, rivers, plants, sky, sunsets, forests
-//   animal     dogs, cats, birds, wildlife
-//   lifestyle  staged everyday scenes (desk setups, cozy rooms)
-//   object     isolated everyday items (books, bottles, gym gear)
-//   scene      wider atmospheric views (landscapes, cityscapes, rooms)
+//   nature       mountains, rivers, plants, sky, sunsets, forests
+//   animal       dogs, cats, birds, wildlife
+//   lifestyle    staged everyday scenes (desk setups, cozy rooms)
+//   object       isolated everyday items (books, bottles, gym gear)
+//   scene        wider atmospheric views (landscapes, cityscapes, rooms)
+//   decorative   Step 54 — premium 3D structural / decorative units
+//                (ribbons, badges, stickers, dividers, framed cards,
+//                paper notes, checklist blocks, quote cards, labels,
+//                banners, textures, patterned overlays). Used to
+//                structure layouts and reinforce hierarchy, not as
+//                incidental background art. Bucketed as its own realm
+//                so selection can query "3D decorative kit" the same
+//                way it queries "3D nature set".
 //
-// Abstract / decorative assets (ribbons, badges, icons, textures) leave
-// realm unset — they aren't "real-world" depictions.
+// Icons and inline-SVG fallback art leave realm unset — they aren't
+// part of a curated subject/realm catalog.
 export type AssetRealm =
   | "nature"
   | "animal"
   | "lifestyle"
   | "object"
-  | "scene";
+  | "scene"
+  | "decorative";
 
 // Visual-style axis (Step 36). Describes the *rendering style* of an
 // asset independent of what it depicts — a mountain can be a photo, a
