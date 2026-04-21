@@ -74,3 +74,31 @@ export {
   type PackCoherenceReport,
   type CoherenceFilterResult,
 } from "./pack-coherence";
+
+// Step 63: pack consistency — decoration-style fingerprint, tone
+// consensus, layout-variation floor, and an aggregate curated / loose /
+// fragmented verdict on top of pack-coherence.
+export {
+  PACK_COHESION_CURATED,
+  PACK_COHESION_FRAGMENTED,
+  PACK_DECORATION_MIN_CORE_OVERLAP,
+  PACK_LAYOUT_MIN_VARIATION,
+  PACK_TONE_CONSENSUS_FLOOR,
+  PACK_MEMBER_OUTLIER_FLOOR,
+  extractDecorationFingerprint,
+  buildPackCohesionProfile,
+  scorePackCohesion,
+  filterFragmentedMembers,
+  annotatePackCohesion,
+  enforcePackConsistency,
+  type DecorationFingerprint,
+  type PackCohesionProfile,
+  type PackCohesionReport,
+  type PackCohesionSubscores,
+  type PackCohesionVerdict,
+  type PackMemberReport,
+  type PackMemberFilterResult,
+  type PackCohesionSignal,
+  type EnforcePackConsistencyInput,
+  type EnforcePackConsistencyResult,
+} from "./pack-consistency";

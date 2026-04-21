@@ -1750,6 +1750,330 @@ async function run() {
     assertEq(finish.FINISH_OPACITY_MAX,        0.98, "FINISH_OPACITY_MAX");
   });
 
+  section("engines/style · pack consistency (Step 63)");
+
+  const pack       = await import("../apps/arkiol-core/src/engines/style/pack-consistency");
+  const themesLib  = await import("../apps/arkiol-core/src/engines/render/design-themes");
+
+  // Build a set of pack members off a shared base so we control which
+  // axes drift in each test. Cloning avoids mutating the real theme
+  // library that other tests read from.
+  const cloneTheme = (theme: any, overrides: any = {}): any => ({
+    ...theme,
+    palette:     { ...theme.palette,     ...(overrides.palette     ?? {}) },
+    typography:  { ...theme.typography,  ...(overrides.typography  ?? {}) },
+    ctaStyle:    { ...theme.ctaStyle,    ...(overrides.ctaStyle    ?? {}) },
+    background:  overrides.background  ?? theme.background,
+    decorations: overrides.decorations ?? theme.decorations.slice(),
+    tones:       overrides.tones       ?? theme.tones.slice(),
+    id:          overrides.id          ?? theme.id,
+    name:        overrides.name        ?? theme.name,
+  });
+
+  test("extractDecorationFingerprint counts kinds, finds dominants, reads bgKind", () => {
+    const theme: any = {
+      id: "t", name: "T", tones: [], colorMoods: [],
+      palette: { background: "#fff", surface: "#fff", primary: "#000",
+                 secondary: "#000", text: "#000", textMuted: "#000", highlight: "#000" },
+      background: { kind: "linear_gradient", colors: ["#000","#fff"], angle: 90 },
+      typography: {
+        display: "Montserrat", body: "Lato",
+        headline: { fontFamily: "Montserrat", fontWeight: 800, color: "#000" },
+        subhead:  { fontFamily: "Lato",       fontWeight: 500, color: "#000" },
+        body_text:{ fontFamily: "Lato",       fontWeight: 400, color: "#000" },
+        cta:      { fontFamily: "Montserrat", fontWeight: 700, color: "#fff" },
+        badge:    { fontFamily: "Montserrat", fontWeight: 700, color: "#fff" },
+        eyebrow:  { fontFamily: "Montserrat", fontWeight: 600, color: "#000" },
+      },
+      decorations: [
+        { kind: "circle", x:0, y:0, r:1, color:"#000", opacity:1 },
+        { kind: "circle", x:0, y:0, r:1, color:"#000", opacity:1 },
+        { kind: "circle", x:0, y:0, r:1, color:"#000", opacity:1 },
+        { kind: "ribbon", x:0, y:0, w:1, h:1, color:"#000", text:"x", textColor:"#fff", fontSize:10, opacity:1, corner:"tl" },
+        { kind: "ribbon", x:0, y:0, w:1, h:1, color:"#000", text:"x", textColor:"#fff", fontSize:10, opacity:1, corner:"tl" },
+        { kind: "dots_grid", x:0, y:0, cols:1, rows:1, gap:1, r:1, color:"#000", opacity:1 },
+      ],
+      ctaStyle: { backgroundColor: "#000", textColor: "#fff", borderRadius: 8, paddingH: 16, paddingV: 8 },
+    };
+    const fp = pack.extractDecorationFingerprint(theme);
+    assertEq(fp.total, 6, "total counted");
+    assertEq(fp.kindCounts.circle,    3, "circle count");
+    assertEq(fp.kindCounts.ribbon,    2, "ribbon count");
+    assertEq(fp.kindCounts.dots_grid, 1, "dots_grid count");
+    assertEq(fp.dominant[0], "circle", "dominant first");
+    assertEq(fp.dominant[1], "ribbon", "dominant second");
+    assertEq(fp.bgKind,  "linear_gradient", "bgKind captured");
+    assert(fp.kindSet.includes("circle") && fp.kindSet.includes("ribbon") && fp.kindSet.includes("dots_grid"),
+      "kindSet sorted union");
+  });
+
+  test("buildPackCohesionProfile picks core vocabulary shared by >=60% of members", () => {
+    const base = themesLib.THEMES[0];
+    const members = [
+      cloneTheme(base, { id: "m1", decorations: [
+        { kind: "circle", x:0, y:0, r:1, color:"#000", opacity:1 },
+        { kind: "rect",   x:0, y:0, w:1, h:1, color:"#000", opacity:1, rx:0 },
+      ]}),
+      cloneTheme(base, { id: "m2", decorations: [
+        { kind: "circle", x:0, y:0, r:1, color:"#000", opacity:1 },
+        { kind: "rect",   x:0, y:0, w:1, h:1, color:"#000", opacity:1, rx:0 },
+        { kind: "blob",   x:0, y:0, size:1, color:"#000", opacity:1, seed:1 },
+      ]}),
+      cloneTheme(base, { id: "m3", decorations: [
+        { kind: "circle",    x:0, y:0, r:1, color:"#000", opacity:1 },
+        { kind: "half_circle", x:0, y:0, r:1, color:"#000", opacity:1, rotation:0 },
+      ]}),
+    ];
+    const profile = pack.buildPackCohesionProfile(members);
+    assertEq(profile.memberCount, 3, "member count");
+    assert(profile.coreDecorations.includes("circle"),
+      `core vocab should include circle (shared by all), got: ${profile.coreDecorations.join(",")}`);
+    assert(!profile.coreDecorations.includes("blob"),
+      `core vocab should NOT include blob (only 1/3), got: ${profile.coreDecorations.join(",")}`);
+    assert(profile.vocabulary.includes("blob"),
+      "vocabulary is full union, should include blob");
+  });
+
+  test("scorePackCohesion reports curated verdict for coherent pack", () => {
+    const base = themesLib.THEMES[0];
+    const pack3 = [
+      cloneTheme(base, { id: "a" }),
+      cloneTheme(base, { id: "b" }),
+      cloneTheme(base, { id: "c" }),
+    ];
+    const report = pack.scorePackCohesion(pack3);
+    assert(report.verdict !== "fragmented",
+      `coherent pack reported ${report.verdict} (score=${report.score.toFixed(2)}); violations=${report.violations.join(";")}`);
+    assert(report.score >= 0.50,
+      `coherent pack score too low: ${report.score.toFixed(2)}`);
+  });
+
+  test("scorePackCohesion marks palette-scattered pack as fragmented", () => {
+    const base = themesLib.THEMES[0];
+    const pack3 = [
+      cloneTheme(base, { id: "a",
+        palette: { primary: "#ff0000", secondary: "#00ff00", background: "#000000", text: "#ffffff" },
+        typography: { display: "Montserrat", body: "Lato" },
+        tones: ["energetic"],
+        decorations: [
+          { kind: "circle", x:0, y:0, r:1, color:"#f00", opacity:1 },
+        ],
+      }),
+      cloneTheme(base, { id: "b",
+        palette: { primary: "#0066ff", secondary: "#ffcc00", background: "#ffffff", text: "#111111" },
+        typography: { display: "Playfair Display", body: "Cormorant Garamond" },
+        tones: ["luxury"],
+        decorations: [
+          { kind: "blob", x:0, y:0, size:1, color:"#fff", opacity:1, seed:1 },
+        ],
+      }),
+      cloneTheme(base, { id: "c",
+        palette: { primary: "#00aa66", secondary: "#ff9900", background: "#eeeeee", text: "#222222" },
+        typography: { display: "Bebas Neue", body: "Nunito" },
+        tones: ["playful"],
+        decorations: [
+          { kind: "triangle", x:0, y:0, size:1, color:"#0a6", opacity:1, rotation:0 },
+          { kind: "cross",    x:0, y:0, size:1, thickness:1, color:"#0a6", opacity:1, rotation:0 },
+        ],
+      }),
+    ];
+    const report = pack.scorePackCohesion(pack3);
+    assertEq(report.verdict, "fragmented",
+      `expected fragmented, got ${report.verdict} (score=${report.score.toFixed(2)}); violations=${report.violations.join(";")}`);
+    assert(report.subscores.palette < 0.85,
+      `palette subscore should reflect scatter: ${report.subscores.palette.toFixed(2)}`);
+  });
+
+  test("scorePackCohesion rejects decoration-fragmented packs via subscore", () => {
+    const base = themesLib.THEMES[0];
+    const pack3 = [
+      cloneTheme(base, { id: "a", decorations: [
+        { kind: "ribbon",       x:0, y:0, w:1, h:1, color:"#000", text:"x", textColor:"#fff", fontSize:10, opacity:1, corner:"tl" },
+      ]}),
+      cloneTheme(base, { id: "b", decorations: [
+        { kind: "checklist",    x:0, y:0, w:1, items:["a","b"], color:"#000", checkColor:"#0f0", fontSize:10, opacity:1 },
+      ]}),
+      cloneTheme(base, { id: "c", decorations: [
+        { kind: "starburst",    x:0, y:0, r:1, rays:5, color:"#000", opacity:1, rotation:0 },
+      ]}),
+    ];
+    const report = pack.scorePackCohesion(pack3);
+    // No kind is shared by >=60 % of members → core vocabulary is empty
+    // → decoration subscore is 0 → violations should mention fragmentation.
+    assert(report.subscores.decoration < 0.3,
+      `decoration subscore should be near 0: ${report.subscores.decoration.toFixed(2)}`);
+    assert(report.violations.some((v: string) => v.startsWith("decoration_fragmented")),
+      `expected decoration_fragmented violation, got: ${report.violations.join(";")}`);
+  });
+
+  test("scorePackCohesion flags tone-scattered packs", () => {
+    const base = themesLib.THEMES[0];
+    const pack3 = [
+      cloneTheme(base, { id: "a", tones: ["professional"] }),
+      cloneTheme(base, { id: "b", tones: ["playful"] }),
+      cloneTheme(base, { id: "c", tones: ["urgent"] }),
+    ];
+    const report = pack.scorePackCohesion(pack3);
+    assert(report.violations.some((v: string) => v.startsWith("tone_scattered")),
+      `expected tone_scattered violation, got: ${report.violations.join(";")}`);
+    assert(report.subscores.tone < pack.PACK_TONE_CONSENSUS_FLOOR,
+      `tone subscore should fall below consensus floor: ${report.subscores.tone.toFixed(2)}`);
+  });
+
+  test("scorePackCohesion flags uniform layouts as missing variation", () => {
+    const base = themesLib.THEMES[0];
+    const identicalDeco = [
+      { kind: "circle", x:10, y:10, r:5, color:"#000", opacity:1 },
+      { kind: "circle", x:30, y:30, r:5, color:"#000", opacity:1 },
+    ];
+    const pack3 = [
+      cloneTheme(base, { id: "a", decorations: identicalDeco.slice(),
+        background: { kind: "solid", color: "#fff" } }),
+      cloneTheme(base, { id: "b", decorations: identicalDeco.slice(),
+        background: { kind: "solid", color: "#fff" } }),
+      cloneTheme(base, { id: "c", decorations: identicalDeco.slice(),
+        background: { kind: "solid", color: "#fff" } }),
+    ];
+    const report = pack.scorePackCohesion(pack3);
+    assert(report.subscores.layout < 0.4,
+      `identical pack should score low layout variation, got: ${report.subscores.layout.toFixed(2)}`);
+  });
+
+  test("scorePackCohesion tags outliers and flips verdict accordingly", () => {
+    const base = themesLib.THEMES[0];
+    const pack4 = [
+      cloneTheme(base, { id: "a" }),
+      cloneTheme(base, { id: "b" }),
+      cloneTheme(base, { id: "c" }),
+      cloneTheme(base, { id: "outlier",
+        palette: { primary: "#ff00aa", secondary: "#00ffcc", background: "#0a0a0a", text: "#ffffff" },
+        typography: { display: "Bebas Neue", body: "Cormorant Garamond" },
+        tones: ["luxury"],
+        decorations: [
+          { kind: "noise_overlay", opacity: 0.1 },
+        ],
+      }),
+    ];
+    const report = pack.scorePackCohesion(pack4);
+    const outlier = report.members.find((m: any) => m.themeId === "outlier");
+    assert(outlier, "outlier member missing from report");
+    assertEq(outlier!.memberVerdict, "outlier",
+      `expected outlier verdict, got ${outlier!.memberVerdict} (score=${outlier!.cohesionScore.toFixed(2)})`);
+    assert(report.verdict === "loose" || report.verdict === "fragmented",
+      `one outlier should flip verdict to loose/fragmented, got ${report.verdict}`);
+  });
+
+  test("filterFragmentedMembers drops outliers while keeping aligned + drifting", () => {
+    const base = themesLib.THEMES[0];
+    const themes = [
+      cloneTheme(base, { id: "a" }),
+      cloneTheme(base, { id: "b" }),
+      cloneTheme(base, { id: "c" }),
+      cloneTheme(base, { id: "outlier",
+        palette: { primary: "#ff00aa", secondary: "#00ffcc", background: "#0a0a0a", text: "#ffffff" },
+        typography: { display: "Bebas Neue", body: "Cormorant Garamond" },
+        tones: ["luxury"],
+        decorations: [{ kind: "noise_overlay", opacity: 0.1 }],
+      }),
+    ];
+    const report = pack.scorePackCohesion(themes);
+    const { kept, dropped } = pack.filterFragmentedMembers(themes, report);
+    assert(dropped.length >= 1, "expected at least one drop");
+    assert(dropped.some((d: any) => d.theme.id === "outlier"), "outlier theme not dropped");
+    assert(kept.every((t: any) => t.id !== "outlier"), "outlier kept incorrectly");
+  });
+
+  test("annotatePackCohesion tags each content with the member signal", () => {
+    const base = themesLib.THEMES[0];
+    const themes = [cloneTheme(base, { id: "a" }), cloneTheme(base, { id: "b" })];
+    const contents: any[] = [{ textContents: [] }, { textContents: [] }];
+    const report = pack.scorePackCohesion(themes);
+    pack.annotatePackCohesion(contents, themes, report);
+    for (let i = 0; i < contents.length; i++) {
+      const sig = contents[i]._packCohesion;
+      assert(sig, `content[${i}] missing _packCohesion signal`);
+      assert(typeof sig.packScore === "number",     "packScore attached");
+      assert(typeof sig.memberScore === "number",   "memberScore attached");
+      assert(["curated","loose","fragmented"].includes(sig.packVerdict),
+        `packVerdict invalid: ${sig.packVerdict}`);
+      assert(["aligned","drifting","outlier"].includes(sig.memberVerdict),
+        `memberVerdict invalid: ${sig.memberVerdict}`);
+    }
+  });
+
+  test("annotatePackCohesion tolerates null/undefined contents (failed candidates)", () => {
+    const base = themesLib.THEMES[0];
+    const themes = [cloneTheme(base, { id: "a" }), cloneTheme(base, { id: "b" })];
+    const report = pack.scorePackCohesion(themes);
+    pack.annotatePackCohesion([null, undefined] as any, themes, report);
+    // No throw = pass.
+  });
+
+  test("annotatePackCohesion throws on length mismatch to catch coordinator bugs", () => {
+    const base = themesLib.THEMES[0];
+    const themes = [cloneTheme(base, { id: "a" }), cloneTheme(base, { id: "b" })];
+    const report = pack.scorePackCohesion(themes);
+    let threw = false;
+    try { pack.annotatePackCohesion([{} as any], themes, report); } catch { threw = true; }
+    assert(threw, "expected length-mismatch throw");
+  });
+
+  test("enforcePackConsistency drops outliers when requested and returns matching contents", () => {
+    const base = themesLib.THEMES[0];
+    const themes = [
+      cloneTheme(base, { id: "a" }),
+      cloneTheme(base, { id: "b" }),
+      cloneTheme(base, { id: "c" }),
+      cloneTheme(base, { id: "outlier",
+        palette: { primary: "#ff00aa", secondary: "#00ffcc", background: "#0a0a0a", text: "#ffffff" },
+        typography: { display: "Bebas Neue", body: "Cormorant Garamond" },
+        tones: ["luxury"],
+        decorations: [{ kind: "noise_overlay", opacity: 0.1 }],
+      }),
+    ];
+    const contents: any[] = themes.map((t: any, i: number) => ({ textContents: [], marker: t.id + "-" + i }));
+    const out = pack.enforcePackConsistency({ themes, contents, dropOutliers: true });
+    assert(out.themes.length === out.contents.length,
+      `themes/contents length mismatch: ${out.themes.length} vs ${out.contents.length}`);
+    assert(out.themes.every((t: any) => t.id !== "outlier"), "outlier not dropped");
+    assert(out.dropped.length >= 1, "drops array empty");
+  });
+
+  test("enforcePackConsistency without dropOutliers keeps every member but still annotates", () => {
+    const base = themesLib.THEMES[0];
+    const themes = [
+      cloneTheme(base, { id: "a" }),
+      cloneTheme(base, { id: "b" }),
+    ];
+    const contents: any[] = [{ textContents: [] }, { textContents: [] }];
+    const out = pack.enforcePackConsistency({ themes, contents, dropOutliers: false });
+    assertEq(out.themes.length, 2, "all themes kept");
+    assertEq(out.dropped.length, 0, "nothing dropped");
+    assert(contents[0]._packCohesion && contents[1]._packCohesion, "both contents annotated");
+  });
+
+  test("scorePackCohesion throws on empty pack", () => {
+    let threw = false;
+    try { pack.scorePackCohesion([]); } catch { threw = true; }
+    assert(threw, "expected throw on empty pack");
+  });
+
+  test("scorePackCohesion single-member pack is curated (variation trivially satisfied)", () => {
+    const base = themesLib.THEMES[0];
+    const report = pack.scorePackCohesion([cloneTheme(base, { id: "only" })]);
+    assertEq(report.verdict, "curated",
+      `single-member pack should be curated, got ${report.verdict} (score=${report.score.toFixed(2)})`);
+  });
+
+  test("exports expected pack-consistency thresholds", () => {
+    assertEq(pack.PACK_COHESION_CURATED,               0.72, "PACK_COHESION_CURATED");
+    assertEq(pack.PACK_COHESION_FRAGMENTED,            0.50, "PACK_COHESION_FRAGMENTED");
+    assertEq(pack.PACK_DECORATION_MIN_CORE_OVERLAP,    0.30, "PACK_DECORATION_MIN_CORE_OVERLAP");
+    assertEq(pack.PACK_LAYOUT_MIN_VARIATION,           0.12, "PACK_LAYOUT_MIN_VARIATION");
+    assertEq(pack.PACK_TONE_CONSENSUS_FLOOR,           0.55, "PACK_TONE_CONSENSUS_FLOOR");
+    assertEq(pack.PACK_MEMBER_OUTLIER_FLOOR,           0.45, "PACK_MEMBER_OUTLIER_FLOOR");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
@@ -1817,6 +2141,59 @@ async function run() {
     const verdict = reject.evaluateRejection(theme, contentWithVerdict);
     assert(!verdict.hardReasons.some(r => r.startsWith("unfinished_polish")),
       `unfinished_polish should not fire for finished verdict, got: ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("evaluateRejection rejects content flagged as pack outlier (Step 63)", () => {
+    const theme = themesMod.THEMES[0];
+    const contentWithPack: any = {
+      backgroundColor: "#ffffff",
+      textContents: [],
+      _finishVerdict: { verdict: "finished", polishScore: 1, errors: 0, warnings: 0 },
+      _packCohesion: {
+        packVerdict:   "fragmented",
+        packScore:     0.30,
+        memberVerdict: "outlier",
+        memberScore:   0.20,
+        coreOverlap:   0.0,
+      },
+    };
+    const verdict = reject.evaluateRejection(theme, contentWithPack);
+    assert(verdict.hardReasons.some(r => r.startsWith("pack_outlier")),
+      `expected pack_outlier, got ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("evaluateRejection keeps aligned pack members", () => {
+    const theme = themesMod.THEMES[0];
+    const contentWithPack: any = {
+      backgroundColor: "#ffffff",
+      textContents: [],
+      _finishVerdict: { verdict: "finished", polishScore: 1, errors: 0, warnings: 0 },
+      _packCohesion: {
+        packVerdict:   "curated",
+        packScore:     0.92,
+        memberVerdict: "aligned",
+        memberScore:   0.90,
+        coreOverlap:   0.85,
+      },
+    };
+    const verdict = reject.evaluateRejection(theme, contentWithPack);
+    assert(!verdict.hardReasons.some(r => r.startsWith("pack_outlier")),
+      `pack_outlier fired for aligned member: ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("filterCandidateBatch annotates packCohesion on multi-candidate batches", () => {
+    const base = themesMod.THEMES[0];
+    const items = [
+      { theme: base, label: "a", content: { textContents: [] } as any },
+      { theme: base, label: "b", content: { textContents: [] } as any },
+      { theme: base, label: "c", content: { textContents: [] } as any },
+    ];
+    const result = reject.filterCandidateBatch(items, { minAccepted: 0 });
+    assert(result.packCohesion, "packCohesion rollup missing from multi-item batch");
+    assert(typeof result.packCohesion!.score === "number", "packCohesion.score missing");
+    // And the individual contents should have been tagged.
+    const tagged = items.filter(i => (i.content as any)._packCohesion).length;
+    assert(tagged === items.length, `expected all ${items.length} contents tagged, got ${tagged}`);
   });
 
   test("filterCandidateBatch separates accepted vs rejected", () => {

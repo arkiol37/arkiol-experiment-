@@ -42,6 +42,11 @@ import {
   TEMPLATE_TYPE_CONFIGS,
   type TemplateType,
 } from "../templates/template-types";
+import {
+  annotatePackCohesion,
+  scorePackCohesion,
+  type PackCohesionReport,
+} from "../style/pack-consistency";
 
 // ── Rule shape ───────────────────────────────────────────────────────────────
 
@@ -754,6 +759,34 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
+  // ── Pack outlier (hard, Step 63) ─────────────────────────────────────────
+  // Pack-cohesion enforcement (scorePackCohesion) tags each candidate with
+  // `_packCohesion` carrying a member verdict: "aligned" | "drifting" |
+  // "outlier". "outlier" means the candidate's palette / fonts / decoration
+  // vocabulary drifts so far from the rest of the pack that it visibly
+  // breaks the curated-collection read. We drop those so the gallery stops
+  // surfacing themes that are good in isolation but wrong for this batch.
+  // Skips when the pack hasn't been scored yet (single-candidate paths).
+  {
+    id:          "pack_outlier",
+    severity:    "hard",
+    description: "Candidate drifts so far from the pack profile (palette / fonts / decoration vocabulary / tone) that it breaks the curated-collection read.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const pc = (content as any)._packCohesion as
+        | {
+            packVerdict:   "curated" | "loose" | "fragmented";
+            packScore:     number;
+            memberVerdict: "aligned" | "drifting" | "outlier";
+            memberScore:   number;
+            coreOverlap:   number;
+          }
+        | undefined;
+      if (!pc || pc.memberVerdict !== "outlier") return null;
+      return `pack_outlier:member=${pc.memberScore.toFixed(2)}|pack=${pc.packVerdict}|overlap=${pc.coreOverlap.toFixed(2)}`;
+    },
+  },
+
   // ── Low diversity (soft) ─────────────────────────────────────────────────
   {
     id:          "low_diversity",
@@ -826,6 +859,8 @@ export interface BatchFilterResult<T extends BatchFilterItem> {
     reason:    "hard_rules" | "near_duplicate" | "kept_as_floor_fill";
     similarTo?: string;      // label of the item this one was a near-dup of
   }>;
+  // Step 63: pack cohesion rollup when pack-consistency enforcement runs.
+  packCohesion?: PackCohesionReport;
 }
 
 export interface BatchFilterOptions {
@@ -835,6 +870,11 @@ export interface BatchFilterOptions {
   // Cap on how many duplicates to allow before rejecting a similar item.
   // Default: 0 — first accepted wins, every later similar is rejected.
   similarityCap?:  number;
+  // Step 63: run pack-cohesion annotation before applying hard rules so
+  // the pack_outlier rule can drop members that break the curated read.
+  // Default: true when there are >= 2 candidates, false otherwise (the
+  // cohesion verdict only makes sense across a pack).
+  enforcePackConsistency?: boolean;
 }
 
 export function filterCandidateBatch<T extends BatchFilterItem>(
@@ -843,6 +883,22 @@ export function filterCandidateBatch<T extends BatchFilterItem>(
 ): BatchFilterResult<T> {
   const minAccepted   = Math.max(0, opts.minAccepted ?? 1);
   const similarityCap = Math.max(0, opts.similarityCap ?? 0);
+  const enforcePack   = opts.enforcePackConsistency ?? (items.length >= 2);
+
+  // Step 63: score + annotate pack cohesion *before* running hard rules so
+  // the pack_outlier rule can gate on the _packCohesion signal. Skip for
+  // single-candidate batches where pack cohesion is meaningless.
+  let packCohesion: PackCohesionReport | undefined;
+  if (enforcePack && items.length >= 2) {
+    try {
+      packCohesion = scorePackCohesion(items.map(i => i.theme));
+      annotatePackCohesion(
+        items.map(i => i.content ?? null),
+        items.map(i => i.theme),
+        packCohesion,
+      );
+    } catch { /* pack scoring is best-effort; skip on malformed input */ }
+  }
 
   // 1. Evaluate every candidate up-front.
   const verdicts = items.map((item, idx) => {
@@ -919,5 +975,5 @@ export function filterCandidateBatch<T extends BatchFilterItem>(
     }
   }
 
-  return { accepted, rejected };
+  return { accepted, rejected, ...(packCohesion ? { packCohesion } : {}) };
 }
