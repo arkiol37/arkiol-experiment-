@@ -526,7 +526,7 @@ export async function buildUltimateSvgContent(
           [{ role: "system", content: systemPrompt }, { role: "user", content: "Generate text content as JSON." }],
           { model: "gpt-4o", temperature: 0.7, max_tokens: 800 },
         ),
-        { maxAttempts: 3 },
+        { maxAttempts: 2, baseDelayMs: 300 },
       );
     } catch (e: any) {
       violations.push("AI failed: " + e.message);

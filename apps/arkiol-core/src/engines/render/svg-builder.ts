@@ -131,7 +131,7 @@ Rules:
       ],
       { model: "gpt-4o", temperature: 0.65, max_tokens: 1000 }
     ),
-    { maxAttempts: 3 }
+    { maxAttempts: 2, baseDelayMs: 300 }
   );
 
   const parsed = SvgContentSchema.safeParse(raw);

@@ -128,10 +128,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const startedAt = Date.now();
     const deadlineAt = startedAt + GENERATION_BUDGET_MS;
     const timeLeft = () => Math.max(0, deadlineAt - Date.now());
-    // Run up to this many attempts in parallel. Most of each attempt's
-    // wall-clock is spent awaiting OpenAI, so 3-way concurrency cuts
-    // total runtime roughly 3× without saturating CPU or rate limits.
-    const CONCURRENCY = 3;
+    // Fire all requested variations in parallel (plus a small spare-
+    // capacity headroom so the first wave of rejects can re-fill before
+    // the second batch launches). Each attempt is ~all-I/O-waiting on
+    // OpenAI, so we can fan out freely — the bottleneck is the remote
+    // model, not local CPU or the Node event loop.
+    const CONCURRENCY = Math.min(6, totalVariations + 2);
 
     interface RenderedCandidate {
       vi:             number;
@@ -266,6 +268,31 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     //   3. less than ~1.2× the per-batch time estimate remains in the
     //      budget (launching another batch would get killed mid-flight).
     const PER_BATCH_MS_ESTIMATE = 45_000;
+
+    // Per-attempt progress heartbeat. Without this, progress only moves
+    // when an entire batch of N variations settles — a 45-second freeze
+    // at a single percentage value, which the UI surfaces as "Analyzing
+    // prompt… 5%" and the user perceives as hung. Bumping progress as
+    // each attempt finishes (success or failure) gives the polling
+    // frontend something visible to render every few seconds and drives
+    // the stage indicator (0-20% analyze → 20-40% layout → 40-60%
+    // variations → 60-80% ranking → 80-100% prepare results) through
+    // its full sweep.
+    let completedAttempts = 0;
+    let lastProgress = 20;
+    const heartbeatProgress = async () => {
+      completedAttempts++;
+      // Span 20 → 85, weighted by finished attempts vs. the bound we
+      // actually plan to hit. The 90% and 100% checkpoints are reserved
+      // for the post-loop S3 upload + final COMPLETED write.
+      const divisor = Math.max(totalVariations, Math.min(MAX_ATTEMPTS, attemptedCount || 1));
+      const target  = 20 + Math.floor((Math.min(completedAttempts, divisor) / divisor) * 65);
+      if (target > lastProgress) {
+        lastProgress = target;
+        await prisma.job.update({ where: { id: jobId }, data: { progress: target } }).catch(() => {});
+      }
+    };
+
     while (
       acceptedCount() < totalVariations &&
       attemptedCount < MAX_ATTEMPTS &&
@@ -279,10 +306,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       for (let i = 0; i < batchSize; i++) batchVis.push(attemptedCount + i);
       attemptedCount += batchSize;
 
-      const progressBase = 20 + Math.floor((Math.min(acceptedCount(), totalVariations) / totalVariations) * 65);
-      await prisma.job.update({ where: { id: jobId }, data: { progress: progressBase } }).catch(() => {});
-
-      const batchResults = await Promise.allSettled(batchVis.map(runOneAttempt));
+      // `.finally()` is called regardless of accept/reject so the bar
+      // keeps moving even when a variation hard-fails and we re-launch.
+      const batchResults = await Promise.allSettled(
+        batchVis.map(vi => runOneAttempt(vi).finally(() => heartbeatProgress())),
+      );
 
       for (let i = 0; i < batchResults.length; i++) {
         const vi = batchVis[i];

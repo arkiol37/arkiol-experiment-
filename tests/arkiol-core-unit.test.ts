@@ -2780,6 +2780,94 @@ async function run() {
     );
   });
 
+  section("background worker · per-attempt UX invariants");
+
+  // Second round of hang-prevention fixes after the first fix left the
+  // UI frozen at "Analyzing prompt… 5%" for the full duration of a
+  // batch: the OpenAI SDK's own retry layer was wrapped in an
+  // application-level withRetry({ maxAttempts: 3, baseDelayMs: 1000 }),
+  // so worst-case per-call latency was SDK_timeout(60s) × 3 = ~3 minutes
+  // per model call — and there was no progress heartbeat inside a batch,
+  // so the bar didn't move until all 3 concurrent variations settled.
+  // These asserts pin the tighter caps in place.
+  const briefAnalyzerSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/engines/ai/brief-analyzer.ts"),
+    "utf-8",
+  );
+  const svgBuilderSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/engines/render/svg-builder.ts"),
+    "utf-8",
+  );
+  const svgBuilderUltSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/engines/render/svg-builder-ultimate.ts"),
+    "utf-8",
+  );
+  const structuredContentSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/engines/ai/structured-content.ts"),
+    "utf-8",
+  );
+
+  const hotPathRetrySources: Array<[string, string]> = [
+    ["brief-analyzer",      briefAnalyzerSrc],
+    ["svg-builder",         svgBuilderSrc],
+    ["svg-builder-ultimate", svgBuilderUltSrc],
+    ["structured-content",  structuredContentSrc],
+  ];
+
+  for (const [label, src] of hotPathRetrySources) {
+    test(`${label} caps withRetry to <= 2 attempts on chatJSON`, () => {
+      // Match every withRetry(... , { maxAttempts: N ... }) occurrence
+      // in the hot-path source and assert N <= 2. The SDK already
+      // handles transient errors — anything above 2 here stacks retries
+      // multiplicatively with the SDK layer and lets one stuck call
+      // burn the whole function lifetime.
+      const matches = [...src.matchAll(/withRetry\s*\([\s\S]*?maxAttempts:\s*(\d+)/g)];
+      assert(matches.length > 0, `${label} must call withRetry on chatJSON`);
+      for (const m of matches) {
+        const n = Number(m[1]);
+        assert(n <= 2, `${label} withRetry maxAttempts must be <= 2, got ${n}`);
+      }
+    });
+
+    test(`${label} caps withRetry baseDelayMs to <= 500ms on chatJSON`, () => {
+      // Exponential backoff with baseDelayMs=1000 adds 1+2s of idle
+      // wait per chain, multiplied across every variation — a meaningful
+      // fraction of the 240s budget just sleeping. Anything above 500ms
+      // is excessive once maxAttempts is also capped at 2.
+      const matches = [...src.matchAll(/withRetry\s*\([\s\S]*?baseDelayMs:\s*(\d+)/g)];
+      for (const m of matches) {
+        const n = Number(m[1]);
+        assert(n <= 500, `${label} withRetry baseDelayMs must be <= 500ms, got ${n}`);
+      }
+    });
+  }
+
+  test("inline worker fires a progress heartbeat as each attempt settles", () => {
+    assert(
+      /heartbeatProgress|lastProgress/.test(inlineGenSrc),
+      "inline worker must maintain a progress heartbeat so the UI bar moves during the batch, not only after it settles",
+    );
+    // The heartbeat must be wired into the per-promise lifecycle, not
+    // just called once outside the batch — otherwise we regress to the
+    // same "frozen at one %" symptom.
+    assert(
+      /\.finally\s*\(\s*\(\s*\)\s*=>\s*heartbeatProgress\s*\(\s*\)\s*\)/.test(inlineGenSrc),
+      "heartbeat must attach via .finally() on each variation promise so it fires on both success and reject",
+    );
+  });
+
+  test("inline worker scales CONCURRENCY with totalVariations", () => {
+    // Hard-coded CONCURRENCY=3 limits a 6-variation request to two
+    // serial batches. The ceiling of 6 comes from the Pro-tier
+    // /api/generate maxDuration budget (300s) — beyond that, parallel
+    // calls start saturating OpenAI rate limits and offer diminishing
+    // returns.
+    assert(
+      /CONCURRENCY\s*=\s*Math\.min\s*\(\s*6\s*,\s*totalVariations\s*\+\s*\d+\s*\)/.test(inlineGenSrc),
+      "CONCURRENCY must be computed as Math.min(6, totalVariations + N) so small requests all fire in parallel",
+    );
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

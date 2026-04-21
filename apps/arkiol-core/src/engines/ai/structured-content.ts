@@ -297,7 +297,7 @@ export async function generateStructuredContent(
         [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
         { model: "gpt-4o", temperature, max_tokens: 600 },
       ),
-      { maxAttempts: 2 },
+      { maxAttempts: 2, baseDelayMs: 300 },
     );
 
     const parsed = StructuredResponseSchema.safeParse(raw);
