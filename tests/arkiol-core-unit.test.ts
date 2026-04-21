@@ -1339,6 +1339,214 @@ async function run() {
     assertEq(typo.SINGLE_FONT_ZONE_THRESHOLD,         4,    "SINGLE_FONT_ZONE_THRESHOLD");
   });
 
+  section("engines/render · color harmony (Step 61)");
+
+  const harmony = await import("../apps/arkiol-core/src/engines/render/color-harmony");
+
+  // Canonical harmonious palette: analogous muted cools (blue + indigo)
+  // anchored on a near-white surface. Saturation mean and lightness mean
+  // sit inside the productivity category band, so the palette clears
+  // every rule when no category is set AND when productivity is.
+  const harmoniousPalette = (): any => ({
+    background: "#f4f7fb", // very pale cool tint
+    surface:    "#ffffff",
+    primary:    "#3b6ea5", // HSL ~(211, 0.47, 0.44) — muted blue
+    secondary:  "#6589b0", // HSL ~(211, 0.32, 0.54) — same family, softer
+    text:       "#0f172a", // slate 900 (effectively neutral)
+    textMuted:  "#475569", // slate 600 (effectively neutral)
+    highlight:  "#4a5aa0", // HSL ~(229, 0.37, 0.46) — indigo sibling, distinct
+  });
+
+  test("accepts a canonical harmonious palette (no errors)", () => {
+    const v = harmony.validateColorHarmony(harmoniousPalette());
+    const errors = v.filter(x => x.severity === "error");
+    assert(errors.length === 0,
+      `expected no errors, got: ${errors.map(x => x.rule + ":" + x.message).join("; ")}`);
+  });
+
+  test("flags palette_disharmony when core hues are scattered (no harmonic relation)", () => {
+    // Primary red, secondary lime, highlight purple — three saturated hues
+    // with no monochromatic/analogous/complementary/split/triadic fit.
+    const p = harmoniousPalette();
+    p.primary   = "#e11d48"; // rose 600 (~350°)
+    p.secondary = "#84cc16"; // lime 500 (~85°)
+    p.highlight = "#8b5cf6"; // violet 500 (~258°)
+    const v = harmony.validateColorHarmony(p);
+    assert(v.some(x => x.rule === "palette_disharmony" && x.severity === "error"),
+      `expected palette_disharmony error, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("flags saturation_clash when pastels mix with neon", () => {
+    const p = harmoniousPalette();
+    // #e0d1d1 is a desaturated pastel (HSL ~0°/0.19/0.85) and #ef4444 is
+    // a neon-ish red (HSL ~0°/0.84/0.60) — spread well above the cap.
+    // All three share the red/orange analogous slice, so only
+    // saturation_clash should fire.
+    p.primary   = "#e0d1d1";
+    p.secondary = "#ef4444";
+    p.highlight = "#f97316";
+    const v = harmony.validateColorHarmony(p);
+    assert(v.some(x => x.rule === "saturation_clash" && x.severity === "warning"),
+      `expected saturation_clash warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("flags harsh_gradient when endpoints cross the wheel at similar lightness", () => {
+    const p = harmoniousPalette();
+    p.gradient = {
+      type:   "linear" as const,
+      // #ff0000 (red, h=0, l=0.5) → #00ff00 (green, h=120, l=0.5): 120° hue
+      // jump, zero lightness delta — textbook harsh band.
+      colors: ["#ff0000", "#00ff00"],
+    };
+    const v = harmony.validateColorHarmony(p);
+    assert(v.some(x => x.rule === "harsh_gradient" && x.severity === "error"),
+      `expected harsh_gradient error, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("accepts gentle gradients that ramp lightness within a hue family", () => {
+    const p = harmoniousPalette();
+    p.gradient = {
+      type:   "linear" as const,
+      colors: ["#1e3a8a", "#60a5fa"], // same blue family, strong L ramp
+    };
+    const v = harmony.validateColorHarmony(p);
+    assert(!v.some(x => x.rule === "harsh_gradient"),
+      `expected no harsh_gradient, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("flags text_palette_mismatch when saturated text hue is orphaned", () => {
+    const p = harmoniousPalette();
+    // Palette sits around blue 210°/sky 200°/amber 40°. A saturated
+    // magenta text (~320°) is orphaned — nearest palette hue is >90° away.
+    p.text = "#c026d3"; // fuchsia 600
+    const v = harmony.validateColorHarmony(p);
+    assert(v.some(x => x.rule === "text_palette_mismatch" && x.severity === "warning"),
+      `expected text_palette_mismatch warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("allows neutral text regardless of palette hues (no mismatch)", () => {
+    const p = harmoniousPalette();
+    p.text = "#111111"; // near-black, saturation effectively zero
+    const v = harmony.validateColorHarmony(p);
+    assert(!v.some(x => x.rule === "text_palette_mismatch"),
+      `expected no text_palette_mismatch for neutral text, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("flags category_palette_drift when palette contradicts category mood", () => {
+    const p = harmoniousPalette();
+    // Recolor the whole palette into warm pinks/oranges — then claim
+    // "business" category. Business wants cool + low saturation; this
+    // should drift on temperature, saturation, and avoid-family.
+    p.background = "#fff7ed"; // warm cream
+    p.primary    = "#ec4899"; // pink 500
+    p.secondary  = "#f97316"; // orange 500
+    p.highlight  = "#facc15"; // yellow 400
+    p.category   = "business";
+    const v = harmony.validateColorHarmony(p);
+    assert(v.some(x => x.rule === "category_palette_drift" && x.severity === "warning"),
+      `expected category_palette_drift warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("accepts a productivity palette that matches its category mood", () => {
+    const p = harmoniousPalette();
+    p.category = "productivity";
+    const v = harmony.validateColorHarmony(p);
+    assert(!v.some(x => x.rule === "category_palette_drift"),
+      `expected no category_palette_drift, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("flags accent_indistinct when highlight clones primary", () => {
+    const p = harmoniousPalette();
+    p.primary   = "#2563eb";
+    p.highlight = "#2966ea"; // 2° hue shift, Δs/Δl well under threshold
+    const v = harmony.validateColorHarmony(p);
+    assert(v.some(x => x.rule === "accent_indistinct" && x.severity === "warning"),
+      `expected accent_indistinct warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("allows neutral highlights without flagging accent_indistinct", () => {
+    const p = harmoniousPalette();
+    p.highlight = "#f8fafc"; // near-white, effectively neutral
+    const v = harmony.validateColorHarmony(p);
+    assert(!v.some(x => x.rule === "accent_indistinct"),
+      `expected no accent_indistinct for neutral highlight, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("detectHarmonic classifies a monochromatic cluster", () => {
+    // Three hues within 15°.
+    assertEq(harmony.detectHarmonic([210, 215, 220]), "monochromatic", "monochromatic cluster");
+  });
+
+  test("detectHarmonic classifies an analogous slice", () => {
+    // Hues within 40° total spread.
+    assertEq(harmony.detectHarmonic([200, 220, 235]), "analogous", "analogous slice");
+  });
+
+  test("detectHarmonic classifies complementary pairs", () => {
+    assertEq(harmony.detectHarmonic([30, 210]), "complementary", "complementary pair");
+  });
+
+  test("detectHarmonic classifies triadic layouts", () => {
+    assertEq(harmony.detectHarmonic([0, 120, 240]), "triadic", "textbook triadic");
+  });
+
+  test("detectHarmonic returns none for scattered incompatible hues", () => {
+    assertEq(harmony.detectHarmonic([0, 80, 260]), "none", "scattered hues");
+  });
+
+  test("hueFamily classifies family boundaries", () => {
+    assertEq(harmony.hueFamily("#ef4444"), "red",    "red 500 → red");
+    assertEq(harmony.hueFamily("#f97316"), "orange", "orange 500 → orange");
+    assertEq(harmony.hueFamily("#facc15"), "yellow", "yellow 400 → yellow");
+    assertEq(harmony.hueFamily("#22c55e"), "green",  "green 500 → green");
+    assertEq(harmony.hueFamily("#14b8a6"), "teal",   "teal 500 → teal");
+    assertEq(harmony.hueFamily("#3b82f6"), "blue",   "blue 500 → blue");
+    assertEq(harmony.hueFamily("#8b5cf6"), "indigo", "violet 500 → indigo");
+    assertEq(harmony.hueFamily("#ec4899"), "pink",   "pink 500 → pink");
+    assertEq(harmony.hueFamily("#737373"), "neutral","gray → neutral");
+  });
+
+  test("warmthOf classifies warm / cool / neutral correctly", () => {
+    assertEq(harmony.warmthOf("#ef4444"), "warm",    "red is warm");
+    assertEq(harmony.warmthOf("#3b82f6"), "cool",    "blue is cool");
+    assertEq(harmony.warmthOf("#737373"), "neutral", "gray is neutral");
+  });
+
+  test("hexToHsl returns a sane zero for malformed input", () => {
+    const h = harmony.hexToHsl("not-a-color");
+    assertEq(h.h, 0, "h=0");
+    assertEq(h.s, 0, "s=0");
+    assertEq(h.l, 0, "l=0");
+  });
+
+  test("hueDistance returns the shortest angular distance", () => {
+    assertEq(harmony.hueDistance(10, 350), 20,  "wraps over 360");
+    assertEq(harmony.hueDistance(0,  180), 180, "diameter");
+    assertEq(harmony.hueDistance(90, 90),  0,   "identity");
+  });
+
+  test("CATEGORY_PALETTE_TARGETS covers every AssetCategory", () => {
+    const expected = [
+      "productivity", "wellness", "education", "business",
+      "fitness", "beauty", "travel", "marketing", "motivation",
+    ];
+    for (const c of expected) {
+      assert(harmony.CATEGORY_PALETTE_TARGETS[c as any] !== undefined,
+        `missing category target for ${c}`);
+    }
+  });
+
+  test("exports expected color-harmony thresholds", () => {
+    assertEq(harmony.MAX_SATURATION_SPREAD,          0.55, "MAX_SATURATION_SPREAD");
+    assertEq(harmony.HARSH_GRADIENT_HUE_DISTANCE,    60,   "HARSH_GRADIENT_HUE_DISTANCE");
+    assertEq(harmony.HARSH_GRADIENT_LIGHTNESS_DELTA, 0.15, "HARSH_GRADIENT_LIGHTNESS_DELTA");
+    assertEq(harmony.TEXT_PALETTE_MAX_HUE_DISTANCE,  45,   "TEXT_PALETTE_MAX_HUE_DISTANCE");
+    assertEq(harmony.ACCENT_MIN_HUE_DISTANCE,        15,   "ACCENT_MIN_HUE_DISTANCE");
+    assertEq(harmony.ACCENT_MIN_SATURATION_DELTA,    0.10, "ACCENT_MIN_SATURATION_DELTA");
+    assertEq(harmony.ACCENT_MIN_LIGHTNESS_DELTA,     0.08, "ACCENT_MIN_LIGHTNESS_DELTA");
+    assertEq(harmony.NEUTRAL_SATURATION_THRESHOLD,   0.12, "NEUTRAL_SATURATION_THRESHOLD");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

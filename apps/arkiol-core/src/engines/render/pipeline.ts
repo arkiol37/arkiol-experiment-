@@ -48,6 +48,7 @@ import { validatePlacementStructure } from "../assets/placement-rules";
 import { validateVisualDominance }    from "../assets/visual-dominance";
 import { validateCompositionStructure } from "../assets/composition-structure";
 import { validateTypographyHierarchy, buildTypographyProfile } from "./typography-hierarchy";
+import { validateColorHarmony } from "./color-harmony";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -1192,6 +1193,52 @@ async function renderAssetInner(
     }
   } catch (tErr: any) {
     violations.push(`typography_hierarchy:skipped — ${tErr?.message}`);
+  }
+
+  // ── Step 61: Color harmony enforcement ───────────────────────────────
+  // Palette-level checks on the finalised theme. Catches random-hue
+  // combinations, saturation clashes, harsh gradients, text colours
+  // orphaned from the palette, and drift from the category's expected
+  // mood. Runs alongside the existing WCAG contrast + hue-bucket
+  // fragmentation checks rather than replacing them.
+  try {
+    const finalContent = buildResult.content as SvgContent;
+    const finalTheme   = finalContent._selectedTheme;
+    if (finalTheme) {
+      const p = finalTheme.palette;
+      // Infer category from brief text so the category-drift check has
+      // something to compare against. Duplicated from the pattern-signature
+      // block below — cheap enough to recompute, and keeps this step
+      // self-contained without reaching into later pipeline state.
+      const harmonyCategory = (() => {
+        try {
+          const text = [input.brief.intent, input.brief.headline, ...(input.brief.keywords ?? [])]
+            .filter(Boolean).join(" ");
+          return inferCategoryFromText(text) ?? undefined;
+        } catch { return undefined; }
+      })();
+      const colorIssues = validateColorHarmony({
+        background: p.background,
+        surface:    p.surface,
+        primary:    p.primary,
+        secondary:  p.secondary,
+        text:       p.text,
+        textMuted:  p.textMuted,
+        highlight:  p.highlight,
+        gradient:   finalContent.backgroundGradient && finalContent.backgroundGradient.type !== "none"
+          ? {
+              type:   finalContent.backgroundGradient.type,
+              colors: finalContent.backgroundGradient.colors,
+            }
+          : undefined,
+        category: harmonyCategory as any,
+      });
+      for (const c of colorIssues) {
+        violations.push(`color_harmony:${c.rule}[${c.severity}]: ${c.message}`);
+      }
+    }
+  } catch (cErr: any) {
+    violations.push(`color_harmony:skipped — ${cErr?.message}`);
   }
 
   // ── Step 38: Marketplace quality enforcement ──────────────────────────

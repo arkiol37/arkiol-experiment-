@@ -66,6 +66,34 @@ export {
   type SizeBand,
 } from "./typography-hierarchy";
 
+// Step 61: color harmony — palette-level validator that catches
+// disharmony, saturation clashes, harsh gradients, text hues orphaned
+// from the palette, category drift, and indistinct accents.
+export {
+  CATEGORY_PALETTE_TARGETS,
+  MAX_SATURATION_SPREAD,
+  HARSH_GRADIENT_HUE_DISTANCE,
+  HARSH_GRADIENT_LIGHTNESS_DELTA,
+  TEXT_PALETTE_MAX_HUE_DISTANCE,
+  ACCENT_MIN_HUE_DISTANCE,
+  ACCENT_MIN_SATURATION_DELTA,
+  ACCENT_MIN_LIGHTNESS_DELTA,
+  NEUTRAL_SATURATION_THRESHOLD,
+  hexToHsl,
+  hueDistance,
+  hueFamily,
+  warmthOf,
+  detectHarmonic,
+  validateColorHarmony,
+  type Hsl,
+  type HueFamily,
+  type Warmth,
+  type HarmonicRelation,
+  type PaletteInput,
+  type ColorHarmonyViolation,
+  type CategoryPaletteTarget,
+} from "./color-harmony";
+
 export {
   createPipelineContext,
   type PipelineContext,
