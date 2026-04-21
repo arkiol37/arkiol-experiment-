@@ -18,6 +18,8 @@ import { BriefAnalysis }           from "../ai/brief-analyzer";
 import { FORMAT_DIMS }             from "../../lib/types";
 import { measureTextInZone, measureLineWidth, getSvgLineYPositions } from "./text-measure";
 import { buildUltimateFontFaces, getFontStack } from "./font-registry-ultimate";
+import { renderRunTspans, type TextRun } from "./text-runs";
+export type { TextRun } from "./text-runs";
 import { selectTheme, applyBrandColors, DesignTheme, ThemeTypography, ZoneTypography, THEMES, type ThemeFont } from "./design-themes";
 import { detectCategoryPack, type CategoryStylePack } from "../style/category-style-packs";
 import { getTypographyPersonality, type RolePersonality } from "../style/category-typography-personality";
@@ -130,7 +132,7 @@ export function getSvgContentCacheStats() {
 export interface SvgContent {
   backgroundColor: string;
   backgroundGradient?: { type: "linear" | "radial" | "none"; colors: string[]; angle?: number };
-  textContents: Array<{ zoneId: string; text: string; fontSize: number; weight: number; color: string; fontFamily: string; letterSpacing?: number; textTransform?: "uppercase" | "none"; }>;
+  textContents: Array<{ zoneId: string; text: string; fontSize: number; weight: number; color: string; fontFamily: string; letterSpacing?: number; textTransform?: "uppercase" | "none"; runs?: TextRun[]; }>;
   ctaStyle?: { backgroundColor: string; textColor: string; borderRadius: number; paddingH: number; paddingV: number; shadow?: boolean; };
   overlayOpacity?: number;
   overlayColor?: string;
@@ -195,7 +197,7 @@ export interface BuildResult { content: SvgContent; violations: string[]; }
 
 const TextOnlySchema = z.object({
   textContents: z.array(z.object({ zoneId: z.string(), text: z.string().max(400) })),
-  themeOverride: z.enum(["vibrant_burst","dark_luxe","lush_green","floral_romance","cosmic_purple","power_black","ocean_blue","clean_minimal","sunset_warm","sage_wellness","navy_pro","modern_editorial","peach_bliss","tropical_paradise","retro_pop","golden_hour","lavender_dream","sky_fresh","coral_energy","earth_coffee","auto"]).optional(),
+  themeOverride: z.enum(["vibrant_burst","dark_luxe","lush_green","floral_romance","cosmic_purple","power_black","ocean_blue","clean_minimal","sunset_warm","sage_wellness","navy_pro","modern_editorial","peach_bliss","tropical_paradise","retro_pop","golden_hour","lavender_dream","sky_fresh","coral_energy","earth_coffee","script_elegance","auto"]).optional(),
 });
 
 // ── Font size targeting — zone-height driven like Canva ───────────────────────
@@ -1032,9 +1034,15 @@ export function renderUltimateSvg(zones: Zone[], content: SvgContent, format: st
     // Zone-aware line height — editorial rhythm varies by zone purpose.
     // Uses the POST-measurement fontSize so shrunken text still reads well.
     const lh  = refinedLineHeight(m.fontSize, tc.zoneId, zt?.lineHeightMultiplier);
-    const tspans = m.lines.map((l,i) =>
-      `<tspan x="${f(m.textAnchorX)}" dy="${i===0 ? "0" : f(lh)}">${escSvg(pl(l))}</tspan>`
-    );
+    // Step 64 — when the zone supplies `runs`, split each measured line
+    // into per-run tspans so individual words can carry their own fill /
+    // weight / italic override (e.g., "3 Simple STEPS", "of the DAY!").
+    // The legacy single-tspan path runs when `runs` is absent.
+    const tspans = tc.runs && tc.runs.length > 0
+      ? renderRunTspans(m.lines, tc.runs, m.textAnchorX, lh, pl)
+      : m.lines.map((l,i) =>
+          `<tspan x="${f(m.textAnchorX)}" dy="${i===0 ? "0" : f(lh)}">${escSvg(pl(l))}</tspan>`
+        );
     layers += `\n  <text font-size="${m.fontSize}" font-weight="${ws}" fill="${tc.color}" font-family="${escAttr(fs)}" text-anchor="${m.svgTextAnchor}"${ls}${fa} dominant-baseline="text-before-edge" y="${f(yp[0])}">${tspans.join("")}</text>`;
   }
 

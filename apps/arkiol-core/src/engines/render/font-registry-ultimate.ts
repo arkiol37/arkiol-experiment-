@@ -32,7 +32,13 @@ export type UltimateFont =
   | "Lato"
   | "Bebas Neue"
   | "DM Sans"
-  | "Cormorant Garamond";
+  | "Cormorant Garamond"
+  // Step 64 — script / cursive faces (display-only, headline roles)
+  | "Dancing Script"
+  | "Caveat"
+  | "Sacramento"
+  | "Allura"
+  | "Pacifico";
 
 export interface FontVariant {
   family:  UltimateFont;
@@ -94,6 +100,15 @@ export const ULTIMATE_FONTS: FontVariant[] = [
   { family: "Nunito", weight: 600, style: "normal", googleId: "Nunito:wght@600", file: "Nunito-SemiBold.ttf" },
   { family: "Nunito", weight: 700, style: "normal", googleId: "Nunito:wght@700", file: "Nunito-Bold.ttf" },
   { family: "Nunito", weight: 800, style: "normal", googleId: "Nunito:wght@800", file: "Nunito-ExtraBold.ttf" },
+
+  // Step 64 — script / cursive display faces. Single weight each — these
+  // fonts are almost always shipped in a single cut because their
+  // letterforms don't benefit from multiple weights.
+  { family: "Dancing Script", weight: 700, style: "normal", googleId: "Dancing+Script:wght@700", file: "DancingScript-Bold.ttf" },
+  { family: "Caveat",         weight: 700, style: "normal", googleId: "Caveat:wght@700",         file: "Caveat-Bold.ttf" },
+  { family: "Sacramento",     weight: 400, style: "normal", googleId: "Sacramento:wght@400",     file: "Sacramento-Regular.ttf" },
+  { family: "Allura",         weight: 400, style: "normal", googleId: "Allura:wght@400",         file: "Allura-Regular.ttf" },
+  { family: "Pacifico",       weight: 400, style: "normal", googleId: "Pacifico:wght@400",       file: "Pacifico-Regular.ttf" },
 ];
 
 // ── Char-width ratios for text measurement (em units at 100px) ───────────────
@@ -110,6 +125,13 @@ export const ULTIMATE_CHAR_WIDTH_RATIOS: Record<string, number> = {
   "Nunito":             0.53,
   "Nunito Sans":        0.52,
   "Bebas Neue":         0.44,
+  // Step 64 — scripts have ligature-driven widths; measured averages
+  // across uppercase + lowercase strings at headline sizes.
+  "Dancing Script":     0.45,
+  "Caveat":             0.42,
+  "Sacramento":         0.40,
+  "Allura":             0.38,
+  "Pacifico":           0.50,
 };
 
 // ── Font download (Google Fonts) ─────────────────────────────────────────────
@@ -207,6 +229,12 @@ export async function initUltimateFonts(): Promise<FontInitResult> {
     "DMSans-Bold.ttf":                 `${GOOGLE_FONTS_BASE}/dmsans/v11/rP2Cp2ywxg089UriCZa4ET-DNl0.ttf`,
     "CormorantGaramond-SemiBold.ttf":  `${GOOGLE_FONTS_BASE}/cormorantgaramond/v16/co3YmX5slCNuHLi8bLeY9MK7whWMhyjYqXtK.ttf`,
     "CormorantGaramond-Bold.ttf":      `${GOOGLE_FONTS_BASE}/cormorantgaramond/v16/co3YmX5slCNuHLi8bLeY9MK7whWMhyjYrHpK.ttf`,
+    // Step 64 — script faces. Google Fonts gstatic CDN paths.
+    "DancingScript-Bold.ttf":          `${GOOGLE_FONTS_BASE}/dancingscript/v25/If2RXTr6YS-zF4S-kcSWSVi_sxjsohD9F50Ruu7BMSoHSec.ttf`,
+    "Caveat-Bold.ttf":                 `${GOOGLE_FONTS_BASE}/caveat/v17/WnznHAc5bAfYB2QRah7pcpNvOx-pjfJ9SIKjYBxPig.ttf`,
+    "Sacramento-Regular.ttf":          `${GOOGLE_FONTS_BASE}/sacramento/v13/buEzpo6gcdjy0EiZMBUG0CoV_NxLeiw.ttf`,
+    "Allura-Regular.ttf":              `${GOOGLE_FONTS_BASE}/allura/v21/9oRPNYsQpS4zjuAPjAIXPtrrGA.ttf`,
+    "Pacifico-Regular.ttf":            `${GOOGLE_FONTS_BASE}/pacifico/v22/FwZY7-Qmy14u9lezJ-6H6MmBp0u-.ttf`,
   };
 
   // Download all fonts concurrently
@@ -325,6 +353,14 @@ export function getFontStack(family: string): string {
     "Cormorant Garamond":   "\"Cormorant Garamond\", Georgia, serif",
     "Nunito":               "Nunito, Arial, sans-serif",
     "Bebas Neue":           "\"Bebas Neue\", Impact, sans-serif",
+    // Step 64 — scripts fall back to cursive generic family so a
+    // user-agent that lacks the font still renders something
+    // handwritten instead of a flat Arial.
+    "Dancing Script":       "\"Dancing Script\", \"Brush Script MT\", cursive",
+    "Caveat":               "Caveat, \"Segoe Script\", cursive",
+    "Sacramento":           "Sacramento, \"Snell Roundhand\", cursive",
+    "Allura":               "Allura, \"Apple Chancery\", cursive",
+    "Pacifico":             "Pacifico, \"Brush Script MT\", cursive",
   };
   return fallbacks[family] ?? `"${family}", Arial, sans-serif`;
 }

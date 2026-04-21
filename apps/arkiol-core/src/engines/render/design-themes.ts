@@ -20,7 +20,12 @@ export type ThemeFont =
   | "Montserrat" | "Playfair Display" | "Oswald"  | "Poppins"
   | "Raleway"    | "Nunito"           | "Lato"     | "Bebas Neue"
   | "DM Sans"    | "Cormorant Garamond"
-  | "Nunito Sans";
+  | "Nunito Sans"
+  // Step 64 — script / cursive / handwritten display faces so themes
+  // can reach the "Monday Motivation" / "Stress Relief" / "Style Guide"
+  // typographic register. All five are Google Fonts so the registry
+  // can fetch + embed them without new licensing surface.
+  | "Dancing Script" | "Caveat" | "Sacramento" | "Allura" | "Pacifico";
 
 export interface ThemePalette {
   background: string; surface: string;  primary:   string;
@@ -999,6 +1004,45 @@ export const THEMES: DesignTheme[] = [
   ],
   ctaStyle:{ backgroundColor:"#d4a574", textColor:"#2c1810", borderRadius:4, paddingH:36, paddingV:15 },
   overlayOpacity:0.42, overlayColor:"#2c1810",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 21. SCRIPT ELEGANCE — Wellness, self-care, lifestyle  (cursive headline, Step 64)
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"script_elegance", name:"Script Elegance",
+  tones:["warm","minimal","professional"], colorMoods:["muted","warm","light"],
+  headlineSizeMultiplier:1.55,
+  palette:{ background:"#fdf6ef", surface:"rgba(120,75,60,0.06)", primary:"#b46a55",
+    secondary:"#6a8a6e", text:"#2e2420", textMuted:"rgba(46,36,32,0.55)", highlight:"#c9a46a" },
+  background:{ kind:"linear_gradient", colors:["#fdf6ef","#f6ead9"], angle:165 },
+  typography:{
+    display:"Dancing Script", body:"Lato",
+    headline: { fontFamily:"Dancing Script", fontWeight:700, color:"#2e2420", letterSpacing:-0.005, fontSizeMultiplier:1.55 },
+    subhead:  { fontFamily:"Lato",           fontWeight:400, color:"rgba(46,36,32,0.70)", letterSpacing:0.04 },
+    body_text:{ fontFamily:"Lato",           fontWeight:400, color:"rgba(46,36,32,0.60)" },
+    cta:      { fontFamily:"Lato",           fontWeight:700, color:"#fdf6ef", letterSpacing:0.1 },
+    badge:    { fontFamily:"Lato",           fontWeight:700, color:"#b46a55", textTransform:"uppercase", letterSpacing:0.22 },
+    eyebrow:  { fontFamily:"Lato",           fontWeight:400, color:"#6a8a6e", textTransform:"uppercase", letterSpacing:0.28 },
+  },
+  decorations:[
+    // Soft wash of warm cream behind headline
+    { kind:"glow_circle",  x:50, y:30, r:260, color:"#f2dcc3", opacity:0.55 },
+    // Corner botanical strokes — framing language for the script headline
+    { kind:"arc_stroke",   x:8,  y:6,  r:40, startAngle:120, endAngle:220, color:"#6a8a6e", opacity:0.35, strokeWidth:1.4 },
+    { kind:"arc_stroke",   x:92, y:94, r:40, startAngle:300, endAngle:40,  color:"#b46a55", opacity:0.35, strokeWidth:1.4 },
+    // Delicate thin frame
+    { kind:"frame_border", x:5, y:5, w:90, h:90, color:"#b46a55", opacity:0.22, strokeWidth:0.6, gap:4, rx:3 },
+    // Typographic ornament divider between headline + body
+    { kind:"section_divider", x:30, y:52, w:40, color:"#c9a46a", opacity:0.55, strokeWidth:0.8, ornament:"diamond" },
+    // Tiny flourish accents
+    { kind:"squiggle",     x:12, y:88, w:16, color:"#6a8a6e", opacity:0.45, strokeWidth:1.2 },
+    { kind:"squiggle",     x:72, y:12, w:16, color:"#b46a55", opacity:0.45, strokeWidth:1.2 },
+    // Subtle noise to break flat wash
+    { kind:"noise_overlay", opacity:0.03 },
+  ],
+  ctaStyle:{ backgroundColor:"#b46a55", textColor:"#fdf6ef", borderRadius:28, paddingH:36, paddingV:14 },
+  overlayOpacity:0, overlayColor:"#fdf6ef",
 },
 
 ];

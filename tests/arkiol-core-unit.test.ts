@@ -2074,6 +2074,123 @@ async function run() {
     assertEq(pack.PACK_MEMBER_OUTLIER_FLOOR,           0.45, "PACK_MEMBER_OUTLIER_FLOOR");
   });
 
+  section("engines/style · script fonts + run emphasis (Step 64)");
+
+  const pairing  = await import("../apps/arkiol-core/src/engines/style/font-pairing");
+  const registry = await import("../apps/arkiol-core/src/engines/render/font-registry-ultimate");
+
+  test("font metadata exists for every new script face", () => {
+    for (const font of ["Dancing Script","Caveat","Sacramento","Allura","Pacifico"] as const) {
+      const md = pairing.getFontMetadata(font);
+      assert(md, `${font} has no metadata`);
+      assertEq(md.classification, "script", `${font} classification`);
+      assertEq(md.role,           "display-only", `${font} role`);
+      assert(md.displayPower >= 0.80, `${font} displayPower should be high`);
+      assert(md.bodyQuality  <= 0.25, `${font} bodyQuality should be low`);
+    }
+  });
+
+  test("script faces appear in ULTIMATE_FONTS registry + have CDN char-width ratios", () => {
+    const families = new Set(registry.ULTIMATE_FONTS.map(v => v.family));
+    for (const font of ["Dancing Script","Caveat","Sacramento","Allura","Pacifico"] as const) {
+      assert(families.has(font), `registry missing ${font}`);
+      assert(typeof registry.ULTIMATE_CHAR_WIDTH_RATIOS[font] === "number",
+        `${font} missing char-width ratio`);
+    }
+  });
+
+  test("getFontStack falls back to cursive generic for script families", () => {
+    for (const font of ["Dancing Script","Caveat","Sacramento","Allura","Pacifico"] as const) {
+      const stk = registry.getFontStack(font);
+      assert(stk.includes("cursive"), `${font} fallback should end in cursive, got: ${stk}`);
+      assert(stk.includes(font), `${font} stack should name itself: ${stk}`);
+    }
+  });
+
+  test("scoreFontPair rewards script display + humanist/neutral body", () => {
+    const good = pairing.scoreFontPair("Dancing Script", "Lato").total;
+    const bad  = pairing.scoreFontPair("Dancing Script", "Caveat").total;
+    assert(good > 1.0, `script + body-strong sans should score well, got ${good}`);
+    assert(bad  < 0,   `two scripts should score negative, got ${bad}`);
+  });
+
+  test("scoreFontPair marks Allura + Cormorant as canonical wedding editorial", () => {
+    const s = pairing.scoreFontPair("Allura", "Cormorant Garamond");
+    assert(s.reasons.some(r => r.startsWith("canonical")),
+      `expected canonical pairing reason, got: ${s.reasons.join(";")}`);
+  });
+
+  test("anti-pair blocks every script×script combination both directions", () => {
+    const scripts = ["Dancing Script","Caveat","Sacramento","Allura","Pacifico"] as const;
+    for (const a of scripts) for (const b of scripts) {
+      if (a === b) continue;
+      const s = pairing.scoreFontPair(a, b);
+      assert(s.total < 0,
+        `script×script should score negative: ${a}+${b}=${s.total.toFixed(2)}`);
+    }
+  });
+
+  const runsMod = await import("../apps/arkiol-core/src/engines/render/text-runs");
+
+  test("renderRunTspans emits per-run tspan with fill + weight overrides", () => {
+    const lines = ["3 Simple Steps"];
+    const runs  = [
+      { text: "3 Simple " },
+      { text: "Steps", color: "#ff5722", weight: 900 },
+    ];
+    const out = runsMod.renderRunTspans(lines, runs, 100, 70).join("");
+    assert(out.includes("3 Simple"), `first run rendered, got: ${out}`);
+    assert(out.includes("Steps"), `emphasized run rendered, got: ${out}`);
+    assert(out.includes(`fill="#ff5722"`), `accent fill applied, got: ${out}`);
+    assert(out.includes(`font-weight="900"`), `weight override applied, got: ${out}`);
+    assert(!out.match(/fill="[^"]*".*3 Simple/),
+      "leading run should NOT carry a fill attribute — inherits from parent <text>");
+  });
+
+  test("renderRunTspans falls back when run text doesn't match wrapped lines", () => {
+    // Simulate text measurement that wrapped differently than runs joined.
+    const lines = ["Different text"];
+    const runs  = [{ text: "3 Simple ", color: "#000" }, { text: "Steps", color: "#f00" }];
+    const out = runsMod.renderRunTspans(lines, runs, 100, 70).join("");
+    assert(out.includes("Different text"),
+      "fallback should emit the wrapped line verbatim");
+    assert(!out.includes("#f00") && !out.includes("#000"),
+      "fallback should NOT leak run fills");
+  });
+
+  test("renderRunTspans escapes XML specials in run text", () => {
+    const out = runsMod.renderRunTspans(["A <b> & \"c\""], [{ text: "A <b> & \"c\"" }], 0, 0).join("");
+    assert(out.includes("&lt;b&gt;"), `< and > escaped: ${out}`);
+    assert(out.includes("&amp;"), `& escaped: ${out}`);
+    assert(out.includes("&quot;"), `" escaped: ${out}`);
+  });
+
+  test("renderRunTspans applies italic override", () => {
+    const out = runsMod.renderRunTspans(["hello world"], [
+      { text: "hello " },
+      { text: "world", italic: true },
+    ], 0, 0).join("");
+    assert(out.includes(`font-style="italic"`),
+      `italic run should render font-style="italic", got: ${out}`);
+  });
+
+  test("renderRunTspans wraps runs that straddle a line break across tspans", () => {
+    const lines = ["hello", "world"];
+    const runs  = [{ text: "helloworld", color: "#abcdef" }];
+    const spans = runsMod.renderRunTspans(lines, runs, 50, 60);
+    assert(spans.length >= 2, `expected 2+ tspans for 2 lines, got ${spans.length}`);
+    assert(spans[0].includes(`dy="0"`), `first line dy=0: ${spans[0]}`);
+    assert(spans[1].includes(`dy="60"`), `second line dy=60: ${spans[1]}`);
+  });
+
+  test("script_elegance theme exists and uses Dancing Script as display", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "script_elegance");
+    assert(t, "script_elegance theme missing");
+    assertEq(t!.typography.display, "Dancing Script", "display font");
+    assertEq(t!.typography.body,    "Lato",           "body font");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

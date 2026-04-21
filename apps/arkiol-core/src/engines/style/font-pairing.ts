@@ -26,13 +26,17 @@ import type { ThemeFont } from "../render/design-themes";
 
 // ── Font metadata ──────────────────────────────────────────────────────────
 
-export type FontClassification = "serif" | "sans" | "display";
+export type FontClassification = "serif" | "sans" | "display" | "script";
 export type FontPersonality     =
   | "geometric"    // Montserrat, Poppins, DM Sans, Raleway
   | "humanist"     // Lato, Nunito, Nunito Sans
   | "elegant"      // Playfair Display, Cormorant Garamond
   | "industrial"   // Oswald, Bebas Neue
-  | "neutral";     // designed to disappear
+  | "neutral"      // designed to disappear
+  | "handwritten"  // Caveat — casual, notebook energy
+  | "formal-script"// Allura, Sacramento — wedding / boutique
+  | "brush"        // Pacifico — rounded brush strokes
+  | "flowing";     // Dancing Script — everyday cursive
 
 export type FontRole = "display-only" | "display-strong" | "flexible" | "body-strong" | "body-only";
 
@@ -62,6 +66,15 @@ const FONT_TABLE: Record<ThemeFont, FontMetadata> = {
   "DM Sans":            { font: "DM Sans",            classification: "sans",    personality: "neutral",    role: "body-strong",    bodyQuality: 0.90, displayPower: 0.68, softness: 0.45 },
   "Cormorant Garamond": { font: "Cormorant Garamond", classification: "serif",   personality: "elegant",    role: "display-only",   bodyQuality: 0.35, displayPower: 0.90, softness: 0.65 },
   "Nunito Sans":        { font: "Nunito Sans",        classification: "sans",    personality: "humanist",   role: "body-strong",    bodyQuality: 0.88, displayPower: 0.60, softness: 0.70 },
+  // Step 64 — script / cursive faces. All are display-only: their
+  // letterforms are readable at hero sizes but collapse under 24 px, so
+  // bodyQuality is pinned low and role is "display-only". Softness is
+  // high because scripts read as warm / personal by definition.
+  "Dancing Script":     { font: "Dancing Script",     classification: "script",  personality: "flowing",        role: "display-only",   bodyQuality: 0.15, displayPower: 0.85, softness: 0.90 },
+  "Caveat":             { font: "Caveat",             classification: "script",  personality: "handwritten",    role: "display-only",   bodyQuality: 0.20, displayPower: 0.80, softness: 0.85 },
+  "Sacramento":         { font: "Sacramento",         classification: "script",  personality: "formal-script",  role: "display-only",   bodyQuality: 0.10, displayPower: 0.92, softness: 0.95 },
+  "Allura":             { font: "Allura",             classification: "script",  personality: "formal-script",  role: "display-only",   bodyQuality: 0.10, displayPower: 0.90, softness: 0.95 },
+  "Pacifico":           { font: "Pacifico",           classification: "script",  personality: "brush",          role: "display-only",   bodyQuality: 0.15, displayPower: 0.88, softness: 0.80 },
 };
 
 export function getFontMetadata(font: ThemeFont): FontMetadata {
@@ -113,6 +126,26 @@ const CANONICAL_PAIRS: readonly CanonicalPair[] = [
   // Neutral workhorse — tech/business "safe" options
   { display: "DM Sans",            body: "Lato",           weight: 0.75 },
   { display: "Nunito",             body: "Lato",           weight: 0.70 },
+
+  // Step 64 — script display + neutral/humanist body. Canonical pairings
+  // from wedding / boutique / lifestyle template libraries. Never pair a
+  // script with another script as body — the two voices compete and
+  // readability collapses.
+  { display: "Dancing Script",     body: "Lato",           weight: 0.95 },
+  { display: "Dancing Script",     body: "DM Sans",        weight: 0.90 },
+  { display: "Dancing Script",     body: "Nunito",         weight: 0.85 },
+  { display: "Caveat",             body: "DM Sans",        weight: 0.95 },
+  { display: "Caveat",             body: "Lato",           weight: 0.90 },
+  { display: "Caveat",             body: "Nunito Sans",    weight: 0.85 },
+  { display: "Sacramento",         body: "Lato",           weight: 0.95 },
+  { display: "Sacramento",         body: "Cormorant Garamond", weight: 0.90 },
+  { display: "Sacramento",         body: "Nunito",         weight: 0.85 },
+  { display: "Allura",             body: "Cormorant Garamond", weight: 1.00 },
+  { display: "Allura",             body: "Lato",           weight: 0.90 },
+  { display: "Allura",             body: "DM Sans",        weight: 0.85 },
+  { display: "Pacifico",           body: "Lato",           weight: 0.90 },
+  { display: "Pacifico",           body: "Nunito",         weight: 0.90 },
+  { display: "Pacifico",           body: "DM Sans",        weight: 0.85 },
 ];
 
 // ── Anti-pattern penalties ─────────────────────────────────────────────────
@@ -141,6 +174,19 @@ const ANTI_PAIRS: ReadonlySet<string> = new Set([
   "Raleway|Montserrat",
   "Montserrat|Raleway",
   "Raleway|Poppins",
+
+  // Step 64 — two scripts compete: voice, rhythm, and readability all
+  // break down. Enumerate every script pair (both directions).
+  "Dancing Script|Caveat",      "Caveat|Dancing Script",
+  "Dancing Script|Sacramento",  "Sacramento|Dancing Script",
+  "Dancing Script|Allura",      "Allura|Dancing Script",
+  "Dancing Script|Pacifico",    "Pacifico|Dancing Script",
+  "Caveat|Sacramento",          "Sacramento|Caveat",
+  "Caveat|Allura",              "Allura|Caveat",
+  "Caveat|Pacifico",            "Pacifico|Caveat",
+  "Sacramento|Allura",          "Allura|Sacramento",
+  "Sacramento|Pacifico",        "Pacifico|Sacramento",
+  "Allura|Pacifico",            "Pacifico|Allura",
 ]);
 
 function pairKey(a: ThemeFont, b: ThemeFont): string { return `${a}|${b}`; }
@@ -198,12 +244,17 @@ export function scoreFontPair(display: ThemeFont, body: ThemeFont): PairScore {
   }
 
   // Personality contrast — reward intentional opposites, penalize twins
+  const SCRIPT_PERSONALITIES = new Set(["handwritten", "formal-script", "brush", "flowing"]);
   if (d.personality !== b.personality) {
     if ((d.personality === "industrial" && b.personality === "humanist") ||
         (d.personality === "elegant"    && b.personality === "humanist") ||
         (d.personality === "elegant"    && b.personality === "neutral") ||
         (d.personality === "industrial" && b.personality === "neutral") ||
-        (d.personality === "geometric"  && b.personality === "humanist")) {
+        (d.personality === "geometric"  && b.personality === "humanist") ||
+        // Script display + quiet sans body is the wedding/boutique/
+        // lifestyle classic — reward it the same as industrial+humanist.
+        (SCRIPT_PERSONALITIES.has(d.personality) &&
+          (b.personality === "humanist" || b.personality === "neutral" || b.personality === "elegant"))) {
       score += 0.30;
       reasons.push(`pers-contrast(${d.personality}/${b.personality})`);
     } else if (d.personality === b.personality) {
