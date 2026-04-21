@@ -90,6 +90,21 @@ export {
   type DominanceViolation,
 } from "./visual-dominance";
 
+// ── Structural composition balance (Step 59) ─────────────────────────────
+export {
+  MAX_QUADRANT_SHARE,
+  EMPTY_QUADRANT_SHARE,
+  MIN_FOREGROUND_FOR_EMPTY_CHECK,
+  MIN_ELEMENTS_FOR_STRUCTURE_CHECK,
+  anchorQuadrants,
+  quadrantCoverage,
+  detectStructure,
+  validateCompositionStructure,
+  type Quadrant,
+  type StructuralPattern,
+  type StructureViolation,
+} from "./composition-structure";
+
 // ── Decorative components (Step 16) ──────────────────────────────────────
 export {
   DECORATIVE_COMPONENTS,

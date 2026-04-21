@@ -46,6 +46,7 @@ import {
 } from "../assets/asset-selector";
 import { validatePlacementStructure } from "../assets/placement-rules";
 import { validateVisualDominance }    from "../assets/visual-dominance";
+import { validateCompositionStructure } from "../assets/composition-structure";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -788,6 +789,18 @@ async function renderAssetInner(
   const dominanceIssues = validateVisualDominance(composition);
   for (const d of dominanceIssues) {
     violations.push(`visual_dominance:${d.rule}[${d.severity}]: ${d.message}`);
+  }
+
+  // ── Step 59: Structural composition balance ──────────────────────────
+  // Whole-canvas balance check — foreground mass must be distributed
+  // (not crammed into one quadrant unless the hero mode justifies it),
+  // the layout must match a canonical arrangement (grid / stack /
+  // top-bottom / hero-mode), and alignment must stay consistent within
+  // a vertical band. Catches templates that slip past placement +
+  // dominance but still feel cluttered or scattered.
+  const structureIssues = validateCompositionStructure(composition);
+  for (const s of structureIssues) {
+    violations.push(`composition_structure:${s.rule}[${s.severity}]: ${s.message}`);
   }
 
   ctx.currentStage = "composition";

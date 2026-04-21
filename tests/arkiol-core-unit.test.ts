@@ -988,6 +988,163 @@ async function run() {
     assertEq(dominance.COMPETING_FOCAL_RATIO,   0.70, "competing ratio");
   });
 
+  section("engines/assets · composition structure (Step 59)");
+
+  const structure = await import("../apps/arkiol-core/src/engines/assets/composition-structure");
+
+  test("accepts a canonical framed-center hero + symmetric accents", () => {
+    const hero = heroEl();  // anchor=center, compositionMode=framed-center
+    const acc1 = accentEl({ anchor: "top-left",    alignment: "left"  });
+    const acc2 = accentEl({ anchor: "bottom-right", alignment: "right" });
+    const plan = makePlan([bgEl(), hero, acc1, acc2]);
+    const v = structure.validateCompositionStructure(plan);
+    assert(v.filter(x => x.severity === "error").length === 0,
+      `expected no errors, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("rejects templates crammed into a single quadrant (no side hero)", () => {
+    // Framed-center hero but every accent clustered at top-left: TL holds
+    // ~all foreground mass. Must trigger quadrant_imbalance.
+    const hero = heroEl({ anchor: "top-left", compositionMode: "framed-center",
+                          coverageHint: 0.35 });
+    const a1 = accentEl({ anchor: "top-left", alignment: "left", coverageHint: 0.12 });
+    const a2 = accentEl({ anchor: "top-left", alignment: "left", coverageHint: 0.10 });
+    const plan = makePlan([bgEl(), hero, a1, a2]);
+    const v = structure.validateCompositionStructure(plan);
+    assert(v.some(x => x.rule === "quadrant_imbalance" && x.severity === "error"),
+      `expected quadrant_imbalance error, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("exempts side-left heroes from quadrant imbalance (tilt is canonical)", () => {
+    const hero = heroEl({ anchor: "center-left", compositionMode: "side-left",
+                          coverageHint: 0.45 });
+    const a1 = accentEl({ anchor: "center-left", alignment: "left",
+                          coverageHint: 0.08 });
+    const plan = makePlan([bgEl(), hero, a1]);
+    const v = structure.validateCompositionStructure(plan);
+    assert(!v.some(x => x.rule === "quadrant_imbalance"),
+      "side-left hero should be exempt from quadrant imbalance rule");
+  });
+
+  test("warns on empty canvas regions when mass clusters in one area", () => {
+    // Framed-center hero (mass spread across all 4 quadrants) + a single
+    // accent at top-right. No quadrant should be empty — so craft a
+    // cleaner case: demote the hero to a non-centered anchor so 2+
+    // quadrants go dead.
+    const hero = heroEl({ anchor: "top-right", compositionMode: "framed-center",
+                          coverageHint: 0.20 });
+    const a1   = accentEl({ anchor: "top-right", alignment: "right",
+                            coverageHint: 0.08 });
+    const plan = makePlan([bgEl(), hero, a1]);
+    const v = structure.validateCompositionStructure(plan);
+    assert(v.some(x => x.rule === "empty_canvas_region" && x.severity === "warning"),
+      `expected empty_canvas_region warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("accepts a grid layout (3+ elements spread across 3+ quadrants)", () => {
+    const e1 = accentEl({ type: "object", role: "support", anchor: "top-left",
+                          alignment: "left", coverageHint: 0.18 });
+    const e2 = accentEl({ type: "object", role: "support", anchor: "top-right",
+                          alignment: "right", coverageHint: 0.18 });
+    const e3 = accentEl({ type: "object", role: "support", anchor: "bottom-left",
+                          alignment: "left", coverageHint: 0.18 });
+    const e4 = accentEl({ type: "object", role: "support", anchor: "bottom-right",
+                          alignment: "right", coverageHint: 0.18 });
+    // No primary — pattern detection must classify as "grid".
+    const plan = makePlan([bgEl(), e1, e2, e3, e4]);
+    const pat = structure.detectStructure(plan);
+    assertEq(pat, "grid", "expected grid pattern");
+    const v = structure.validateCompositionStructure(plan);
+    assert(!v.some(x => x.rule === "unrecognized_structure"),
+      "grid layout should not trip unrecognized_structure");
+  });
+
+  test("rejects random-scatter compositions with no canonical pattern", () => {
+    // Three foreground elements with anchors that aren't all-centered,
+    // aren't a clean top/bottom split, and whose coverages span a >2×
+    // range so they can't register as a grid. And no primary to rescue them.
+    const e1 = accentEl({ type: "object", role: "support", anchor: "top-right",
+                          alignment: "right", coverageHint: 0.28 });
+    const e2 = accentEl({ type: "object", role: "support", anchor: "center-left",
+                          alignment: "left", coverageHint: 0.10 });
+    const e3 = accentEl({ type: "object", role: "support", anchor: "bottom-right",
+                          alignment: "right", coverageHint: 0.06 });
+    const plan = makePlan([bgEl(), e1, e2, e3]);
+    const v = structure.validateCompositionStructure(plan);
+    assert(v.some(x => x.rule === "unrecognized_structure" && x.severity === "error"),
+      `expected unrecognized_structure error, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("warns on alignment drift within a single vertical band", () => {
+    // Framed hero plus three top-band decorations that disagree on
+    // alignment: one left, one centered, one right. The composition is
+    // otherwise grid-adjacent, but the rhythm is random.
+    const hero = heroEl({ coverageHint: 0.35 });
+    const t1 = accentEl({ anchor: "top-left",   alignment: "left",  coverageHint: 0.06 });
+    const t2 = accentEl({ anchor: "top-center", alignment: "center",coverageHint: 0.06 });
+    const t3 = accentEl({ anchor: "top-right",  alignment: "right", coverageHint: 0.06 });
+    const plan = makePlan([bgEl(), hero, t1, t2, t3]);
+    const v = structure.validateCompositionStructure(plan);
+    assert(v.some(x => x.rule === "alignment_drift" && x.severity === "warning"),
+      `expected alignment_drift warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("detectStructure routes primary-mode plans to canonical labels", () => {
+    const bgHero = makePlan([bgEl(),
+      heroEl({ type: "background", anchor: "full-bleed",
+               compositionMode: "background-hero", coverageHint: 1.0 })]);
+    assertEq(structure.detectStructure(bgHero), "full-bleed-hero", "background hero");
+
+    const sideHero = makePlan([bgEl(),
+      heroEl({ anchor: "center-right", compositionMode: "side-right",
+               coverageHint: 0.45 })]);
+    assertEq(structure.detectStructure(sideHero), "left-right-split", "side hero");
+
+    const framedHero = makePlan([bgEl(), heroEl()]);  // framed-center default
+    assertEq(structure.detectStructure(framedHero), "framed-center", "framed hero");
+  });
+
+  test("detectStructure finds centered-stack when foreground is all on centerline", () => {
+    const e1 = accentEl({ type: "object", role: "support", anchor: "top-center",
+                          alignment: "center", coverageHint: 0.12 });
+    const e2 = accentEl({ type: "object", role: "support", anchor: "center",
+                          alignment: "center", coverageHint: 0.12 });
+    const e3 = accentEl({ type: "object", role: "support", anchor: "bottom-center",
+                          alignment: "center", coverageHint: 0.12 });
+    const plan = makePlan([bgEl(), e1, e2, e3]);
+    assertEq(structure.detectStructure(plan), "centered-stack", "stack pattern");
+  });
+
+  test("detectStructure finds top-bottom split when halves have center-column anchors", () => {
+    // Top-bottom split = both halves populated, no element on the true
+    // center axis (that would be centered-stack).
+    const t1 = accentEl({ type: "object", role: "support", anchor: "top-center",
+                          alignment: "center", coverageHint: 0.14 });
+    const t2 = accentEl({ type: "object", role: "support", anchor: "edge-top",
+                          alignment: "center", coverageHint: 0.14 });
+    const b1 = accentEl({ type: "object", role: "support", anchor: "bottom-center",
+                          alignment: "center", coverageHint: 0.14 });
+    const plan = makePlan([bgEl(), t1, t2, b1]);
+    assertEq(structure.detectStructure(plan), "top-bottom-split", "top-bottom pattern");
+  });
+
+  test("quadrantCoverage spreads center/full-bleed elements across all quadrants", () => {
+    const centered = heroEl({ anchor: "center", coverageHint: 1.0 });
+    const cov = structure.quadrantCoverage([centered]);
+    // 1.0 spread over 4 quadrants → 0.25 each.
+    assertEq(cov.TL, 0.25, "center → TL share");
+    assertEq(cov.TR, 0.25, "center → TR share");
+    assertEq(cov.BL, 0.25, "center → BL share");
+    assertEq(cov.BR, 0.25, "center → BR share");
+  });
+
+  test("exports expected structure thresholds and constants", () => {
+    assertEq(structure.MAX_QUADRANT_SHARE,             0.70, "MAX_QUADRANT_SHARE");
+    assertEq(structure.EMPTY_QUADRANT_SHARE,           0.03, "EMPTY_QUADRANT_SHARE");
+    assertEq(structure.MIN_FOREGROUND_FOR_EMPTY_CHECK, 0.15, "MIN_FOREGROUND_FOR_EMPTY_CHECK");
+    assertEq(structure.MIN_ELEMENTS_FOR_STRUCTURE_CHECK, 3, "MIN_ELEMENTS_FOR_STRUCTURE_CHECK");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
