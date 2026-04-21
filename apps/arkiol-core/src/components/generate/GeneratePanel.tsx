@@ -56,6 +56,9 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
   const [progress,  setProgress]  = useState(0);
   const [status,    setStatus]    = useState<"idle"|"queued"|"running"|"done"|"error">("idle");
   const [error,     setError]     = useState<string | null>(null);
+  // Whether the LAST failure was classified retryable by the backend.
+  // Drives the inline Retry button in the error toast below.
+  const [retryable, setRetryable] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
 
   const gifEligible = ["instagram_post", "instagram_story"].includes(format);
@@ -84,7 +87,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
       const errMsg = res.status === 503
         ? (data.message ?? `${data.feature ?? 'Generation'} requires ${data.configure ?? 'additional configuration'}. Add the required environment variables.`)
         : (data.error ?? "Generation failed");
-      setError(errMsg);
+      setError(errMsg); setRetryable(false);
       setStatus("error"); setLoading(false); return;
     }
 
@@ -99,13 +102,17 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
       return;
     }
     if (data.status === "FAILED") {
-      setError(formatJobError(data).message);
+      const display = formatJobError(data);
+      setError(display.message); setRetryable(display.retryable);
       setStatus("error"); setLoading(false);
       return;
     }
 
     setStatus("running");
+    startPolling(jid);
+  }
 
+  function startPolling(jid: string) {
     pollRef.current = setInterval(async () => {
       const r   = await fetch(`/api/jobs?id=${jid}`).catch(() => null);
       const d   = r ? await r.json().catch(() => ({})) : {};
@@ -118,10 +125,32 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
         onComplete?.(jid);
       } else if (job.status === "FAILED") {
         clearInterval(pollRef.current);
-        setError(formatJobError(job).message);
+        const display = formatJobError(job);
+        setError(display.message); setRetryable(display.retryable);
         setStatus("error"); setLoading(false);
       }
     }, 1500);
+  }
+
+  // Explicit retry path. Hits the dedicated /retry endpoint so the
+  // backend can re-validate eligibility and (when supported) skip the
+  // analyzer stage by reusing the cached briefSnapshot.
+  async function handleRetry() {
+    if (!jobId) return;
+    clearInterval(pollRef.current);
+    setLoading(true); setError(null); setStatus("running"); setProgress(0);
+    const res  = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error ?? "Retry failed"); setRetryable(false);
+      setStatus("error"); setLoading(false); return;
+    }
+    if (data.status === "COMPLETED" || data.status === "SUCCEEDED") {
+      setProgress(100); setStatus("done"); setLoading(false);
+      onComplete?.(jobId);
+      return;
+    }
+    startPolling(jobId);
   }
 
   function handleClose() {
@@ -232,8 +261,18 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
             )}
 
             {error && (
-              <div className="ak-toast ak-toast-error" style={{ marginBottom: 16 }}>
-                <span>⚠</span><span>{error}</span>
+              <div className="ak-toast ak-toast-error" style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
+                <span>⚠</span>
+                <span style={{ flex: 1 }}>{error}</span>
+                {retryable && jobId && (
+                  <button
+                    onClick={handleRetry}
+                    disabled={loading}
+                    className="ak-btn ak-btn-secondary"
+                    style={{ padding: "4px 10px", fontSize: 12, flexShrink: 0 }}>
+                    ↻ Retry
+                  </button>
+                )}
               </div>
             )}
 

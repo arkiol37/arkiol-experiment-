@@ -100,6 +100,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
             locale:             payload.locale ?? "en",
             archetypeOverride:  payload.archetypeOverride,
             expectedCreditCost: payload.expectedCreditCost ?? 0,
+            // Forward the cached brief if a previous attempt analyzed
+            // it — keeps resume from re-doing the analyzer call.
+            briefSnapshot:      payload.briefSnapshot ?? undefined,
           });
           // Re-fetch so the caller sees the claimed row (startedAt set,
           // attempts incremented) instead of the stale pre-claim copy.

@@ -46,6 +46,28 @@ export function DashboardHome({ user }: { user?: any }) {
   const [loading,    setLoading]    = useState(true);
   const [showGen,    setShowGen]    = useState(false);
   const [canStudio,  setCanStudio]  = useState(false);
+  // Per-job in-flight flag for the inline Retry button. Keyed by jobId
+  // so two failed jobs in the list can be retried independently.
+  const [retrying,   setRetrying]   = useState<Record<string, boolean>>({});
+
+  // Fire the explicit retry endpoint and optimistically flip the row to
+  // PENDING so the dot + badge update immediately. The /api/jobs poll
+  // on the next page navigation will reconcile the real status.
+  const handleRetry = async (jobId: string) => {
+    if (retrying[jobId]) return;
+    setRetrying(s => ({ ...s, [jobId]: true }));
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
+      if (res.ok) {
+        setRecentJobs(prev => prev.map(j =>
+          j.id === jobId ? { ...j, status: "PENDING", result: { ...(j.result ?? {}), retried: true } } : j,
+        ));
+      }
+    } catch { /* swallow — UI keeps the FAILED state and the user can try again */ }
+    finally {
+      setRetrying(s => ({ ...s, [jobId]: false }));
+    }
+  };
 
   useEffect(() => {
     Promise.all([
@@ -337,6 +359,12 @@ export function DashboardHome({ user }: { user?: any }) {
                 const isFailed  = job.status === "FAILED";
                 const failTitle = isFailed ? (job.result?.title   ?? "Generation failed") : null;
                 const failMsg   = isFailed ? (job.result?.message ?? job.result?.error ?? null) : null;
+                // Surface the Retry button only when the backend says
+                // the failure class is actually retryable. Hard errors
+                // (missing_asset, cancelled) skip the button so users
+                // don't loop on something that can't recover.
+                const canRetry  = isFailed && job.result?.retryable === true;
+                const isRetrying = !!retrying[job.id];
                 return (
                 <div key={job.id} className="dh-job" title={failMsg ?? undefined}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_DOT[job.status] ?? "#737a96", flexShrink: 0, boxShadow: `0 0 6px ${STATUS_DOT[job.status] ?? "#737a96"}88` }} />
@@ -354,6 +382,20 @@ export function DashboardHome({ user }: { user?: any }) {
                   </div>
                   {job.result?.assetCount != null && !isFailed && (
                     <span style={{ fontSize: 12, color: "#737a96" }}>{job.result.assetCount} assets</span>
+                  )}
+                  {canRetry && (
+                    <button
+                      onClick={() => handleRetry(job.id)}
+                      disabled={isRetrying}
+                      style={{
+                        fontSize: 11, fontWeight: 600, padding: "4px 10px",
+                        borderRadius: 8, border: "1px solid rgba(79,142,247,0.35)",
+                        background: isRetrying ? "rgba(79,142,247,0.10)" : "rgba(79,142,247,0.18)",
+                        color: "#4f8ef7", cursor: isRetrying ? "default" : "pointer",
+                        letterSpacing: "0.02em",
+                      }}>
+                      {isRetrying ? "Retrying…" : "↻ Retry"}
+                    </button>
                   )}
                   <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "3px 10px", borderRadius: 99, background: STATUS_BG[job.status] ?? "rgba(148,163,184,0.10)", color: STATUS_DOT[job.status] ?? "#94a3b8", border: `1px solid ${STATUS_DOT[job.status] ?? "#94a3b8"}30` }}>
                     {job.status}

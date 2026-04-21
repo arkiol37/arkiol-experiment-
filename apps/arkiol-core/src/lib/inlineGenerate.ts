@@ -47,6 +47,12 @@ export interface InlineGenerateParams {
   locale: string;
   archetypeOverride?: { archetypeId: string; presetId: string };
   expectedCreditCost: number;
+  /** Pre-computed brief snapshot from a previous run. When present
+   *  (always populated by retries — see lib/jobRetry.ts and the
+   *  briefSnapshot writeback below), the analyzer call is skipped and
+   *  the cached structured brief is reused. Saves an OpenAI call and
+   *  several seconds per retry. */
+  briefSnapshot?: unknown;
 }
 
 export async function runInlineGeneration(params: InlineGenerateParams): Promise<void> {
@@ -127,22 +133,49 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await pulse(5);
 
-    // Brief analysis (~2-5s)
+    // Brief analysis (~2-5s). Skipped on retries that carry a cached
+    // briefSnapshot from the original run — analyzeBrief is
+    // deterministic for a given prompt and the analyzer call is one of
+    // the slowest single operations in the pipeline, so reusing the
+    // snapshot turns a retry into a "resume from render" instead of
+    // "start from zero".
     const { analyzeBrief } = require("../engines/ai/brief-analyzer");
-    const brief = await analyzeBrief({
-      prompt,
-      stylePreset,
-      format: formats[0],
-      locale: locale ?? "en",
-      brand: brand ? {
-        primaryColor:   brand.primaryColor,
-        secondaryColor: brand.secondaryColor,
-        voiceAttribs:   brand.voiceAttribs as Record<string, number>,
-        fontDisplay:    brand.fontDisplay,
-      } : undefined,
-    });
+    let brief: any;
+    let briefFromCache = false;
+    if (params.briefSnapshot) {
+      brief = params.briefSnapshot;
+      briefFromCache = true;
+      console.info(`[inline-generate] Job ${jobId} reusing cached briefSnapshot (retry resume).`);
+    } else {
+      brief = await analyzeBrief({
+        prompt,
+        stylePreset,
+        format: formats[0],
+        locale: locale ?? "en",
+        brand: brand ? {
+          primaryColor:   brand.primaryColor,
+          secondaryColor: brand.secondaryColor,
+          voiceAttribs:   brand.voiceAttribs as Record<string, number>,
+          fontDisplay:    brand.fontDisplay,
+        } : undefined,
+      });
+      // Persist the snapshot back onto the job's payload so the next
+      // retry (auto or explicit) can skip this step. Best-effort: if
+      // the merge fails (legacy row, race with concurrent write), we
+      // continue — the worst case is the next retry re-analyzes.
+      try {
+        const fresh = await prisma.job.findUnique({ where: { id: jobId }, select: { payload: true } });
+        const existingPayload = (fresh?.payload as Record<string, unknown>) ?? {};
+        await prisma.job.update({
+          where: { id: jobId },
+          data:  { payload: { ...existingPayload, briefSnapshot: brief } as any },
+        });
+      } catch (cacheErr: any) {
+        console.warn("[inline-generate] briefSnapshot writeback failed (non-fatal):", cacheErr?.message);
+      }
+    }
 
-    await pulse(15);
+    await pulse(briefFromCache ? 18 : 15);
 
     const format = formats[0];
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
@@ -832,6 +865,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const reason = extractReason(err);
     console.error(`[inline-generate] Job ${jobId} failed [${reason}]:`, err.message);
 
+    // Always write a FAILED row first so the row reflects truth even if
+    // the auto-retry path below also fails to schedule. The retry block
+    // then resets the row through prepareRetry — which goes through the
+    // same atomic FAILED→PENDING claim the explicit /retry endpoint
+    // uses, so we can't accidentally race a user-initiated retry.
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -844,6 +882,44 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         } as any,
       },
     }).catch(() => {});
+
+    // ── Auto-retry on transient failures ─────────────────────────────────
+    // OpenAI 5xx, network blips, S3 hiccups, render-engine crashes —
+    // these are the failure classes that ALMOST ALWAYS succeed on a
+    // second attempt. prepareRetry() owns the eligibility rules
+    // (retryable reason + attempts < cap + atomic claim), so a single
+    // call here is safe even when this catch fires for a non-retryable
+    // reason: prepareRetry will throw RetryNotAllowedError and we leave
+    // the FAILED row in place for the user to see.
+    //
+    // Auto-retries are dispatched via durableRunInlineGeneration so the
+    // same waitUntil ladder (next_after → vercel_waitUntil →
+    // fire_and_forget) keeps the second attempt alive on serverless.
+    try {
+      // Lazy require — these modules pull in the platform primitives
+      // (next/server, @vercel/functions) and the prisma client; we
+      // don't want to risk the catch handler itself throwing during
+      // a top-of-module import.
+      const { prepareRetry, RetryNotAllowedError } = require("./jobRetry");
+      const { durableRunInlineGeneration }         = require("./durableRun");
+      const prep = await prepareRetry(jobId, null);
+      console.info(
+        `[inline-generate] Job ${jobId} auto-retrying after ${reason} ` +
+        `(attempt ${prep.attemptsUsed + 1}/${prep.maxAttempts}).`,
+      );
+      durableRunInlineGeneration(prep.params);
+    } catch (retryErr: any) {
+      // Rejected retry is the EXPECTED path for non-retryable failure
+      // reasons and for jobs that have already used their retry budget.
+      // Log at info — the row is already FAILED, the user can see the
+      // explanation, no further action needed.
+      const isExpected = retryErr?.name === "RetryNotAllowedError";
+      const lvl = isExpected ? console.info : console.warn;
+      lvl(
+        `[inline-generate] Auto-retry skipped for job ${jobId}: ` +
+        `${retryErr?.message ?? retryErr}`,
+      );
+    }
   } finally {
     // Always tear down the periodic heartbeat so the Node event loop
     // can drain after the request returns. Without this the serverless

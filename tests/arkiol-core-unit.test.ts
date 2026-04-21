@@ -3051,6 +3051,278 @@ async function run() {
     );
   });
 
+  section("job-retry · safe retry & resume");
+
+  // Defends the retry contract built in lib/jobRetry.ts plus the wiring
+  // into the inline catch handler, the explicit POST endpoint, and the
+  // UI surfaces. Production failure these tests prevent: a transient
+  // OpenAI 5xx kills the pipeline, the user sees FAILED, clicks Retry,
+  // and the second click double-fires generation because the first one
+  // didn't atomically claim the row → double charge, double output, or
+  // worse, the second retry races the first and corrupts the result row.
+  const jobRetrySrc       = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/jobRetry.ts"),
+    "utf-8",
+  );
+  const retryRouteSrc     = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/jobs/[id]/retry/route.ts"),
+    "utf-8",
+  );
+  const inlineGenForRetry = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+  const dashboardHomeSrc  = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/components/dashboard/DashboardHome.tsx"),
+    "utf-8",
+  );
+  const generatePanelSrc  = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/components/generate/GeneratePanel.tsx"),
+    "utf-8",
+  );
+
+  test("jobRetry exports MAX_TOTAL_ATTEMPTS as a sane global cap", () => {
+    const m = jobRetrySrc.match(/MAX_TOTAL_ATTEMPTS\s*=\s*(\d+)/);
+    assert(m, "lib/jobRetry must export MAX_TOTAL_ATTEMPTS as a numeric constant");
+    const n = Number(m![1]);
+    // 2-5 keeps a flaky-OpenAI window recoverable without letting a
+    // permanently-broken prompt burn arbitrary money.
+    assert(
+      n >= 2 && n <= 5,
+      `MAX_TOTAL_ATTEMPTS must be between 2 and 5, got ${n}`,
+    );
+  });
+
+  test("prepareRetry rejects non-FAILED jobs with a structured reason", () => {
+    // The endpoint maps these reasons to specific HTTP codes — drift
+    // here would surface as 500 instead of 409.
+    assert(
+      /status\s*!==\s*"FAILED"[\s\S]{0,400}RetryNotAllowedError\s*\(\s*"not_failed"/.test(jobRetrySrc),
+      "prepareRetry must throw RetryNotAllowedError('not_failed') when status is not FAILED",
+    );
+  });
+
+  test("prepareRetry checks formatJobError().retryable before allowing retry", () => {
+    assert(
+      /formatJobError\s*\(/.test(jobRetrySrc),
+      "prepareRetry must consult formatJobError() so non-retryable reasons (cancelled, missing_asset) are blocked",
+    );
+    assert(
+      /not_retryable/.test(jobRetrySrc),
+      "prepareRetry must throw the 'not_retryable' rejection reason when the failReason is not retryable",
+    );
+  });
+
+  test("prepareRetry enforces the per-job attempt cap", () => {
+    assert(
+      /attempts_exhausted/.test(jobRetrySrc),
+      "prepareRetry must surface 'attempts_exhausted' when used >= maxAttempts",
+    );
+    assert(
+      /MAX_TOTAL_ATTEMPTS/.test(jobRetrySrc) && /Math\.min\([\s\S]{0,200}MAX_TOTAL_ATTEMPTS/.test(jobRetrySrc),
+      "prepareRetry must clamp the row's maxAttempts under the global MAX_TOTAL_ATTEMPTS ceiling",
+    );
+  });
+
+  test("prepareRetry atomically claims FAILED→PENDING via updateMany", () => {
+    // The ONLY safe way to reset a FAILED row without racing concurrent
+    // retry clicks. A naive findFirst → update sequence would let two
+    // parallel POSTs both pass the status check.
+    assert(
+      /prisma\.job\.updateMany\s*\(\s*\{[\s\S]{0,400}status:\s*"FAILED"[\s\S]{0,400}status:\s*"PENDING"/.test(jobRetrySrc),
+      "prepareRetry must use updateMany with where.status='FAILED' and data.status='PENDING' for the atomic claim",
+    );
+    assert(
+      /claim\.count\s*!==\s*1/.test(jobRetrySrc),
+      "prepareRetry must surface 'claim_lost' when the atomic claim reported zero rows updated",
+    );
+  });
+
+  test("prepareRetry resets startedAt + failedAt + progress on the claim", () => {
+    // Without these resets the next worker would think the row was
+    // already running (startedAt set), or the UI would still show the
+    // old failedAt timestamp on the new attempt.
+    assert(
+      /startedAt:\s*null/.test(jobRetrySrc),
+      "prepareRetry must reset startedAt to null so the next worker can claim it cleanly",
+    );
+    assert(
+      /failedAt:\s*null/.test(jobRetrySrc),
+      "prepareRetry must clear failedAt so the row reflects the active retry",
+    );
+    assert(
+      /progress:\s*0/.test(jobRetrySrc),
+      "prepareRetry must reset progress to 0 so the UI bar starts fresh",
+    );
+  });
+
+  test("prepareRetry preserves the previous failure context for audit", () => {
+    // Audit rows like "retried after openai_failure (attempt 2/3)"
+    // depend on these fields being carried forward.
+    assert(
+      /retryFromReason/.test(jobRetrySrc),
+      "retry write must include retryFromReason so logs / UI can show the previous failure category",
+    );
+    assert(
+      /previousAttempts/.test(jobRetrySrc),
+      "retry write must include previousAttempts so the audit trail shows the retry sequence",
+    );
+  });
+
+  test("/api/jobs/[id]/retry endpoint exists and POSTs", () => {
+    assert(
+      /export\s+const\s+POST\s*=/.test(retryRouteSrc),
+      "retry endpoint must export a POST handler",
+    );
+    assert(
+      /prepareRetry\s*\(/.test(retryRouteSrc),
+      "retry endpoint must dispatch through prepareRetry so the safety rules are unified",
+    );
+    assert(
+      /durableRunInlineGeneration\s*\(/.test(retryRouteSrc),
+      "retry endpoint must dispatch the retry through durableRunInlineGeneration so it survives serverless container kills",
+    );
+  });
+
+  test("/api/jobs/[id]/retry maps RetryNotAllowedError to 4xx codes", () => {
+    // Critical so the UI can render specific feedback (404 vs 409 vs
+    // 500). The mapping table covers every rejection reason.
+    assert(
+      /RetryNotAllowedError/.test(retryRouteSrc),
+      "retry endpoint must explicitly catch RetryNotAllowedError",
+    );
+    assert(
+      /not_found:\s*404/.test(retryRouteSrc),
+      "REJECTION_STATUS map must send not_found to 404",
+    );
+    assert(
+      /not_failed:\s*409/.test(retryRouteSrc),
+      "REJECTION_STATUS map must send not_failed to 409 (conflict — wrong state)",
+    );
+    assert(
+      /attempts_exhausted:\s*409/.test(retryRouteSrc),
+      "REJECTION_STATUS map must send attempts_exhausted to 409",
+    );
+  });
+
+  test("/api/jobs/[id]/retry returns 202 with a stable response shape", () => {
+    // Frontend's polling loop keys off { status: 'PENDING' }; renaming
+    // these fields would silently break the GeneratePanel resume path.
+    assert(
+      /status:\s*"PENDING"/.test(retryRouteSrc),
+      "retry response must include status: 'PENDING' so the frontend resumes polling",
+    );
+    assert(
+      /retried:\s*true/.test(retryRouteSrc),
+      "retry response must include retried: true so the UI can distinguish retry from initial dispatch",
+    );
+    assert(
+      /attemptsUsed/.test(retryRouteSrc) && /maxAttempts/.test(retryRouteSrc),
+      "retry response must include attemptsUsed + maxAttempts for UI 'attempt N of M' display",
+    );
+    assert(
+      /\{\s*status:\s*202\s*\}/.test(retryRouteSrc),
+      "retry endpoint must return HTTP 202 (accepted) so the frontend treats this like the initial generate dispatch",
+    );
+  });
+
+  test("inlineGenerate auto-retries through prepareRetry inside its outer catch", () => {
+    // The whole point of the auto-retry — transient failures should
+    // recover without user intervention. Going through prepareRetry
+    // ensures non-retryable reasons are still terminal.
+    assert(
+      /catch\s*\([\s\S]{0,2000}prepareRetry\s*\(/.test(inlineGenForRetry),
+      "outer catch must invoke prepareRetry so the same eligibility rules govern auto- and explicit-retry",
+    );
+    assert(
+      /durableRunInlineGeneration\s*\(\s*prep\.params\s*\)/.test(inlineGenForRetry),
+      "auto-retry must dispatch the second attempt through durableRunInlineGeneration",
+    );
+  });
+
+  test("inlineGenerate writes FAILED before attempting auto-retry", () => {
+    // Writing FAILED first means the row reflects truth at every
+    // moment — even if the retry scheduler itself crashes, the user's
+    // UI will never show a phantom 'still running' state.
+    const idx     = inlineGenForRetry.indexOf("status:   \"FAILED\"");
+    const retryAt = inlineGenForRetry.indexOf("prepareRetry(");
+    assert(idx > 0,             "outer catch must perform a FAILED write");
+    assert(retryAt > idx,
+      "FAILED write must happen BEFORE prepareRetry — the retry then atomically resets back to PENDING via updateMany",
+    );
+  });
+
+  test("inlineGenerate accepts and short-circuits on a cached briefSnapshot", () => {
+    // Reusing the analyzed brief turns retries into 'resume from
+    // render' instead of 'start from zero', saving an OpenAI call and
+    // ~2-5s per attempt.
+    assert(
+      /briefSnapshot\?:\s*unknown/.test(inlineGenForRetry),
+      "InlineGenerateParams must include the optional briefSnapshot field so retries can carry a cached brief",
+    );
+    assert(
+      /params\.briefSnapshot/.test(inlineGenForRetry) &&
+      /briefFromCache\s*=\s*true/.test(inlineGenForRetry),
+      "runInlineGeneration must skip analyzeBrief when params.briefSnapshot is supplied",
+    );
+  });
+
+  test("inlineGenerate persists briefSnapshot back to job.payload after first analyze", () => {
+    // Without the writeback, first-run failures couldn't benefit from
+    // the cached-brief optimisation on retry — the snapshot would
+    // exist only in memory of the dead worker.
+    assert(
+      /briefSnapshot:\s*brief/.test(inlineGenForRetry),
+      "first-run analyzer call must persist its result back into payload.briefSnapshot",
+    );
+  });
+
+  test("DashboardHome surfaces a Retry button on retryable FAILED rows", () => {
+    // The button must be gated on result.retryable so users don't loop
+    // on terminal failures (cancelled, missing_asset).
+    assert(
+      /result\?\.retryable\s*===\s*true/.test(dashboardHomeSrc),
+      "DashboardHome must gate its Retry button on result.retryable === true",
+    );
+    assert(
+      /\/api\/jobs\/\$\{[^}]+\}\/retry/.test(dashboardHomeSrc),
+      "DashboardHome retry handler must POST to /api/jobs/<id>/retry",
+    );
+    assert(
+      /method:\s*"POST"/.test(dashboardHomeSrc),
+      "DashboardHome retry fetch must use HTTP POST",
+    );
+  });
+
+  test("GeneratePanel surfaces a Retry button on retryable failures and resumes polling", () => {
+    assert(
+      /setRetryable\s*\(/.test(generatePanelSrc),
+      "GeneratePanel must track retryable state so the inline Retry button only appears when meaningful",
+    );
+    assert(
+      /handleRetry\s*\(/.test(generatePanelSrc),
+      "GeneratePanel must expose a handleRetry path that re-enters the polling loop",
+    );
+    assert(
+      /\/api\/jobs\/\$\{jobId\}\/retry/.test(generatePanelSrc),
+      "GeneratePanel handleRetry must POST to /api/jobs/<jobId>/retry",
+    );
+    assert(
+      /startPolling\s*\(\s*jobId\s*\)/.test(generatePanelSrc),
+      "GeneratePanel handleRetry must restart the poll loop after dispatching the retry",
+    );
+  });
+
+  test("/api/jobs poller resume forwards briefSnapshot so PENDING re-dispatch reuses the cache", () => {
+    // The poller is a third dispatch path (alongside /api/generate and
+    // /api/jobs/[id]/retry). All three must thread the cached brief
+    // through, otherwise resumes pay the analyzer cost twice.
+    assert(
+      /briefSnapshot:\s*payload\.briefSnapshot/.test(jobsRouteSrcForDurable),
+      "poller resume must forward briefSnapshot from payload so a re-dispatched PENDING row skips the analyzer when possible",
+    );
+  });
+
   section("background worker · per-attempt UX invariants");
 
   // Second round of hang-prevention fixes after the first fix left the
