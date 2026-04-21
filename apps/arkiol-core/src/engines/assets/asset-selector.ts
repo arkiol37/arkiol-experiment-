@@ -933,7 +933,17 @@ export interface AssetPresenceViolation {
           | "below_minimum_visual_coverage"
           | "missing_decorative_accent"
           | "insufficient_variety"
-          | "mixed_visual_styles";   // Step 47 — multiple visual styles in one template
+          | "mixed_visual_styles"              // Step 47 — multiple visual styles in one template
+          // Step 55 — strong-presence enforcement. Every template must
+          // carry a clearly visible illustrative primary (a 3D object,
+          // scene, photo, or illustration) plus at least one supporting
+          // decorative asset. Templates that rely only on gradients,
+          // abstract shapes, or empty backgrounds are hard-rejected.
+          | "primary_visual_missing"
+          | "primary_visual_not_illustrative"
+          | "primary_visual_too_subtle"
+          | "abstract_only_composition"
+          | "missing_supporting_decoration";
   severity: "error" | "warning";
   message:  string;
 }
@@ -943,9 +953,10 @@ export interface AssetPresenceViolation {
 // Kept here (not hidden inside the function) so downstream callers can
 // reason about and surface them.
 
-// Minimum coverageHint for a single element to count as visible. Anything
-// below this is effectively invisible at render time.
-export const MIN_VISIBLE_ELEMENT_COVERAGE = 0.02;
+// Minimum coverageHint for a single element to count as visible. Step 55
+// raised the floor from 0.02 → 0.03 — a 2% speck in a corner does not
+// read as a visible design element at render time.
+export const MIN_VISIBLE_ELEMENT_COVERAGE = 0.03;
 
 // Minimum aggregate coverage of all meaningful (non-background) visuals.
 // Prevents templates where the only "visual" is a 1% sparkle in a corner.
@@ -954,6 +965,39 @@ export const MIN_TOTAL_VISUAL_COVERAGE    = 0.04;
 // Minimum number of visible meaningful visual elements a template must ship
 // with. At least one icon / illustration / shape / frame / accent / image.
 export const MIN_VISIBLE_VISUAL_ELEMENTS  = 1;
+
+// Step 55: strong-presence thresholds. The primary visual is the focal
+// point — it cannot be a sub-10% accent, and it cannot be an abstract
+// texture or a bare flat icon. Templates without a real illustrative
+// hero get hard-rejected so we never ship "text on gradient" output.
+
+// Minimum coverageHint for the primary visual itself. 15% is the floor
+// where a hero element clearly owns a meaningful slice of the canvas
+// rather than reading as a supporting accent.
+export const MIN_PRIMARY_VISUAL_COVERAGE  = 0.15;
+
+// Minimum number of supporting decorative elements (accents, dividers,
+// icon groups, badges, stickers) that must sit alongside the primary.
+export const MIN_SUPPORTING_DECORATIVE_ELEMENTS = 1;
+
+// Element types that *depict* something real — the illustrative
+// substrate that a primary visual can legitimately be built on.
+const ILLUSTRATIVE_ELEMENT_TYPES: readonly AssetElementType[] = [
+  "human", "object", "atmospheric", "background",
+];
+
+// Element types that are purely abstract surface — textures, overlays,
+// flat colour fields. A composition whose only meaningful visuals are
+// these types is gradient-only art and must be rejected.
+const ABSTRACT_ELEMENT_TYPES: readonly AssetElementType[] = [
+  "texture", "overlay",
+];
+
+// Visual styles considered illustrative. A hero tagged "3d",
+// "illustration" or "photo" carries real subject art. "flat" and
+// "outline" describe bare pictograms; "hand-drawn" is borderline but
+// still figurative and counted as illustrative.
+const ILLUSTRATIVE_VISUAL_STYLES = new Set(["3d", "illustration", "photo", "hand-drawn"]);
 
 // ── Visibility predicates ────────────────────────────────────────────────────
 
@@ -986,18 +1030,36 @@ function totalMeaningfulCoverage(plan: CompositionPlan): number {
 // ── Validation ───────────────────────────────────────────────────────────────
 
 // Inspect a plan and return violations if visual richness is insufficient.
-//   missing_background            (error)   no background/overlay/texture at all
-//   text_on_background_only       (error)   zero visible meaningful visuals —
-//                                           template is literally just text
-//                                           on a background
-//   invisible_meaningful_visuals  (error)   every meaningful element exists
-//                                           but none would render (no url /
-//                                           no prompt / zero coverage)
-//   below_minimum_visual_coverage (error)   sum of meaningful-visual coverage
-//                                           is below MIN_TOTAL_VISUAL_COVERAGE
-//                                           — e.g. one 1% corner sparkle
-//   missing_decorative_accent     (warning) has a hero but no accent/divider
-//   insufficient_variety          (warning) fewer than 2 distinct roles
+//   missing_background              (error)   no background/overlay/texture at all
+//   text_on_background_only         (error)   zero visible meaningful visuals —
+//                                             template is literally just text
+//                                             on a background
+//   invisible_meaningful_visuals    (error)   every meaningful element exists
+//                                             but none would render (no url /
+//                                             no prompt / zero coverage)
+//   below_minimum_visual_coverage   (error)   sum of meaningful-visual coverage
+//                                             is below MIN_TOTAL_VISUAL_COVERAGE
+//                                             — e.g. one 1% corner sparkle
+//   primary_visual_missing          (error)   [Step 55] no placement flagged
+//                                             primary: true — every template
+//                                             must declare its hero element
+//   primary_visual_not_illustrative (error)   [Step 55] primary is a texture /
+//                                             overlay / flat icon — not a
+//                                             real illustrative subject
+//   primary_visual_too_subtle       (error)   [Step 55] primary coverage
+//                                             below MIN_PRIMARY_VISUAL_COVERAGE
+//   abstract_only_composition       (error)   [Step 55] every meaningful
+//                                             element is abstract (texture /
+//                                             overlay / flat / outline) — no
+//                                             real subject matter at all
+//   missing_supporting_decoration   (error)   [Step 55] primary exists but no
+//                                             decorative accent / divider /
+//                                             icon-group / badge / sticker
+//   missing_decorative_accent       (error)   [Step 55, upgraded from warning]
+//                                             has a hero but no accent/divider
+//   insufficient_variety            (warning) fewer than 2 distinct roles
+//   mixed_visual_styles             (error)   [Step 47] multiple visualStyles
+//                                             in one composition
 export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViolation[] {
   const violations: AssetPresenceViolation[] = [];
 
@@ -1045,14 +1107,115 @@ export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViola
       });
     }
 
+    // Step 55: hero decoration is a hard requirement, not a soft nudge.
     if (roleCounts.support > 0 &&
         roleCounts.accent === 0 &&
         roleCounts.divider === 0 &&
         roleCounts["icon-group"] === 0) {
       violations.push({
         rule: "missing_decorative_accent",
-        severity: "warning",
-        message: "Template has a hero visual but no decorative accent (badge, icon group, or divider) to support it.",
+        severity: "error",
+        message: "Template has a hero visual but no decorative accent (badge, icon group, or divider) to support it. Every composition must pair the hero with at least one decorative support element.",
+      });
+    }
+  }
+
+  // ── Step 55: strong-presence rules ───────────────────────────────────
+  // Every template must commit to a real illustrative hero (a 3D object,
+  // scene, photo, or illustration) that clearly owns the composition,
+  // plus at least one supporting decorative asset. Gradient-only or
+  // shape-only output is hard-rejected.
+
+  const primary = plan.elements.find(e => e.primary);
+
+  if (!primary) {
+    // Only surface primary_visual_missing when the template actually
+    // carries *some* meaningful content — otherwise text_on_background_only
+    // above has already caught the "empty composition" case and a
+    // duplicate error is noise.
+    if (meaningfulElements.length > 0) {
+      violations.push({
+        rule: "primary_visual_missing",
+        severity: "error",
+        message:
+          "No primary visual — every template must declare exactly one hero element " +
+          "(primary: true) that carries a 3D object, scene, illustration, or photo.",
+      });
+    }
+  } else {
+    const typeIsIllustrative  = ILLUSTRATIVE_ELEMENT_TYPES.includes(primary.type);
+    const typeIsAbstract      = ABSTRACT_ELEMENT_TYPES.includes(primary.type);
+    const styleIsIllustrative = primary.visualStyle === undefined
+      ? true  // unset styles default-pass (AI-generated hero with no tag)
+      : ILLUSTRATIVE_VISUAL_STYLES.has(primary.visualStyle);
+
+    if (typeIsAbstract || !typeIsIllustrative || !styleIsIllustrative) {
+      violations.push({
+        rule: "primary_visual_not_illustrative",
+        severity: "error",
+        message:
+          `Primary visual (type=${primary.type}, visualStyle=${primary.visualStyle ?? "unset"}) ` +
+          `is not a real illustrative subject — a template cannot rely on a texture, ` +
+          `overlay, flat pictogram, or outline accent as its hero. Promote a 3D object, ` +
+          `scene, illustration, or photo to primary.`,
+      });
+    }
+
+    if (primary.coverageHint < MIN_PRIMARY_VISUAL_COVERAGE) {
+      violations.push({
+        rule: "primary_visual_too_subtle",
+        severity: "error",
+        message:
+          `Primary visual coverage ${(primary.coverageHint * 100).toFixed(1)}% is below ` +
+          `the ${(MIN_PRIMARY_VISUAL_COVERAGE * 100).toFixed(0)}% minimum — the hero must be ` +
+          `clearly visible, not a subtle corner accent. Scale the primary up or promote a ` +
+          `larger supporting element to hero.`,
+      });
+    }
+  }
+
+  // Abstract-only check: if the template's meaningful visuals are *all*
+  // textures / overlays / flat / outline, the output is effectively a
+  // gradient with pictograms — reject outright.
+  if (meaningfulElements.length > 0) {
+    const anyIllustrative = meaningfulElements.some(el => {
+      const typeOk  = ILLUSTRATIVE_ELEMENT_TYPES.includes(el.type);
+      const styleOk = el.visualStyle === undefined
+        ? true
+        : ILLUSTRATIVE_VISUAL_STYLES.has(el.visualStyle);
+      return typeOk && styleOk;
+    });
+    if (!anyIllustrative) {
+      violations.push({
+        rule: "abstract_only_composition",
+        severity: "error",
+        message:
+          "Composition carries only abstract elements (textures, overlays, flat icons, or " +
+          "outline shapes) — no real illustrative subject. Every template must include at " +
+          "least one 3D object, scene, photo, or illustration as its visual anchor.",
+      });
+    }
+  }
+
+  // Supporting-decoration requirement: a primary without any decorative
+  // companion reads as a lonely centerpiece. Covered separately from
+  // missing_decorative_accent so the error message names the hero
+  // explicitly and the rule fires even when the role layout would
+  // otherwise silence the older check.
+  const supportingCount =
+    roleCounts.accent + roleCounts.divider + roleCounts["icon-group"];
+  if (primary && supportingCount < MIN_SUPPORTING_DECORATIVE_ELEMENTS) {
+    // Don't double-fire when missing_decorative_accent is already queued
+    // for the same underlying state.
+    const alreadyFlagged = violations.some(v => v.rule === "missing_decorative_accent");
+    if (!alreadyFlagged) {
+      violations.push({
+        rule: "missing_supporting_decoration",
+        severity: "error",
+        message:
+          `Primary visual (${primary.type}) has no supporting decoration — every template ` +
+          `must pair the hero with at least ${MIN_SUPPORTING_DECORATIVE_ELEMENTS} decorative ` +
+          `element (badge, sticker, ribbon, divider, or icon group) to anchor it in the layout.`,
       });
     }
   }

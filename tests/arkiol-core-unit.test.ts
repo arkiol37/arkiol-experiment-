@@ -476,6 +476,157 @@ async function run() {
     }
   });
 
+  section("engines/assets · strong-presence enforcement (Step 55)");
+
+  const selector = await import("../apps/arkiol-core/src/engines/assets/asset-selector");
+
+  const makePlan = (elements: any[]): any => ({
+    elements,
+    totalDensity:    0,
+    hasImageElement: false,
+    isGifCompatible: true,
+    reasoning:       [],
+  });
+
+  const bgEl = (overrides: any = {}): any => ({
+    type:         "background",
+    zone:         "background",
+    prompt:       "soft 3d claymorphic gradient",
+    motion:       false,
+    weight:       0,
+    coverageHint: 1,
+    role:         "background",
+    anchor:       "full-bleed",
+    scale:        1,
+    alignment:    "center",
+    layer:        0,
+    ...overrides,
+  });
+
+  const heroEl = (overrides: any = {}): any => ({
+    type:            "object",
+    zone:            "image",
+    prompt:          "3d claymorphic product hero",
+    motion:          false,
+    weight:          3,
+    coverageHint:    0.4,
+    url:             "https://cdn.test.com/3d/object-laptop.png",
+    role:            "support",
+    anchor:          "center",
+    scale:           1,
+    alignment:       "center",
+    layer:           20,
+    primary:         true,
+    compositionMode: "framed-center",
+    visualStyle:     "3d",
+    qualityTier:     "premium",
+    ...overrides,
+  });
+
+  const accentEl = (overrides: any = {}): any => ({
+    type:         "badge",
+    zone:         "badge",
+    prompt:       "3d claymorphic badge",
+    motion:       false,
+    weight:       1,
+    coverageHint: 0.05,
+    url:          "https://cdn.test.com/3d/decorative-badge-star.png",
+    role:         "accent",
+    anchor:       "top-right",
+    scale:        1,
+    alignment:    "right",
+    layer:        40,
+    visualStyle:  "3d",
+    qualityTier:  "premium",
+    ...overrides,
+  });
+
+  test("strong-presence exports all required thresholds", () => {
+    assertEq(selector.MIN_PRIMARY_VISUAL_COVERAGE, 0.15, "MIN_PRIMARY_VISUAL_COVERAGE");
+    assertEq(selector.MIN_SUPPORTING_DECORATIVE_ELEMENTS, 1, "MIN_SUPPORTING_DECORATIVE_ELEMENTS");
+    assertEq(selector.MIN_VISIBLE_ELEMENT_COVERAGE, 0.03, "MIN_VISIBLE_ELEMENT_COVERAGE");
+  });
+
+  test("validateAssetPresence accepts a well-formed 3D hero + accent plan", () => {
+    const plan = makePlan([bgEl(), heroEl(), accentEl()]);
+    const errors = selector.validateAssetPresence(plan)
+      .filter((v: any) => v.severity === "error");
+    assert(errors.length === 0, `expected no errors, got: ${errors.map((e: any) => e.rule).join(",")}`);
+  });
+
+  test("rejects plans with no primary visual flagged", () => {
+    const plan = makePlan([bgEl(), { ...heroEl(), primary: false }, accentEl()]);
+    const violations = selector.validateAssetPresence(plan);
+    assert(
+      violations.some((v: any) => v.rule === "primary_visual_missing" && v.severity === "error"),
+      "expected primary_visual_missing error",
+    );
+  });
+
+  test("rejects plans whose primary is a texture / abstract element", () => {
+    const abstractHero = heroEl({ type: "texture", visualStyle: "flat" });
+    const plan = makePlan([bgEl(), abstractHero, accentEl()]);
+    const violations = selector.validateAssetPresence(plan);
+    assert(
+      violations.some((v: any) => v.rule === "primary_visual_not_illustrative" && v.severity === "error"),
+      "expected primary_visual_not_illustrative error",
+    );
+  });
+
+  test("rejects plans whose primary is too subtle (below 15% coverage)", () => {
+    const subtleHero = heroEl({ coverageHint: 0.1 });
+    const plan = makePlan([bgEl(), subtleHero, accentEl()]);
+    const violations = selector.validateAssetPresence(plan);
+    assert(
+      violations.some((v: any) => v.rule === "primary_visual_too_subtle" && v.severity === "error"),
+      "expected primary_visual_too_subtle error",
+    );
+  });
+
+  test("rejects abstract-only compositions (texture + overlay only)", () => {
+    // All meaningful elements are abstract — no real illustrative subject.
+    const abstractSupport = heroEl({ type: "texture", visualStyle: "flat", primary: false });
+    const abstractAccent  = accentEl({ type: "overlay", visualStyle: "flat" });
+    const plan = makePlan([bgEl(), abstractSupport, abstractAccent]);
+    const violations = selector.validateAssetPresence(plan);
+    assert(
+      violations.some((v: any) => v.rule === "abstract_only_composition" && v.severity === "error"),
+      "expected abstract_only_composition error",
+    );
+  });
+
+  test("rejects plans with a hero but no supporting decoration", () => {
+    // Hero alone, no accent / divider / icon-group.
+    const plan = makePlan([bgEl(), heroEl()]);
+    const violations = selector.validateAssetPresence(plan);
+    const supportErr =
+      violations.some((v: any) => v.rule === "missing_supporting_decoration" && v.severity === "error")
+      || violations.some((v: any) => v.rule === "missing_decorative_accent" && v.severity === "error");
+    assert(supportErr, "expected missing_supporting_decoration or missing_decorative_accent error");
+  });
+
+  test("missing_decorative_accent is now a hard error, not a warning", () => {
+    const plan = makePlan([bgEl(), heroEl()]);
+    const violations = selector.validateAssetPresence(plan);
+    const accent = violations.find((v: any) => v.rule === "missing_decorative_accent");
+    if (accent) {
+      assertEq(accent.severity, "error" as const, "missing_decorative_accent severity");
+    }
+  });
+
+  test("rejects gradient-only output (background + abstract overlay only)", () => {
+    // Classic "just a gradient" template — one bg + one flat overlay.
+    const overlay = accentEl({ type: "overlay", visualStyle: "flat" });
+    const plan = makePlan([bgEl(), overlay]);
+    const violations = selector.validateAssetPresence(plan);
+    // Must hard-fail with at least one Step 55 error (either abstract-only
+    // or primary_visual_missing since no hero is declared).
+    const stepErrs = violations.filter((v: any) =>
+      ["abstract_only_composition", "primary_visual_missing", "primary_visual_not_illustrative"]
+        .includes(v.rule) && v.severity === "error");
+    assert(stepErrs.length > 0, "expected strong-presence errors on gradient-only plan");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
