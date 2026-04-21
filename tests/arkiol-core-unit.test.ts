@@ -2604,6 +2604,64 @@ async function run() {
       `motivation preferredThemeIds should include scrapbook_pop`);
   });
 
+  section("api/generate · non-blocking invariants (504 regression guard)");
+
+  // These tests assert source-level invariants rather than spinning up
+  // Next.js + Prisma. The production failure they guard against: when
+  // /api/generate awaits runInlineGeneration inline, a 6-variation run
+  // (up to 16 pipeline attempts × ~5-12s each) blows past Vercel's
+  // maxDuration and the edge returns 504 — the frontend surfaces that
+  // as "Generation failed" even though the job is still running in the
+  // background. The fix: fire generation as an unawaited promise and
+  // ship {jobId, status: "PENDING"} immediately so EditorShell's 2-sec
+  // /api/jobs?id=<jobId> poll loop takes over. These asserts make sure
+  // nobody re-introduces the `await` or regresses maxDuration below the
+  // Pro-tier ceiling of 300s.
+  const fs = await import("fs");
+  const path = await import("path");
+  const generateRouteSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/generate/route.ts"),
+    "utf-8",
+  );
+
+  test("generate route fires runInlineGeneration without awaiting", () => {
+    assert(
+      /void\s+runInlineGeneration\s*\(/.test(generateRouteSrc),
+      "expected `void runInlineGeneration(...)` (fire-and-forget) in route",
+    );
+    assert(
+      !/await\s+runInlineGeneration\s*\(/.test(generateRouteSrc),
+      "runInlineGeneration must NOT be awaited — it re-introduces the 504",
+    );
+  });
+
+  test("generate route keeps maxDuration at or above 300s", () => {
+    const m = generateRouteSrc.match(/export\s+const\s+maxDuration\s*=\s*(\d+)/);
+    assert(m, "maxDuration export missing from generate route");
+    assert(
+      Number(m![1]) >= 300,
+      `maxDuration must be >= 300 so background generation completes, got ${m![1]}`,
+    );
+  });
+
+  test("generate route returns 202 with PENDING status for new jobs", () => {
+    assert(
+      /status:\s*"PENDING"/.test(generateRouteSrc),
+      `route must surface status: "PENDING" so the frontend polls /api/jobs`,
+    );
+    assert(
+      /\{\s*status:\s*202\s*\}/.test(generateRouteSrc),
+      "route must respond with HTTP 202 Accepted",
+    );
+  });
+
+  test("generate route attaches .catch() to the background promise", () => {
+    assert(
+      /void\s+runInlineGeneration\s*\([\s\S]*?\)\.catch\(/.test(generateRouteSrc),
+      "unawaited runInlineGeneration must attach .catch() to avoid unhandledRejection",
+    );
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

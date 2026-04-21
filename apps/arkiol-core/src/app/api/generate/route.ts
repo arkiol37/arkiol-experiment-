@@ -37,8 +37,11 @@ import {
 } from "@arkiol/shared";
 import { z } from "zod";
 
-// Vercel route config — increased to 60s for inline generation
-export const maxDuration = 60;
+// Vercel route config — keep the background inline generation alive up
+// to Pro-tier maximum. We DO NOT block the HTTP response on generation
+// (see fire-and-forget below); the function just needs to stay warm
+// while the unawaited promise finishes updating the DB job record.
+export const maxDuration = 300;
 
 const COST_PER_CREDIT_USD     = 0.008;
 const MAX_COST_PER_RENDER_USD = 0.50;
@@ -325,8 +328,19 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   //   - REDIS_HOST is not configured (no queue capability)
   //   - Queue is configured but no workers are listening
   //   - Queue enqueue throws
+  //
+  // CRITICAL: the HTTP response MUST NOT block on generation. A full
+  // over-generation pass (up to 16 pipeline attempts × ~5-12s each) runs
+  // well past Vercel's 60s default and any proxy timeout, producing a
+  // 504 Gateway Timeout that the frontend surfaces as "Generation
+  // failed" — even though the job keeps running server-side. The
+  // frontend already polls /api/jobs?id=<jobId> every 2s, so we return
+  // {jobId, status: PENDING} immediately and let the generation run as
+  // an unawaited promise. Vercel keeps the Node.js serverless instance
+  // alive until either all pending async work completes or maxDuration
+  // is reached — so we bump maxDuration to 300s (see top of file) and
+  // let the background task finish updating the job record.
   let queued = false;
-  let inlineResult: any = null;
 
   try {
     if (detectCapabilities().queue) {
@@ -352,42 +366,37 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     queued = false;
   }
 
-  // Inline execution when no worker is available
+  // Fire-and-forget inline execution when no worker is available. The
+  // promise is intentionally NOT awaited — see comment above.
   if (!queued) {
-    try {
-      const { runInlineGeneration } = require("../../../lib/inlineGenerate");
-      await runInlineGeneration({
-        jobId:              job.id,
-        userId:             user.id,
-        orgId,
-        prompt:             input.prompt,
-        formats:            input.formats,
-        stylePreset:        input.stylePreset,
-        variations:         input.variations,
-        brandId:            input.brandId ?? null,
-        campaignId:         input.campaignId ?? null,
-        includeGif:         input.includeGif,
-        locale:             input.locale,
-        archetypeOverride:  input.archetypeOverride,
-        expectedCreditCost: creditCost,
-      });
-
-      inlineResult = await prisma.job.findUnique({
-        where: { id: job.id },
-        select: { status: true, progress: true, result: true },
-      }).catch(() => null);
-    } catch (inlineErr: any) {
-      console.error(`[generate] Inline generation failed for job ${job.id}:`, inlineErr.message);
-    }
+    const { runInlineGeneration } = require("../../../lib/inlineGenerate");
+    void runInlineGeneration({
+      jobId:              job.id,
+      userId:             user.id,
+      orgId,
+      prompt:             input.prompt,
+      formats:            input.formats,
+      stylePreset:        input.stylePreset,
+      variations:         input.variations,
+      brandId:            input.brandId ?? null,
+      campaignId:         input.campaignId ?? null,
+      includeGif:         input.includeGif,
+      locale:             input.locale,
+      archetypeOverride:  input.archetypeOverride,
+      expectedCreditCost: creditCost,
+    }).catch((inlineErr: any) => {
+      // runInlineGeneration already marks the job FAILED internally on
+      // any throw, so we only need to log here for observability.
+      console.error(`[generate] Background inline generation crashed for job ${job.id}:`, inlineErr?.message ?? inlineErr);
+    });
   }
 
-  const finalStatus = inlineResult?.status ?? "PENDING";
-  const finalResult = inlineResult?.result as Record<string, unknown> | null;
-
+  // Always return immediately with jobId — the frontend polls
+  // /api/jobs?id=<jobId> for status + result.
   return NextResponse.json(
     {
       jobId:            job.id,
-      status:           finalStatus,
+      status:           "PENDING",
       totalAssets,
       creditCost,
       estimatedCostUSD: +estimatedCostUSD.toFixed(4),
@@ -396,8 +405,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       creditsReserved:  creditCost,
       hqUpgrade:        input.hqUpgrade,
       inlineExecution:  !queued,
-      ...(finalResult ? { result: finalResult } : {}),
     },
-    { status: finalStatus === "COMPLETED" ? 200 : 202 }
+    { status: 202 }
   );
 });
