@@ -55,7 +55,49 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     variations, brandId, campaignId, locale, archetypeOverride,
   } = params;
 
+  // ── Heartbeat plumbing ────────────────────────────────────────────────────
+  // Prisma auto-bumps `updatedAt` on every `.update()`, so the stale-job
+  // watchdog in /api/jobs treats an update as a "worker is alive" signal.
+  // The old heartbeat only fired once per *attempt* (~45s apart), leaving
+  // the UI bar frozen and — worse — letting the 5-min stale watchdog
+  // trip on legitimately-running jobs that were deep inside a render.
+  //
+  // `pulse(progress?)` is the single entry point for nudging the job row.
+  // Calling it with no arg re-writes the current progress value, which
+  // still rolls updatedAt forward (Prisma doesn't skip identical writes).
+  // `runHeartbeat` schedules one every PULSE_INTERVAL_MS for as long as
+  // generation is live, so even a long blocking render step keeps the
+  // row warm. Both are best-effort — a transient DB hiccup must never
+  // take down the generation itself.
+  let currentProgress = 0;
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+  const PULSE_INTERVAL_MS = 10_000;
+  const pulse = async (progress?: number) => {
+    if (typeof progress === "number" && progress > currentProgress) {
+      currentProgress = Math.min(100, progress);
+    }
+    try {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: { progress: currentProgress },
+      });
+    } catch { /* best effort — never kill the pipeline over a DB hiccup */ }
+  };
+  const runHeartbeat = () => {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(() => { void pulse(); }, PULSE_INTERVAL_MS);
+  };
+  const stopHeartbeat = () => {
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  };
+
   try {
+    // Start the periodic heartbeat BEFORE any blocking work. Even font
+    // init can take several seconds on a cold serverless container, and
+    // we want updatedAt moving from tick one so the watchdog never sees
+    // a silent gap.
+    runHeartbeat();
+
     // Initialize fonts for Vercel/serverless — downloads Google Fonts TTFs
     // to /tmp so buildUltimateFontFaces() can base64-embed them in SVG.
     // Critical for sharp PNG rendering with custom typography.
@@ -66,16 +108,24 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       console.warn("[inline-generate] Font init failed (non-fatal):", fontErr.message);
     }
 
-    // Mark job as RUNNING
+    // Mark job as RUNNING + initial 2% so the UI bar moves immediately.
     await prisma.job.update({
       where: { id: jobId },
-      data: { status: "RUNNING" as any, startedAt: new Date(), attempts: { increment: 1 } },
+      data: {
+        status:   "RUNNING" as any,
+        startedAt: new Date(),
+        progress: 2,
+        attempts: { increment: 1 },
+      },
     }).catch(() => {});
+    currentProgress = 2;
 
     // Load brand if specified
     const brand = brandId
       ? await prisma.brand.findUnique({ where: { id: brandId } }).catch(() => null)
       : null;
+
+    await pulse(5);
 
     // Brief analysis (~2-5s)
     const { analyzeBrief } = require("../engines/ai/brief-analyzer");
@@ -92,7 +142,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       } : undefined,
     });
 
-    await prisma.job.update({ where: { id: jobId }, data: { progress: 15 } }).catch(() => {});
+    await pulse(15);
 
     const format = formats[0];
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
@@ -290,8 +340,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const target  = 20 + Math.floor((Math.min(completedAttempts, divisor) / divisor) * 65);
       if (target > lastProgress) {
         lastProgress = target;
-        await prisma.job.update({ where: { id: jobId }, data: { progress: target } }).catch(() => {});
       }
+      await pulse(lastProgress);
     };
 
     while (
@@ -306,6 +356,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const batchVis: number[] = [];
       for (let i = 0; i < batchSize; i++) batchVis.push(attemptedCount + i);
       attemptedCount += batchSize;
+
+      // Per-batch start heartbeat so even a batch whose first attempt
+      // won't settle for 40s still shows fresh updatedAt the moment the
+      // batch is kicked off — catches cases where a single stuck OpenAI
+      // call would otherwise pin the progress number for an entire
+      // batch window.
+      await pulse(Math.max(lastProgress, 20));
 
       // `.finally()` is called regardless of accept/reject so the bar
       // keeps moving even when a variation hard-fails and we re-launch.
@@ -463,6 +520,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       return out;
     };
 
+    // Heartbeat between the end of the render loop and the start of
+    // ranking/selection. Selection itself is ~O(n) over the candidate
+    // pool so it's fast, but updating here means the UI bar tracks the
+    // pipeline entering its "ranking" stage instead of sitting on the
+    // last batch's attempt percentage.
+    await pulse(Math.max(lastProgress, 86));
+
     const seenTypes = new Set<string>();
     const admitted: Admission[] = greedyPickN(
       rendered.filter(r => r.accepted),
@@ -507,10 +571,21 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     let lastThumbnailUrl: string | null = null;
     let lastResult: any = null;
 
+    // Pre-upload heartbeat so the user sees the bar tick forward from
+    // "ranking" into "uploading" immediately when the loop starts.
+    await pulse(Math.max(lastProgress, 88));
+
     for (let idx = 0; idx < admitted.length; idx++) {
       const adm    = admitted[idx];
       const result = adm.result;
       const assetId = result.assetId;
+
+      // Per-asset upload heartbeat. 88 → 95 across the admitted[] loop
+      // so a 4-variation batch ticks ~2% per upload. Keeps updatedAt
+      // moving while S3 is doing work (which can be several hundred ms
+      // per blob when the bucket is in a different region).
+      const uploadTarget = 88 + Math.floor(((idx + 1) / Math.max(1, admitted.length)) * 7);
+      await pulse(uploadTarget);
 
       // Upload to S3 if configured
       let s3Key:  string | null = null;
@@ -704,7 +779,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `fontFamilies=[${[...uniqueFontFamilies].join(",")}] styleFlags={${styleFlagsLabel}}`,
     );
 
-    await prisma.job.update({ where: { id: jobId }, data: { progress: 90 } }).catch(() => {});
+    await pulse(96);
 
     // Deduct credits (creditBalance = canonical credit field)
     try {
@@ -715,6 +790,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     } catch (creditErr: any) {
       console.warn("[inline-generate] Credit deduction failed:", creditErr.message);
     }
+
+    await pulse(98);
+
+    // Stop the periodic heartbeat before the terminal write — once we've
+    // committed to writing COMPLETED we don't want a racing pulse() to
+    // clobber the final terminal row.
+    stopHeartbeat();
 
     // Mark job COMPLETED
     await prisma.job.update({
@@ -762,5 +844,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         } as any,
       },
     }).catch(() => {});
+  } finally {
+    // Always tear down the periodic heartbeat so the Node event loop
+    // can drain after the request returns. Without this the serverless
+    // function would sit idle holding a timer reference.
+    stopHeartbeat();
   }
 }

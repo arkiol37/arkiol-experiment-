@@ -2868,6 +2868,95 @@ async function run() {
     );
   });
 
+  // ── Dense heartbeat invariants (Step 2) ────────────────────────────────
+  // Per-attempt heartbeat alone is not enough: a single OpenAI call stuck
+  // for the full SDK timeout keeps the batch pending, so updatedAt could
+  // go minutes without a bump and the 5-min stale watchdog would flip a
+  // healthy RUNNING job to FAILED. These tests pin down the interval
+  // pulse + per-stage pulses that keep updatedAt moving at every major
+  // step: RUNNING flip, brief analysis, each batch start, ranking,
+  // S3 upload per-asset, credit deduction, and the final COMPLETED.
+  test("inline worker declares a periodic pulse interval under the 5-min stale threshold", () => {
+    const m = inlineGenSrc.match(/PULSE_INTERVAL_MS\s*=\s*([\d_]+)/);
+    assert(m, "inline worker must declare PULSE_INTERVAL_MS for the periodic heartbeat");
+    const ms = Number(m![1].replace(/_/g, ""));
+    assert(
+      ms > 0 && ms <= 60_000,
+      `PULSE_INTERVAL_MS must be <= 60s so updatedAt refreshes multiple times per watchdog window, got ${ms}`,
+    );
+  });
+
+  test("inline worker starts a setInterval heartbeat and clears it in finally", () => {
+    assert(
+      /setInterval\s*\([\s\S]{0,200}PULSE_INTERVAL_MS/.test(inlineGenSrc),
+      "must kick off setInterval(..., PULSE_INTERVAL_MS) so updatedAt refreshes even during blocking renders",
+    );
+    assert(
+      /clearInterval\s*\(/.test(inlineGenSrc),
+      "must clearInterval on the heartbeat timer so the serverless function can drain",
+    );
+    assert(
+      /finally\s*\{[\s\S]{0,600}stopHeartbeat\s*\(\s*\)/.test(inlineGenSrc),
+      "stopHeartbeat must run in a finally block so the timer is torn down on both success and failure",
+    );
+  });
+
+  test("inline worker defines a pulse() helper that touches the job row", () => {
+    assert(
+      /const\s+pulse\s*=\s*async/.test(inlineGenSrc),
+      "must define a pulse() helper — the single entry point for nudging progress + updatedAt",
+    );
+    assert(
+      /pulse\s*=\s*async[\s\S]{0,800}prisma\.job\.update\s*\(\s*\{\s*where:\s*\{\s*id:\s*jobId\s*\}/.test(inlineGenSrc),
+      "pulse() must call prisma.job.update({ where: { id: jobId } }) so Prisma auto-bumps updatedAt",
+    );
+  });
+
+  test("inline worker pulses at every major stage boundary", () => {
+    // Stage-boundary heartbeats: each of these is a point where the
+    // pipeline transitions into a different kind of work, and the UI
+    // bar should visibly tick forward. Miss any one and the bar would
+    // freeze during that stage.
+    const pulseCalls = [...inlineGenSrc.matchAll(/\bpulse\s*\(/g)];
+    assert(
+      pulseCalls.length >= 6,
+      `must call pulse() at each major stage boundary (RUNNING, brief, batch-start, ranking, upload, credit, final) — found only ${pulseCalls.length}`,
+    );
+  });
+
+  test("inline worker pulses before each render batch fires", () => {
+    // The batch-start pulse is what saves us from the 'single stuck
+    // OpenAI call freezes the batch' failure mode — it bumps updatedAt
+    // the moment a new batch is dispatched, independent of whether any
+    // individual attempt has yet settled.
+    assert(
+      /await\s+pulse\s*\([\s\S]{0,80}\)\s*;[\s\S]{0,400}Promise\.allSettled\s*\(\s*\n?\s*batchVis\.map/.test(inlineGenSrc),
+      "must call pulse() before Promise.allSettled(batchVis.map(...)) so the batch start refreshes updatedAt",
+    );
+  });
+
+  test("inline worker pulses per asset during the S3 upload loop", () => {
+    // A 6-variation job with multi-MB PNG + SVG uploads per asset can
+    // easily spend 10+ seconds in this loop. Without a per-iteration
+    // pulse the bar sits at 88% and — on a slow bucket region — could
+    // even reach the stale window.
+    assert(
+      /for\s*\(\s*let\s+idx[\s\S]{0,800}\bpulse\s*\(/.test(inlineGenSrc),
+      "the upload loop must call pulse() on each iteration so updatedAt stays warm through S3 uploads",
+    );
+  });
+
+  test("inline worker heartbeatProgress routes through pulse()", () => {
+    // The old heartbeatProgress wrote progress directly via prisma.
+    // After the dense-heartbeat refactor it should funnel through
+    // pulse() instead — that way one change to pulse() (e.g. adding a
+    // metric emit) covers every heartbeat entry point.
+    assert(
+      /heartbeatProgress\s*=\s*async[\s\S]{0,800}await\s+pulse\s*\(/.test(inlineGenSrc),
+      "heartbeatProgress must call pulse() instead of writing progress directly so all heartbeats share a single code path",
+    );
+  });
+
   section("job-error formatter · shared error reporting");
 
   // Guards the invariant that every FAILED job — whether originating
