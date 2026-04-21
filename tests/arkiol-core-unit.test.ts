@@ -2391,6 +2391,219 @@ async function run() {
       `wellness preferredThemeIds should include wellness_meadow`);
   });
 
+  section("engines/render · photo + shape_panel + washi_tape (Step 66)");
+
+  test("photo_circle falls back to solid bgColor when no slug/url provided", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "photo_circle", x: 50, y: 50, r: 20,
+        borderColor: "#ffffff", borderWidth: 2, opacity: 1,
+        shadow: false, bgColor: "#c9a84c" } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("<circle"), "fallback circle missing");
+    assert(svg.includes(`fill="#c9a84c"`), "fallback bgColor missing");
+    assert(!svg.includes("<image"), "must not emit <image> without url");
+  });
+
+  test("photo_circle emits <image> with clipPath when photoUrl is set", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "photo_circle", x: 50, y: 50, r: 20,
+        borderColor: "#ffffff", borderWidth: 0, opacity: 1,
+        shadow: false, bgColor: "#000",
+        photoUrl: "https://cdn.example.com/hero.jpg" } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("<image"), "image element missing");
+    assert(svg.includes("<clipPath"), "clipPath missing");
+    assert(svg.includes("https://cdn.example.com/hero.jpg"), "url missing");
+    assert(svg.includes(`preserveAspectRatio="xMidYMid slice"`), "aspect ratio attr missing");
+  });
+
+  test("photo_circle escapes entities in photoUrl", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "photo_circle", x: 50, y: 50, r: 20,
+        borderColor: "#fff", borderWidth: 0, opacity: 1,
+        shadow: false, bgColor: "#000",
+        photoUrl: 'https://cdn.example.com/a.jpg?q=1&size=50&"x"' } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("&amp;"), "ampersand not escaped");
+    assert(svg.includes("&quot;"), "quote not escaped");
+    assert(!svg.match(/href="[^"]*"[^ \/>]/), "attribute breakout detected");
+  });
+
+  test("photo_circle resolves photoSlug via ARKIOL_PHOTO_ASSET_BASE", () => {
+    const prev = process.env.ARKIOL_PHOTO_ASSET_BASE;
+    process.env.ARKIOL_PHOTO_ASSET_BASE = "https://assets.arkiol.test";
+    try {
+      const svg = decoMod.renderDecoration(
+        { kind: "photo_circle", x: 50, y: 50, r: 20,
+          borderColor: "#fff", borderWidth: 0, opacity: 1,
+          shadow: false, bgColor: "#000",
+          photoSlug: "fashion-hero" } as any,
+        1080, 1080,
+      );
+      assert(svg.includes("<image"), "image missing when slug configured");
+      assert(svg.includes("https://assets.arkiol.test"), "configured base missing");
+      assert(svg.includes("fashion-hero"), "slug missing from resolved url");
+    } finally {
+      if (prev === undefined) delete process.env.ARKIOL_PHOTO_ASSET_BASE;
+      else process.env.ARKIOL_PHOTO_ASSET_BASE = prev;
+    }
+  });
+
+  test("photo_shape renders every shape variant", () => {
+    for (const shape of ["heart","circle","blob","rounded"] as const) {
+      const svg = decoMod.renderDecoration(
+        { kind: "photo_shape", x: 20, y: 20, w: 60, h: 60, shape,
+          fallbackColor: "#b7c4c5", opacity: 1, shadow: false } as any,
+        1080, 1080,
+      );
+      assert(svg.includes("<clipPath"), `clipPath missing for ${shape}`);
+      assert(svg.includes("<path"), `path missing for ${shape}`);
+      assert(svg.includes(`fill="#b7c4c5"`), `fallback color missing for ${shape}`);
+    }
+  });
+
+  test("photo_shape adds drop shadow filter when shadow:true", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "photo_shape", x: 20, y: 20, w: 60, h: 60, shape: "rounded",
+        fallbackColor: "#000", opacity: 1, shadow: true } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("feDropShadow"), "drop shadow primitive missing");
+    assert(svg.includes("filter=\"url("), "filter attribute missing");
+  });
+
+  test("photo_shape emits <image> when photoUrl is supplied", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "photo_shape", x: 20, y: 20, w: 60, h: 60, shape: "heart",
+        photoUrl: "https://cdn.example.com/heart.jpg",
+        fallbackColor: "#c00", opacity: 1 } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("<image"), "image missing");
+    assert(svg.includes("https://cdn.example.com/heart.jpg"), "url missing");
+    assert(!svg.includes(`fill="#c00"`), "fallback fill should not render when url present");
+  });
+
+  test("shape_panel renders heart/blob/arc/badge variants", () => {
+    for (const shape of ["heart","blob","arc","badge"] as const) {
+      const svg = decoMod.renderDecoration(
+        { kind: "shape_panel", x: 10, y: 10, w: 80, h: 80, shape,
+          color: "#e85a79", opacity: 0.95, seed: 173 } as any,
+        1080, 1080,
+      );
+      assert(svg.includes("<path"), `${shape} panel missing path`);
+      assert(svg.includes(`fill="#e85a79"`), `${shape} panel missing fill`);
+    }
+  });
+
+  test("shape_panel adds stroke when strokeWidth set", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "shape_panel", x: 10, y: 10, w: 80, h: 60, shape: "heart",
+        color: "#ffffff", strokeColor: "#c92f55", strokeWidth: 2, opacity: 1 } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("stroke=\"#c92f55\""), "stroke color missing");
+    assert(svg.includes("stroke-width=\"2\""), "stroke width missing");
+  });
+
+  test("shape_panel blob is deterministic per seed", () => {
+    const make = (seed: number) => decoMod.renderDecoration(
+      { kind: "shape_panel", x: 10, y: 10, w: 80, h: 60, shape: "blob",
+        color: "#fff", opacity: 1, seed } as any,
+      800, 800,
+    );
+    assertEq(make(173), make(173), "blob non-deterministic");
+    assert(make(173) !== make(311), "different seeds produced identical output");
+  });
+
+  test("washi_tape renders rotated group with stripes and shadow", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "washi_tape", x: 10, y: 10, w: 20, h: 4, rotation: -15,
+        colorA: "#f06292", colorB: "#ffffff", opacity: 0.82, stripes: 5 } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("rotate(-15"), "rotation transform missing");
+    assert(svg.includes(`fill="#f06292"`), "base colorA missing");
+    assert(svg.includes(`fill="#ffffff"`), "stripe colorB missing");
+    assert(svg.includes("<clipPath"), "stripe clipPath missing");
+    // base rect + N stripe rects + shadow rect
+    assert(svg.match(/<rect/g)!.length >= 3, "expected multiple rects");
+  });
+
+  test("washi_tape clamps stripe count to [2, 12]", () => {
+    const svgLo = decoMod.renderDecoration(
+      { kind: "washi_tape", x: 0, y: 0, w: 20, h: 4, rotation: 0,
+        colorA: "#000000", colorB: "#ffff00", opacity: 1, stripes: 0 } as any,
+      800, 800,
+    );
+    const svgHi = decoMod.renderDecoration(
+      { kind: "washi_tape", x: 0, y: 0, w: 20, h: 4, rotation: 0,
+        colorA: "#000000", colorB: "#ffff00", opacity: 1, stripes: 99 } as any,
+      800, 800,
+    );
+    const countStripes = (s: string) => (s.match(/fill="#ffff00"/g) || []).length;
+    assertEq(countStripes(svgLo), 2, "stripes floor should clamp to 2");
+    assertEq(countStripes(svgHi), 12, "stripes ceiling should clamp to 12");
+  });
+
+  test("heart_health theme uses heart shape_panel as hero container", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "heart_health");
+    assert(t, "heart_health theme missing");
+    const heart = t!.decorations.find(
+      (d: any) => d.kind === "shape_panel" && d.shape === "heart",
+    );
+    assert(heart, "heart_health missing heart shape_panel");
+  });
+
+  test("style_photo theme pairs photo_shape with Allura display font", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "style_photo");
+    assert(t, "style_photo theme missing");
+    assertEq(t!.typography.display, "Allura", "display font");
+    const photo = t!.decorations.find((d: any) => d.kind === "photo_shape");
+    assert(photo, "style_photo missing photo_shape");
+    const washi = t!.decorations.find((d: any) => d.kind === "washi_tape");
+    assert(washi, "style_photo missing washi_tape");
+  });
+
+  test("scrapbook_pop theme layers blob + torn paper + washi tape", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "scrapbook_pop");
+    assert(t, "scrapbook_pop theme missing");
+    assertEq(t!.typography.display, "Caveat", "display font");
+    const blob = t!.decorations.find((d: any) => d.kind === "shape_panel" && d.shape === "blob");
+    assert(blob, "scrapbook_pop missing blob shape_panel");
+    const torn = t!.decorations.find((d: any) => d.kind === "torn_paper_frame");
+    assert(torn, "scrapbook_pop missing torn_paper_frame");
+    const washiCount = t!.decorations.filter((d: any) => d.kind === "washi_tape").length;
+    assert(washiCount >= 2, `scrapbook_pop should have >= 2 washi_tape strips, got ${washiCount}`);
+  });
+
+  test("wellness category prefers heart_health theme", async () => {
+    const packs = await import("../apps/arkiol-core/src/engines/style/category-style-packs");
+    const wellness = packs.getCategoryPack("wellness");
+    assert(wellness!.preferredThemeIds.includes("heart_health"),
+      `wellness preferredThemeIds should include heart_health`);
+  });
+
+  test("beauty category prefers style_photo theme", async () => {
+    const packs = await import("../apps/arkiol-core/src/engines/style/category-style-packs");
+    const beauty = packs.getCategoryPack("beauty");
+    assert(beauty!.preferredThemeIds.includes("style_photo"),
+      `beauty preferredThemeIds should include style_photo`);
+  });
+
+  test("motivation category prefers scrapbook_pop theme", async () => {
+    const packs = await import("../apps/arkiol-core/src/engines/style/category-style-packs");
+    const motivation = packs.getCategoryPack("motivation");
+    assert(motivation!.preferredThemeIds.includes("scrapbook_pop"),
+      `motivation preferredThemeIds should include scrapbook_pop`);
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

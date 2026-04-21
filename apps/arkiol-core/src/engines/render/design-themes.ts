@@ -89,7 +89,7 @@ export type DecorShape =
   | { kind:"frame_border";   x:number; y:number; w:number; h:number; color:string; opacity:number; strokeWidth:number; gap:number; rx:number }
   | { kind:"section_divider"; x:number; y:number; w:number; color:string; opacity:number; strokeWidth:number; ornament:"diamond"|"dot"|"dash"|"circle"|"star" }
   | { kind:"texture_fill";   x:number; y:number; w:number; h:number; pattern:"crosses"|"lines"|"zigzag"|"confetti"; color:string; opacity:number; scale:number }
-  | { kind:"photo_circle";   x:number; y:number; r:number; borderColor:string; borderWidth:number; opacity:number; shadow?:boolean; bgColor:string }
+  | { kind:"photo_circle";   x:number; y:number; r:number; borderColor:string; borderWidth:number; opacity:number; shadow?:boolean; bgColor:string; photoSlug?:string; photoUrl?:string }
   | { kind:"starburst";      x:number; y:number; r:number; rays:number; color:string; opacity:number; rotation:number }
   | { kind:"price_tag";      x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number }
   | { kind:"banner_strip";   x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number; skew?:number }
@@ -105,6 +105,14 @@ export type DecorShape =
   | { kind:"watercolor_corner";  corner:"tl"|"tr"|"bl"|"br"; size:number; palette:[string,string,string]; opacity:number }
   | { kind:"themed_cluster";     x:number; y:number; size:number; theme:"food"|"spa"|"study"|"office"|"travel"|"floral"; palette:string[]; opacity:number }
   | { kind:"torn_paper_frame";   x:number; y:number; w:number; h:number; color:string; shadowColor:string; opacity:number; seed:number }
+  // ── Step 66: photo integration + shape panels + washi tape ──
+  //   • photo_shape    — a real <image> masked to heart/circle/blob (matches
+  //                      "Heart Health Tips" / "Style Guide" in reference)
+  //   • shape_panel    — filled shape (heart/blob/arc) used as a text backdrop
+  //   • washi_tape     — angled semi-transparent striped tape pinning decor
+  | { kind:"photo_shape";        x:number; y:number; w:number; h:number; shape:"heart"|"circle"|"blob"|"rounded"; photoSlug?:string; photoUrl?:string; borderColor?:string; borderWidth?:number; opacity:number; shadow?:boolean; fallbackColor:string }
+  | { kind:"shape_panel";        x:number; y:number; w:number; h:number; shape:"heart"|"blob"|"arc"|"badge"; color:string; strokeColor?:string; strokeWidth?:number; opacity:number; seed?:number }
+  | { kind:"washi_tape";         x:number; y:number; w:number; h:number; rotation:number; colorA:string; colorB:string; opacity:number; stripes:number }
 
 export interface ZoneTypography {
   fontFamily:ThemeFont; fontWeight:number; color:string;
@@ -1211,6 +1219,118 @@ export const THEMES: DesignTheme[] = [
   ],
   ctaStyle:{ backgroundColor:"#ffd27a", textColor:"#1f4532", borderRadius:40, paddingH:40, paddingV:16, shadow:true },
   overlayOpacity:0.08, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 26. HEART HEALTH — Wellness, affirmation, relationship  (heart panel, Step 66)
+// Headline sits inside a pink heart. Matches "Heart Health Tips" in the
+// reference pack.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"heart_health", name:"Heart Health",
+  tones:["warm","minimal","professional"], colorMoods:["warm","light","vibrant"],
+  headlineSizeMultiplier:1.20,
+  palette:{ background:"#fde7ec", surface:"rgba(255,255,255,0.5)", primary:"#e85a79",
+    secondary:"#f7b8c3", text:"#ffffff", textMuted:"rgba(255,255,255,0.85)", highlight:"#c92f55" },
+  background:{ kind:"linear_gradient", colors:["#ffd0db","#ffa3b8"], angle:170 },
+  typography:{
+    display:"Poppins", body:"Nunito",
+    headline: { fontFamily:"Poppins", fontWeight:800, color:"#ffffff", letterSpacing:-0.01, fontSizeMultiplier:1.20 },
+    subhead:  { fontFamily:"Nunito",  fontWeight:500, color:"rgba(255,255,255,0.88)" },
+    body_text:{ fontFamily:"Nunito",  fontWeight:400, color:"#ffffff" },
+    cta:      { fontFamily:"Poppins", fontWeight:700, color:"#e85a79", letterSpacing:0.06 },
+    badge:    { fontFamily:"Poppins", fontWeight:700, color:"#ffffff", textTransform:"uppercase", letterSpacing:0.18 },
+    eyebrow:  { fontFamily:"Poppins", fontWeight:600, color:"#c92f55", textTransform:"uppercase", letterSpacing:0.26 },
+  },
+  decorations:[
+    // The heart itself — big soft pink heart hosting the headline
+    { kind:"shape_panel",  x:10, y:10, w:80, h:72, shape:"heart", color:"#e85a79", opacity:0.95 },
+    { kind:"shape_panel",  x:10, y:10, w:80, h:72, shape:"heart", color:"#ffffff", strokeColor:"#ffffff", strokeWidth:1.6, opacity:0.25 },
+    // Sparkles around the heart
+    { kind:"icon_symbol",  x:14, y:22, size:8, icon:"sparkle", color:"#ffffff", opacity:0.85 },
+    { kind:"icon_symbol",  x:84, y:18, size:6, icon:"sparkle", color:"#ffffff", opacity:0.8 },
+    { kind:"icon_symbol",  x:82, y:82, size:5, icon:"sparkle", color:"#ffffff", opacity:0.7 },
+    { kind:"icon_symbol",  x:16, y:80, size:6, icon:"sparkle", color:"#ffffff", opacity:0.75 },
+    { kind:"noise_overlay", opacity:0.03 },
+  ],
+  ctaStyle:{ backgroundColor:"#ffffff", textColor:"#e85a79", borderRadius:50, paddingH:40, paddingV:14, shadow:true },
+  overlayOpacity:0, overlayColor:"#ffffff",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 27. STYLE PHOTO — Fashion / lifestyle  (photo_shape-driven, Step 66)
+// A large photo tile is the hero element, headline overlaid. Matches
+// "Style Guide" in the reference pack.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"style_photo", name:"Style Photo",
+  tones:["professional","minimal","luxury"], colorMoods:["muted","cool","light"],
+  headlineSizeMultiplier:1.18,
+  palette:{ background:"#e5efed", surface:"rgba(255,255,255,0.55)", primary:"#2b3f47",
+    secondary:"#b7c4c5", text:"#2b3f47", textMuted:"rgba(43,63,71,0.70)", highlight:"#d38e6d" },
+  background:{ kind:"linear_gradient", colors:["#eaf2ef","#c9d6d1"], angle:175 },
+  typography:{
+    display:"Allura",           body:"Cormorant Garamond",
+    headline: { fontFamily:"Allura",              fontWeight:400, color:"#2b3f47", letterSpacing:-0.005, fontSizeMultiplier:1.18 },
+    subhead:  { fontFamily:"Cormorant Garamond",  fontWeight:500, color:"rgba(43,63,71,0.78)", letterSpacing:0.04, textTransform:"uppercase" },
+    body_text:{ fontFamily:"Cormorant Garamond",  fontWeight:400, color:"rgba(43,63,71,0.68)" },
+    cta:      { fontFamily:"Cormorant Garamond",  fontWeight:600, color:"#ffffff", letterSpacing:0.2, textTransform:"uppercase" },
+    badge:    { fontFamily:"Cormorant Garamond",  fontWeight:600, color:"#2b3f47", textTransform:"uppercase", letterSpacing:0.24 },
+    eyebrow:  { fontFamily:"Cormorant Garamond",  fontWeight:500, color:"#d38e6d", textTransform:"uppercase", letterSpacing:0.3 },
+  },
+  decorations:[
+    // Large rounded photo panel on the right-half — placeholder if no CDN
+    { kind:"photo_shape", x:52, y:10, w:42, h:80, shape:"rounded",
+      photoSlug:"fashion-street-style", fallbackColor:"#b7c4c5", opacity:1, shadow:true },
+    // Soft washi tape pinning the top of the photo
+    { kind:"washi_tape", x:56, y:8, w:20, h:4, rotation:-6, colorA:"rgba(255,255,255,0.72)", colorB:"#d38e6d", opacity:0.82, stripes:6 },
+    // Tiny photo accent tucked bottom-left
+    { kind:"photo_shape", x:8, y:66, w:18, h:22, shape:"rounded",
+      photoSlug:"fashion-accessories", fallbackColor:"#2b3f47", opacity:1, shadow:true },
+    { kind:"section_divider", x:6, y:36, w:40, color:"#d38e6d", opacity:0.8, strokeWidth:0.8, ornament:"diamond" },
+    { kind:"noise_overlay", opacity:0.025 },
+  ],
+  ctaStyle:{ backgroundColor:"#2b3f47", textColor:"#ffffff", borderRadius:2, paddingH:32, paddingV:12 },
+  overlayOpacity:0, overlayColor:"#ffffff",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 28. SCRAPBOOK POP — Tips, motivation, education  (washi + shapes, Step 66)
+// Playful layered composition with torn paper + washi tape + blob panel.
+// Matches "Boost Your Confidence!" / "Quick Tips for Success" energy.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"scrapbook_pop", name:"Scrapbook Pop",
+  tones:["energetic","warm","bold"], colorMoods:["vibrant","light","warm"],
+  headlineSizeMultiplier:1.28,
+  palette:{ background:"#fff5ee", surface:"rgba(255,255,255,0.7)", primary:"#f06292",
+    secondary:"#ffb74d", text:"#3a2a2a", textMuted:"rgba(58,42,42,0.68)", highlight:"#26a69a" },
+  background:{ kind:"linear_gradient", colors:["#fff5ee","#ffe8d6"], angle:170 },
+  typography:{
+    display:"Caveat",  body:"Nunito",
+    headline: { fontFamily:"Caveat",  fontWeight:700, color:"#3a2a2a", letterSpacing:-0.005, fontSizeMultiplier:1.28 },
+    subhead:  { fontFamily:"Nunito",  fontWeight:500, color:"rgba(58,42,42,0.76)" },
+    body_text:{ fontFamily:"Nunito",  fontWeight:400, color:"rgba(58,42,42,0.70)" },
+    cta:      { fontFamily:"Nunito",  fontWeight:700, color:"#ffffff", letterSpacing:0.06 },
+    badge:    { fontFamily:"Nunito",  fontWeight:700, color:"#f06292", textTransform:"uppercase", letterSpacing:0.2 },
+    eyebrow:  { fontFamily:"Nunito",  fontWeight:600, color:"#26a69a", textTransform:"uppercase", letterSpacing:0.24 },
+  },
+  decorations:[
+    // Playful blob behind headline
+    { kind:"shape_panel", x:8, y:14, w:60, h:36, shape:"blob", color:"#ffe0b2", opacity:0.95, seed:173 },
+    // Torn paper scrap for supporting text
+    { kind:"torn_paper_frame", x:14, y:54, w:72, h:30, color:"#fffdf7", shadowColor:"#3a2a2a", opacity:0.95, seed:331 },
+    // Washi tape pinning the corner of the torn paper
+    { kind:"washi_tape", x:10, y:52, w:18, h:4, rotation:-15, colorA:"#f06292", colorB:"#ffffff", opacity:0.8, stripes:5 },
+    { kind:"washi_tape", x:72, y:82, w:18, h:4, rotation:12,  colorA:"#26a69a", colorB:"#ffffff", opacity:0.8, stripes:5 },
+    // Scalloped badge top-right
+    { kind:"shape_panel", x:80, y:6, w:18, h:18, shape:"badge", color:"#f06292", opacity:0.95 },
+    { kind:"icon_symbol", x:20, y:24, size:6, icon:"sparkle", color:"#26a69a", opacity:0.85 },
+    { kind:"icon_symbol", x:58, y:22, size:5, icon:"star",    color:"#ffb74d", opacity:0.85 },
+    { kind:"noise_overlay", opacity:0.035 },
+  ],
+  ctaStyle:{ backgroundColor:"#f06292", textColor:"#ffffff", borderRadius:40, paddingH:36, paddingV:14, shadow:true },
+  overlayOpacity:0, overlayColor:"#ffffff",
 },
 
 ];

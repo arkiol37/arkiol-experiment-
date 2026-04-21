@@ -5,6 +5,7 @@
 
 import { DecorShape } from "./design-themes";
 import type { BgTreatment } from "./design-themes";
+import { photoAssetUrl } from "../assets/photo-asset-manifest";
 
 export function renderDecoration(shape: DecorShape, width: number, height: number): string {
   const px  = (pct: number, total: number) => (pct / 100) * total;
@@ -370,15 +371,25 @@ export function renderDecoration(shape: DecorShape, width: number, height: numbe
     }
 
     case "photo_circle": {
-      // Circular photo placeholder — avatar or product shot framing
+      // Circular photo — Step 66 resolves to a real <image> when a photoSlug
+      // or photoUrl is supplied AND ARKIOL_PHOTO_ASSET_BASE is configured,
+      // otherwise falls back to the solid bgColor placeholder so local
+      // dev / CI remain functional.
       const cx=px(shape.x,width), cy=px(shape.y,height), r=px(shape.r,min);
       const id=`pc_${Math.round(cx)}_${Math.round(cy)}`;
+      const url = shape.photoUrl ?? (shape.photoSlug ? photoAssetUrl(shape.photoSlug) : undefined);
       let svg="";
       if(shape.shadow){
         svg+=`<filter id="${id}"><feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="rgba(0,0,0,0.15)"/></filter>`;
       }
       const filterAttr=shape.shadow?` filter="url(#${id})"` : "";
-      svg+=`<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}" fill="${shape.bgColor}" opacity="${shape.opacity}"${filterAttr}/>`;
+      if(url){
+        const clipId=`${id}_clip`;
+        svg+=`<clipPath id="${clipId}"><circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}"/></clipPath>`;
+        svg+=`<image href="${escAttr(url)}" x="${f(cx-r)}" y="${f(cy-r)}" width="${f(r*2)}" height="${f(r*2)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${clipId})" opacity="${shape.opacity}"${filterAttr}/>`;
+      } else {
+        svg+=`<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r)}" fill="${shape.bgColor}" opacity="${shape.opacity}"${filterAttr}/>`;
+      }
       if(shape.borderWidth>0){
         svg+=`<circle cx="${f(cx)}" cy="${f(cy)}" r="${f(r+shape.borderWidth/2)}" fill="none" stroke="${shape.borderColor}" stroke-width="${shape.borderWidth}" opacity="${shape.opacity}"/>`;
       }
@@ -709,6 +720,151 @@ export function renderDecoration(shape: DecorShape, width: number, height: numbe
         + `<feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="${shape.shadowColor}" flood-opacity="0.35"/>`
         + `</filter>`
         + `<path d="${d}" fill="${shape.color}" opacity="${shape.opacity}" filter="url(#${filterId})"/>`;
+    }
+
+    // ── STEP 66: PHOTO + SHAPE PANEL + WASHI TAPE ──────────────────────────
+
+    case "photo_shape": {
+      // Real <image> clipped to a shape (heart / circle / blob / rounded).
+      // Falls back to a `fallbackColor` fill when no URL is available.
+      const x=px(shape.x,width), y=px(shape.y,height);
+      const w=px(shape.w,width), h=px(shape.h,height);
+      const cx=x+w/2, cy=y+h/2;
+      const id=`ps_${shape.shape}_${Math.round(x)}_${Math.round(y)}`;
+      const url = shape.photoUrl ?? (shape.photoSlug ? photoAssetUrl(shape.photoSlug) : undefined);
+
+      // shape path in local-to-bbox coords
+      let shapePath = "";
+      switch(shape.shape){
+        case "circle": {
+          const r=Math.min(w,h)/2;
+          shapePath = `M ${f(cx+r)} ${f(cy)} A ${f(r)} ${f(r)} 0 1 1 ${f(cx-r)} ${f(cy)} A ${f(r)} ${f(r)} 0 1 1 ${f(cx+r)} ${f(cy)} Z`;
+          break;
+        }
+        case "rounded": {
+          const rx=Math.min(w,h)*0.12;
+          shapePath = `M ${f(x+rx)} ${f(y)} L ${f(x+w-rx)} ${f(y)} Q ${f(x+w)} ${f(y)} ${f(x+w)} ${f(y+rx)} L ${f(x+w)} ${f(y+h-rx)} Q ${f(x+w)} ${f(y+h)} ${f(x+w-rx)} ${f(y+h)} L ${f(x+rx)} ${f(y+h)} Q ${f(x)} ${f(y+h)} ${f(x)} ${f(y+h-rx)} L ${f(x)} ${f(y+rx)} Q ${f(x)} ${f(y)} ${f(x+rx)} ${f(y)} Z`;
+          break;
+        }
+        case "heart": {
+          // Classic heart curve scaled to bbox
+          const hs = Math.min(w,h) * 0.5;
+          const topY = cy - hs*0.35;
+          shapePath =
+            `M ${f(cx)} ${f(cy + hs*0.92)} `
+          + `C ${f(cx - hs*2.05)} ${f(cy - hs*0.05)} ${f(cx - hs*1.15)} ${f(cy - hs*1.45)} ${f(cx)} ${f(topY)} `
+          + `C ${f(cx + hs*1.15)} ${f(cy - hs*1.45)} ${f(cx + hs*2.05)} ${f(cy - hs*0.05)} ${f(cx)} ${f(cy + hs*0.92)} Z`;
+          break;
+        }
+        case "blob": {
+          const pts: [number, number][] = [];
+          const seed = Math.round(x + y);
+          const rr = Math.min(w, h) * 0.48;
+          for (let i=0; i<10; i++) {
+            const a=(i/10)*Math.PI*2;
+            const v=0.82 + pseudoRandom(seed + i*31.1)*0.3;
+            pts.push([cx + Math.cos(a)*rr*v, cy + Math.sin(a)*rr*v]);
+          }
+          shapePath = catmullRom(pts);
+          break;
+        }
+      }
+
+      let svg = "";
+      if (shape.shadow) {
+        svg += `<filter id="${id}_sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="rgba(0,0,0,0.18)"/></filter>`;
+      }
+      svg += `<clipPath id="${id}_clip"><path d="${shapePath}"/></clipPath>`;
+      const filterAttr = shape.shadow ? ` filter="url(#${id}_sh)"` : "";
+      if (url) {
+        svg += `<image href="${escAttr(url)}" x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" preserveAspectRatio="xMidYMid slice" clip-path="url(#${id}_clip)" opacity="${shape.opacity}"${filterAttr}/>`;
+      } else {
+        svg += `<path d="${shapePath}" fill="${shape.fallbackColor}" opacity="${shape.opacity}"${filterAttr}/>`;
+      }
+      if (shape.borderWidth && shape.borderWidth > 0) {
+        svg += `<path d="${shapePath}" fill="none" stroke="${shape.borderColor ?? "#ffffff"}" stroke-width="${shape.borderWidth}" opacity="${shape.opacity}"/>`;
+      }
+      return svg;
+    }
+
+    case "shape_panel": {
+      // Filled backdrop shape (heart/blob/arc/badge) used to host text.
+      // The point of the kind is to *replace* the usual rectangular card
+      // backdrop with something expressive — think "Heart Health Tips"
+      // with the headline centered inside a soft pink heart.
+      const x=px(shape.x,width), y=px(shape.y,height);
+      const w=px(shape.w,width), h=px(shape.h,height);
+      const cx=x+w/2, cy=y+h/2;
+      const seed = shape.seed ?? 101;
+      let d="";
+      switch(shape.shape){
+        case "heart": {
+          const hs = Math.min(w,h) * 0.5;
+          const topY = cy - hs*0.35;
+          d = `M ${f(cx)} ${f(cy + hs*0.92)} `
+            + `C ${f(cx - hs*2.05)} ${f(cy - hs*0.05)} ${f(cx - hs*1.15)} ${f(cy - hs*1.45)} ${f(cx)} ${f(topY)} `
+            + `C ${f(cx + hs*1.15)} ${f(cy - hs*1.45)} ${f(cx + hs*2.05)} ${f(cy - hs*0.05)} ${f(cx)} ${f(cy + hs*0.92)} Z`;
+          break;
+        }
+        case "blob": {
+          const pts: [number, number][] = [];
+          const rr = Math.min(w, h) * 0.48;
+          for (let i=0; i<10; i++) {
+            const a=(i/10)*Math.PI*2;
+            const v=0.82 + pseudoRandom(seed + i*31.1)*0.32;
+            pts.push([cx + Math.cos(a)*rr*v, cy + Math.sin(a)*rr*v]);
+          }
+          d = catmullRom(pts);
+          break;
+        }
+        case "arc": {
+          // Upper arc/dome container — good for "banner"-style headlines
+          d = `M ${f(x)} ${f(y+h)} L ${f(x)} ${f(y+h*0.45)} Q ${f(cx)} ${f(y - h*0.1)} ${f(x+w)} ${f(y+h*0.45)} L ${f(x+w)} ${f(y+h)} Z`;
+          break;
+        }
+        case "badge": {
+          // Scalloped badge — 10 rounded bumps around circumference
+          const r = Math.min(w, h) * 0.48;
+          const bumps = 14;
+          const pts: string[] = [];
+          for (let i=0; i<bumps*2; i++) {
+            const a = (i / (bumps*2)) * Math.PI * 2 - Math.PI/2;
+            const rr = i % 2 === 0 ? r : r * 0.9;
+            pts.push(`${f(cx + Math.cos(a)*rr)},${f(cy + Math.sin(a)*rr)}`);
+          }
+          d = `M ${pts.join(" L ")} Z`;
+          break;
+        }
+      }
+      let svg = `<path d="${d}" fill="${shape.color}" opacity="${shape.opacity}"/>`;
+      if (shape.strokeWidth && shape.strokeWidth > 0) {
+        svg += `<path d="${d}" fill="none" stroke="${shape.strokeColor ?? "#ffffff"}" stroke-width="${shape.strokeWidth}" opacity="${shape.opacity}"/>`;
+      }
+      return svg;
+    }
+
+    case "washi_tape": {
+      // Angled semi-transparent striped tape — pins decor to the page,
+      // adds scrapbook energy. colorA is the base, colorB is the stripe.
+      const x=px(shape.x,width), y=px(shape.y,height);
+      const w=px(shape.w,width), h=px(shape.h,height);
+      const cx=x+w/2, cy=y+h/2;
+      const stripes = Math.max(2, Math.min(12, Math.round(shape.stripes)));
+      const id = `wt_${Math.round(x)}_${Math.round(y)}`;
+      let svg = `<g transform="rotate(${shape.rotation},${f(cx)},${f(cy)})" opacity="${shape.opacity}">`;
+      svg += `<rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}" fill="${shape.colorA}"/>`;
+      // stripes run across the shorter axis
+      const stripeW = w / (stripes * 2);
+      svg += `<clipPath id="${id}_clip"><rect x="${f(x)}" y="${f(y)}" width="${f(w)}" height="${f(h)}"/></clipPath>`;
+      svg += `<g clip-path="url(#${id}_clip)">`;
+      for (let i=0; i<stripes*2; i+=2) {
+        svg += `<rect x="${f(x + i*stripeW)}" y="${f(y - h*0.1)}" width="${f(stripeW)}" height="${f(h*1.2)}" fill="${shape.colorB}"/>`;
+      }
+      svg += `</g>`;
+      // soft edge shadow under tape
+      svg += `<rect x="${f(x)}" y="${f(y + h*0.88)}" width="${f(w)}" height="${f(h*0.16)}" fill="rgba(0,0,0,0.12)"/>`;
+      svg += `</g>`;
+      return svg;
     }
 
     default: return "";
@@ -1087,3 +1243,4 @@ export function renderScene(
 
 function f(n: number): string { return n.toFixed(1); }
 function esc(s: string): string { return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function escAttr(s: string): string { return s.replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
