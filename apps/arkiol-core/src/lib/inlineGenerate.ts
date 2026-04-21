@@ -113,7 +113,25 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // the strict rejection gate on every render, dedup near-clones by
     // theme palette + typography, and only persist survivors.
     const totalVariations = Math.max(1, variations);
-    const MAX_ATTEMPTS    = Math.min(Math.max(totalVariations * 2, totalVariations + 3), 16);
+    const MAX_ATTEMPTS    = Math.min(Math.max(totalVariations * 2, totalVariations + 3), 10);
+
+    // ── Time budget ──────────────────────────────────────────────────────────
+    // Vercel kills the serverless function at maxDuration (300s in
+    // /api/generate/route.ts). We must stop launching new render
+    // attempts before that or the platform will SIGKILL us mid-render
+    // and leave the DB job stuck in RUNNING — producing the "generating
+    // forever / 30-minute hang" symptom the user reported.
+    //
+    // 240s budget leaves ~60s of headroom for: S3 uploads, Prisma
+    // writes, credit deduction, and the final job.update(COMPLETED).
+    const GENERATION_BUDGET_MS = 240_000;
+    const startedAt = Date.now();
+    const deadlineAt = startedAt + GENERATION_BUDGET_MS;
+    const timeLeft = () => Math.max(0, deadlineAt - Date.now());
+    // Run up to this many attempts in parallel. Most of each attempt's
+    // wall-clock is spent awaiting OpenAI, so 3-way concurrency cuts
+    // total runtime roughly 3× without saturating CPU or rate limits.
+    const CONCURRENCY = 3;
 
     interface RenderedCandidate {
       vi:             number;
@@ -220,13 +238,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     const acceptedCount = () => rendered.filter(r => r.accepted).length;
 
-    while (acceptedCount() < totalVariations && attemptedCount < MAX_ATTEMPTS) {
-      const vi = attemptedCount;
-      attemptedCount += 1;
-
-      const progressBase = 20 + Math.floor((Math.min(acceptedCount(), totalVariations) / totalVariations) * 65);
-      await prisma.job.update({ where: { id: jobId }, data: { progress: progressBase } }).catch(() => {});
-
+    // Single-attempt render. Pure async work — no shared mutation until
+    // the caller appends the resolved candidate to `rendered`.
+    const runOneAttempt = async (vi: number) => {
       const orchestrated = await runGenerationPipeline({
         jobId,
         orgId,
@@ -242,9 +256,44 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         requestedVariations:  totalVariations,
         maxAllowedVariations: totalVariations,
       });
+      return { vi, orchestrated };
+    };
 
-      const result = orchestrated.render;
-      totalPipelineMs += orchestrated.totalPipelineMs ?? 0;
+    // Batched parallel execution with an explicit time budget.
+    // Stop launching new batches when:
+    //   1. enough candidates are accepted,
+    //   2. the MAX_ATTEMPTS cap is hit, or
+    //   3. less than ~1.2× the per-batch time estimate remains in the
+    //      budget (launching another batch would get killed mid-flight).
+    const PER_BATCH_MS_ESTIMATE = 45_000;
+    while (
+      acceptedCount() < totalVariations &&
+      attemptedCount < MAX_ATTEMPTS &&
+      timeLeft() > PER_BATCH_MS_ESTIMATE * 1.2
+    ) {
+      const remaining = totalVariations - acceptedCount();
+      const batchSize = Math.min(CONCURRENCY, remaining + 1, MAX_ATTEMPTS - attemptedCount);
+      if (batchSize <= 0) break;
+
+      const batchVis: number[] = [];
+      for (let i = 0; i < batchSize; i++) batchVis.push(attemptedCount + i);
+      attemptedCount += batchSize;
+
+      const progressBase = 20 + Math.floor((Math.min(acceptedCount(), totalVariations) / totalVariations) * 65);
+      await prisma.job.update({ where: { id: jobId }, data: { progress: progressBase } }).catch(() => {});
+
+      const batchResults = await Promise.allSettled(batchVis.map(runOneAttempt));
+
+      for (let i = 0; i < batchResults.length; i++) {
+        const vi = batchVis[i];
+        const settled = batchResults[i];
+        if (settled.status === "rejected") {
+          console.warn(`[inline-generate] vi=${vi} pipeline threw: ${settled.reason?.message ?? settled.reason}`);
+          continue;
+        }
+        const { orchestrated } = settled.value;
+        const result = orchestrated.render;
+        totalPipelineMs += orchestrated.totalPipelineMs ?? 0;
 
       const verdict = result.qualityVerdict;
       const paletteKey = paletteKeyOf(result);
@@ -345,6 +394,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         (rejectReasons.length > 0 ? ` reasons=[${rejectReasons.slice(0, 3).join("|")}]` : "") +
         ((verdict?.rankPenalties?.length ?? 0) > 0 ? ` pen=[${verdict!.rankPenalties.slice(0, 3).join("|")}]` : ""),
       );
+      } // end inner for-loop over batchResults
+    } // end outer while-loop over batches
+
+    const budgetExhausted = timeLeft() <= PER_BATCH_MS_ESTIMATE * 1.2;
+    if (budgetExhausted) {
+      console.warn(
+        `[inline-generate] Job ${jobId} hit the ${GENERATION_BUDGET_MS}ms time budget. ` +
+        `attempts=${attemptedCount}/${MAX_ATTEMPTS} accepted=${acceptedCount()}/${totalVariations} ` +
+        `elapsed=${Date.now() - startedAt}ms`,
+      );
     }
 
     // Build the final admission list with *best-N by rank score + template-
@@ -397,6 +456,19 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // Stable order by render index so the UI shows variation numbering
     // in the order they were produced.
     admitted.sort((a, b) => a.vi - b.vi);
+
+    // Fail loudly rather than returning an empty gallery. Without this
+    // guard, a fully-exhausted budget with zero rendered candidates
+    // would reach prisma.job.update({ status: "SUCCEEDED" }) with no
+    // assets, leaving the UI permanently stuck on "Generating…" — the
+    // exact symptom the time budget was added to prevent.
+    if (admitted.length === 0) {
+      throw new Error(
+        budgetExhausted
+          ? `Generation timed out after ${Date.now() - startedAt}ms: the template pipeline produced no admissible candidates within the ${GENERATION_BUDGET_MS}ms budget. Try fewer variations or retry.`
+          : `Generation failed: the template pipeline produced no admissible candidates across ${attemptedCount} attempt(s).`,
+      );
+    }
 
     const allAssetIds: string[] = [];
     let totalCreditCost = 0;

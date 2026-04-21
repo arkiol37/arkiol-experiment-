@@ -11,11 +11,20 @@ export function getOpenAIClient(): any {
   }
   if (!_openai) {
     const OpenAI = require('openai').default ?? require('openai');
+    // Tight bounds on worst-case call latency.
+    //
+    // Previously: timeout=90s with maxRetries=3 → a single stuck call
+    // could block for 90 × 4 = 360s (6 min), which blew past Vercel's
+    // maxDuration and left jobs hung in RUNNING with no error visible
+    // to the user. With 30s per attempt × 2 tries the worst-case is
+    // 60s per OpenAI call, and the generation time budget in
+    // runInlineGeneration can reliably reason about whether another
+    // attempt will fit in the remaining function lifetime.
     _openai = new OpenAI({
       apiKey:       process.env.OPENAI_API_KEY,
       organization: process.env.OPENAI_ORG_ID,
-      maxRetries:   3,
-      timeout:      90_000,
+      maxRetries:   1,
+      timeout:      30_000,
     });
   }
   return _openai;

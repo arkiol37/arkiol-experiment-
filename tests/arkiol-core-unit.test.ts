@@ -2662,6 +2662,124 @@ async function run() {
     );
   });
 
+  section("background worker · hang-prevention invariants (30-min regression guard)");
+
+  // Production failure these tests guard against: a job landed in the DB
+  // with status=RUNNING, progress=5% ("Analyzing prompt"), and stayed
+  // there for 30 minutes because (a) OpenAI's SDK retried a stalled call
+  // 3× at 90s each (6 min per call), (b) the inline worker ran a
+  // sequential loop of up to 16 pipeline attempts with no overall time
+  // budget, and (c) when Vercel eventually killed the function there
+  // was no watchdog to flip the DB row to FAILED. The UI just kept
+  // polling a phantom RUNNING job forever. These asserts pin the
+  // three-layer fix in place so nobody silently reverts any of the
+  // bounds.
+  const openaiSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/openai.ts"),
+    "utf-8",
+  );
+  const inlineGenSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+  const jobsRouteSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/jobs/route.ts"),
+    "utf-8",
+  );
+
+  test("openai client caps timeout at 30s per call", () => {
+    const m = openaiSrc.match(/timeout:\s*([\d_]+)/);
+    assert(m, "openai client must set an explicit timeout");
+    const ms = Number(m![1].replace(/_/g, ""));
+    assert(
+      ms > 0 && ms <= 30_000,
+      `openai timeout must be <= 30000ms to bound worst-case call latency, got ${ms}`,
+    );
+  });
+
+  test("openai client caps maxRetries at 1", () => {
+    const m = openaiSrc.match(/maxRetries:\s*(\d+)/);
+    assert(m, "openai client must set explicit maxRetries");
+    assert(
+      Number(m![1]) <= 1,
+      `openai maxRetries must be <= 1 so worst-case call = timeout × 2, got ${m![1]}`,
+    );
+  });
+
+  test("inline worker declares an explicit generation time budget", () => {
+    const m = inlineGenSrc.match(/GENERATION_BUDGET_MS\s*=\s*([\d_]+)/);
+    assert(m, "runInlineGeneration must declare GENERATION_BUDGET_MS");
+    const ms = Number(m![1].replace(/_/g, ""));
+    assert(
+      ms > 0 && ms <= 270_000,
+      `GENERATION_BUDGET_MS must be <= 270000 (< maxDuration=300s with headroom), got ${ms}`,
+    );
+  });
+
+  test("inline worker loop consults the time budget on every iteration", () => {
+    assert(
+      /timeLeft\s*\(\s*\)/.test(inlineGenSrc),
+      "inline worker must expose a timeLeft() helper for the loop guard",
+    );
+    // The while-loop header must include timeLeft in its condition —
+    // otherwise a budget constant alone wouldn't actually stop work.
+    assert(
+      /while\s*\([\s\S]{0,200}timeLeft\s*\(\s*\)/.test(inlineGenSrc),
+      "while-loop must check timeLeft() in its condition",
+    );
+  });
+
+  test("inline worker uses Promise.allSettled for parallel batch execution", () => {
+    assert(
+      /Promise\.allSettled\s*\(/.test(inlineGenSrc),
+      "parallel batching must use Promise.allSettled so one stuck render cannot block the batch",
+    );
+  });
+
+  test("inline worker caps MAX_ATTEMPTS to a bounded ceiling", () => {
+    // Must terminate the Math.min(...) call with `,<cap>)` at the top
+    // level — nested parens are stepped over by the lazy [\s\S]*? and
+    // the trailing `;` anchors the final close-paren.
+    const m = inlineGenSrc.match(/MAX_ATTEMPTS\s*=\s*Math\.min\([\s\S]*?,\s*(\d+)\s*\)\s*;/);
+    assert(m, "MAX_ATTEMPTS must be clamped with an explicit Math.min(..., <cap>)");
+    assert(
+      Number(m![1]) <= 12,
+      `MAX_ATTEMPTS ceiling must be <= 12 so the total render budget stays bounded, got ${m![1]}`,
+    );
+  });
+
+  test("inline worker fails loudly when zero candidates are admitted", () => {
+    assert(
+      /admitted\.length\s*===\s*0[\s\S]{0,400}throw\s+new\s+Error/.test(inlineGenSrc),
+      "must throw if admitted.length === 0 so the outer catch marks the job FAILED instead of returning an empty gallery",
+    );
+  });
+
+  test("/api/jobs GET handler declares a stale-job watchdog threshold", () => {
+    const m = jobsRouteSrc.match(/JOB_STALE_MS\s*=\s*([\d_]+)/);
+    assert(m, "GET handler must declare JOB_STALE_MS");
+    const ms = Number(m![1].replace(/_/g, ""));
+    assert(
+      ms >= 240_000 && ms <= 900_000,
+      `JOB_STALE_MS must be between the generation budget (~4 min) and 15 min, got ${ms}`,
+    );
+  });
+
+  test("/api/jobs GET handler flips stale PENDING/RUNNING jobs to FAILED", () => {
+    assert(
+      /status\s*===\s*"PENDING"\s*\|\|\s*job\.status\s*===\s*"RUNNING"/.test(jobsRouteSrc),
+      "watchdog must target PENDING/RUNNING jobs",
+    );
+    assert(
+      /Date\.now\(\)\s*-\s*new\s+Date\s*\(\s*job\.updatedAt\s*\)\.getTime\s*\(\s*\)\s*>\s*JOB_STALE_MS/.test(jobsRouteSrc),
+      "watchdog must compare Date.now() - job.updatedAt against JOB_STALE_MS",
+    );
+    assert(
+      /status:\s*"FAILED"[\s\S]{0,600}failReason:\s*"stale_worker"/.test(jobsRouteSrc),
+      "watchdog must write status=FAILED with failReason=stale_worker for the UI to surface a clear error",
+    );
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

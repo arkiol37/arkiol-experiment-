@@ -27,13 +27,66 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
 
   // Single job lookup
   if (jobId) {
-    const job = await prisma.job.findFirst({
+    let job = await prisma.job.findFirst({
       where: { id: jobId, userId: user.id },
       include: {
         campaign: { select: { id: true, name: true } },
       },
     });
     if (!job) throw new ApiError(404, "Job not found");
+
+    // Stale-job watchdog. Prisma auto-bumps `updatedAt` on every
+    // `.update()` call, so the generation pipeline naturally produces a
+    // heartbeat each time it nudges progress. If a PENDING/RUNNING job's
+    // last update is older than JOB_STALE_MS the worker has almost
+    // certainly died mid-flight (Vercel maxDuration kill, container
+    // recycle, crashed dyno), and the UI would otherwise poll
+    // "Analyzing prompt… 5%" forever. Flip it to FAILED with a concrete
+    // reason so the frontend can render a retry button.
+    //
+    // Threshold = generation budget + per-batch slack. If a real job ever
+    // exceeds this, the inline worker has already hit its own time
+    // budget and bailed out, so flagging it here is safe.
+    const JOB_STALE_MS = 300_000; // 5 min
+    if (
+      (job.status === "PENDING" || job.status === "RUNNING") &&
+      job.updatedAt &&
+      Date.now() - new Date(job.updatedAt).getTime() > JOB_STALE_MS
+    ) {
+      const staleForMs = Date.now() - new Date(job.updatedAt).getTime();
+      logger.warn(
+        { jobId: job.id, userId: user.id, status: job.status, staleForMs },
+        "Flipping stale job to FAILED",
+      );
+      try {
+        await prisma.job.update({
+          where: { id: job.id },
+          data: {
+            status:   "FAILED" as any,
+            failedAt: new Date(),
+            result:   {
+              error:      `Generation timed out — no progress for ${Math.round(staleForMs / 1000)}s. The worker was likely killed mid-render. Please retry.`,
+              failReason: "stale_worker",
+            } as any,
+          },
+        });
+        // Re-fetch so the response below reflects the new terminal state.
+        job = await prisma.job.findFirst({
+          where: { id: jobId, userId: user.id },
+          include: { campaign: { select: { id: true, name: true } } },
+        });
+        if (!job) throw new ApiError(404, "Job not found");
+        // Best-effort credit refund — mirror the DELETE handler.
+        try {
+          const creditCost = (job.payload as any)?.expectedCreditCost ?? 0;
+          if (creditCost > 0 && job.orgId) {
+            await refundCredits(job.orgId, job.id, "job_stale", { prisma: prisma as any, logger });
+          }
+        } catch { /* non-fatal */ }
+      } catch (flipErr) {
+        logger.warn({ jobId: job.id, err: flipErr }, "Failed to flip stale job");
+      }
+    }
 
     const assets = job.status === "COMPLETED" && job.result
       ? await prisma.asset.findMany({
