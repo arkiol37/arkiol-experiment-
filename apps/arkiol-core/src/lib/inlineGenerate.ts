@@ -31,6 +31,7 @@
 import "server-only";
 import { prisma } from "./prisma";
 import { detectCapabilities } from "@arkiol/shared";
+import { tagError, extractReason } from "./jobErrorFormat";
 
 export interface InlineGenerateParams {
   jobId: string;
@@ -491,10 +492,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // assets, leaving the UI permanently stuck on "Generating…" — the
     // exact symptom the time budget was added to prevent.
     if (admitted.length === 0) {
-      throw new Error(
-        budgetExhausted
-          ? `Generation timed out after ${Date.now() - startedAt}ms: the template pipeline produced no admissible candidates within the ${GENERATION_BUDGET_MS}ms budget. Try fewer variations or retry.`
-          : `Generation failed: the template pipeline produced no admissible candidates across ${attemptedCount} attempt(s).`,
+      throw tagError(
+        new Error(
+          budgetExhausted
+            ? `Generation timed out after ${Date.now() - startedAt}ms: the template pipeline produced no admissible candidates within the ${GENERATION_BUDGET_MS}ms budget. Try fewer variations or retry.`
+            : `Generation failed: the template pipeline produced no admissible candidates across ${attemptedCount} attempt(s).`,
+        ),
+        budgetExhausted ? "timeout" : "empty_gallery",
       );
     }
 
@@ -737,7 +741,14 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     console.info(`[inline-generate] Job ${jobId} completed: ${allAssetIds.length} assets, ${totalPipelineMs}ms`);
 
   } catch (err: any) {
-    console.error(`[inline-generate] Job ${jobId} failed:`, err.message);
+    // Extract the structured reason code — either explicitly tagged at
+    // a throw site (time-budget exhaustion, empty gallery) or inferred
+    // from the error message for third-party failures (OpenAI 5xx,
+    // sharp / S3 errors). This is what the UI uses to pick the right
+    // title ("AI service error" vs "Rendering failed") and to decide
+    // whether retry is meaningful.
+    const reason = extractReason(err);
+    console.error(`[inline-generate] Job ${jobId} failed [${reason}]:`, err.message);
 
     await prisma.job.update({
       where: { id: jobId },
@@ -746,7 +757,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         failedAt: new Date(),
         result: {
           error:           err.message ?? "Generation failed",
-          failReason:      err.message,
+          failReason:      reason,
           inlineGenerated: true,
         } as any,
       },

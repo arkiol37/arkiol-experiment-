@@ -2750,7 +2750,7 @@ async function run() {
 
   test("inline worker fails loudly when zero candidates are admitted", () => {
     assert(
-      /admitted\.length\s*===\s*0[\s\S]{0,400}throw\s+new\s+Error/.test(inlineGenSrc),
+      /admitted\.length\s*===\s*0[\s\S]{0,600}throw\s+(?:new\s+Error|tagError)/.test(inlineGenSrc),
       "must throw if admitted.length === 0 so the outer catch marks the job FAILED instead of returning an empty gallery",
     );
   });
@@ -2865,6 +2865,147 @@ async function run() {
     assert(
       /CONCURRENCY\s*=\s*Math\.min\s*\(\s*6\s*,\s*totalVariations\s*\+\s*\d+\s*\)/.test(inlineGenSrc),
       "CONCURRENCY must be computed as Math.min(6, totalVariations + N) so small requests all fire in parallel",
+    );
+  });
+
+  section("job-error formatter · shared error reporting");
+
+  // Guards the invariant that every FAILED job — whether originating
+  // from a timeout throw, a stale-worker watchdog, an OpenAI 5xx, an
+  // S3 upload failure, or a historical row without a structured
+  // `failReason` — surfaces a concrete, human-readable message and
+  // category. Previously the UI just showed "Job failed" because each
+  // component read a different ad-hoc field path.
+  const errFmt = await import("../apps/arkiol-core/src/lib/jobErrorFormat");
+
+  test("formatJobError surfaces the stored error message, not a generic fallback", () => {
+    const out = errFmt.formatJobError({
+      status: "FAILED",
+      result: { error: "OpenAI returned 502 after 30s", failReason: "openai_failure" },
+    });
+    assert(out.reason  === "openai_failure", `reason should pass through, got ${out.reason}`);
+    assert(out.title   === "AI service error", `title should map from reason, got ${out.title}`);
+    assert(out.message === "OpenAI returned 502 after 30s", `message should be the stored error, got ${out.message}`);
+    assert(out.retryable === true, "openai_failure must be marked retryable");
+  });
+
+  test("formatJobError uses category default when message is missing or generic", () => {
+    const out = errFmt.formatJobError({
+      status: "FAILED",
+      result: { error: "Generation failed", failReason: "stale_worker" },
+    });
+    assert(out.reason  === "stale_worker", `reason passthrough, got ${out.reason}`);
+    assert(out.title   === "Worker stalled", `title should come from reason, got ${out.title}`);
+    assert(
+      !/^Generation failed$/.test(out.message),
+      `must not surface the generic "Generation failed" fallback — should pick the stale_worker default explanation`,
+    );
+  });
+
+  test("formatJobError infers reason from message when failReason is missing (legacy rows)", () => {
+    const cases: Array<[string, errFmt.JobFailReason]> = [
+      ["Generation timed out after 240000ms",                        "timeout"],
+      ["no progress for 312s",                                       "stale_worker"],
+      ["pipeline produced no admissible candidates",                 "empty_gallery"],
+      ["OpenAI rate limit (429)",                                    "openai_failure"],
+      ["S3 upload failed: AccessDenied",                             "storage_failure"],
+      ["Cancelled by user",                                          "cancelled"],
+      ["sharp: invalid SVG",                                         "render_failure"],
+    ];
+    for (const [msg, expected] of cases) {
+      const got = errFmt.formatJobError({ status: "FAILED", result: { error: msg } });
+      assert(got.reason === expected, `"${msg}" should infer ${expected}, got ${got.reason}`);
+    }
+  });
+
+  test("formatJobError tolerates every degenerate shape without throwing", () => {
+    for (const shape of [null, undefined, {}, { status: "FAILED" }, { result: null }, { result: { error: null, failReason: null } }]) {
+      const out = errFmt.formatJobError(shape as any);
+      assert(out.title.length > 0,   "title must always be non-empty");
+      assert(out.message.length > 0, "message must always be non-empty");
+      assert(out.reason === "unknown", `degenerate shape should resolve to unknown, got ${out.reason}`);
+    }
+  });
+
+  test("tagError + extractReason round-trip survives through a thrown Error", () => {
+    const err = errFmt.tagError(new Error("whatever the pipeline said"), "empty_gallery");
+    assert(err instanceof Error, "tagError must return an Error");
+    assert(errFmt.extractReason(err) === "empty_gallery", "extractReason should read back the tag");
+  });
+
+  test("extractReason falls back to message-inference for third-party errors that weren't tagged", () => {
+    assert(errFmt.extractReason(new Error("OpenAI request timed out"))       === "timeout",        "timed out → timeout");
+    assert(errFmt.extractReason({ message: "S3 PutObject failed" })           === "storage_failure","S3 → storage_failure");
+    assert(errFmt.extractReason(new Error("sharp: cannot allocate buffer"))   === "render_failure", "sharp → render_failure");
+  });
+
+  section("job-error wiring · every UI surface reads the real reason");
+
+  // Pin the UI wiring: a previous regression used `job.result?.message`
+  // which was never populated by the backend, silently producing "Job
+  // failed" for every failure. These asserts catch the field-name
+  // drift by requiring every client component's FAILED branch to go
+  // through the shared formatter rather than picking ad-hoc paths.
+  const uiSurfaces: Array<[string, string]> = [
+    ["GeneratePanel",       "apps/arkiol-core/src/components/generate/GeneratePanel.tsx"],
+    ["EditorShell",         "apps/arkiol-core/src/components/dashboard/EditorShell.tsx"],
+    ["AnimationStudioView", "apps/arkiol-core/src/components/dashboard/AnimationStudioView.tsx"],
+    ["GifStudioView",       "apps/arkiol-core/src/components/dashboard/GifStudioView.tsx"],
+  ];
+
+  for (const [label, relPath] of uiSurfaces) {
+    test(`${label} routes FAILED jobs through formatJobError()`, () => {
+      const src = fs.readFileSync(path.resolve(relPath), "utf-8");
+      assert(
+        /from\s+["'][^"']*jobErrorFormat["']/.test(src),
+        `${label} must import from jobErrorFormat — otherwise it can't render the real reason`,
+      );
+      assert(
+        /formatJobError\s*\(/.test(src),
+        `${label} must call formatJobError() somewhere in its FAILED branch`,
+      );
+      // The old field-name bugs: result.message (never written) and bare
+      // fallback strings. These must be gone.
+      assert(
+        !/result\?\.message\s*\?\?\s*["'](?:Job failed|Generation failed)["']/.test(src),
+        `${label} must not fall back to the legacy 'result?.message ?? "Job failed"' pattern`,
+      );
+      assert(
+        !/\bjob\.error\s*\?\?\s*["']Failed["']/.test(src),
+        `${label} must not fall back to the legacy 'job.error ?? "Failed"' pattern`,
+      );
+    });
+  }
+
+  test("/api/jobs GET response always populates a top-level error + failReason for FAILED rows", () => {
+    const src = fs.readFileSync(path.resolve("apps/arkiol-core/src/app/api/jobs/route.ts"), "utf-8");
+    // Both the single-job branch and the list branch must run FAILED
+    // rows through the shared formatter before sending them to clients.
+    const calls = [...src.matchAll(/formatJobError\s*\(/g)];
+    assert(calls.length >= 2, `expected >= 2 formatJobError() call sites (single-job + list), got ${calls.length}`);
+    // The single-job response must expose the pre-formatted title +
+    // message + retryable triad so the client doesn't need its own
+    // round of mapping.
+    assert(
+      /title:\s*failedDisplay\.title/.test(src) &&
+      /message:\s*failedDisplay\.message/.test(src) &&
+      /retryable:\s*failedDisplay\.retryable/.test(src),
+      "single-job GET branch must surface { title, message, retryable } from formatJobError",
+    );
+  });
+
+  test("inlineGenerate stores a structured failReason in the DB on failure", () => {
+    assert(
+      /extractReason\s*\(\s*err\s*\)/.test(inlineGenSrc),
+      "outer catch must call extractReason(err) to derive a structured code",
+    );
+    assert(
+      /failReason:\s*reason/.test(inlineGenSrc),
+      "outer catch must write the derived reason code into result.failReason",
+    );
+    assert(
+      /tagError\s*\([\s\S]{0,600}budgetExhausted\s*\?\s*["']timeout["']\s*:\s*["']empty_gallery["']/.test(inlineGenSrc),
+      "the zero-admitted throw must be tagged with 'timeout' or 'empty_gallery' so the UI can distinguish budget exhaustion from hard failures",
     );
   });
 

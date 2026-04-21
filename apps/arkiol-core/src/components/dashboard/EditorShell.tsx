@@ -17,6 +17,7 @@ import {
 } from "../../lib/types";
 import dynamic from "next/dynamic";
 import type { EditorElement } from "../editor/ArkiolEditor";
+import { formatJobError } from "../../lib/jobErrorFormat";
 
 const ArkiolEditor = dynamic(
   () => import("../editor/ArkiolEditor").then(m => ({ default: m.default ?? m.ArkiolEditor })),
@@ -75,7 +76,7 @@ export function EditorShell() {
           loadEditorElements(assetId);
         } else if (data.job.status === "FAILED") {
           clearInterval(iv);
-          setError(data.job.error ?? "Generation failed");
+          setError(formatJobError(data.job).message);
           setStep("brief");
         }
       } catch { /* network hiccup — keep polling */ }

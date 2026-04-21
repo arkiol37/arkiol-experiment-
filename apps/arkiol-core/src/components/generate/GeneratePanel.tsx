@@ -6,6 +6,7 @@ import React, { useState, useRef } from "react";
 import { ARKIOL_CATEGORIES, CATEGORY_LABELS } from "../../lib/types";
 import { GALLERY_DEFAULT_CANDIDATE_COUNT } from "../../lib/gallery-config";
 import { AIGenerationStage } from "./AIGenerationStage";
+import { formatJobError } from "../../lib/jobErrorFormat";
 
 interface GeneratePanelProps {
   onClose:    () => void;
@@ -98,7 +99,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
       return;
     }
     if (data.status === "FAILED") {
-      setError(data.result?.error ?? data.error ?? "Generation failed");
+      setError(formatJobError(data).message);
       setStatus("error"); setLoading(false);
       return;
     }
@@ -117,7 +118,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
         onComplete?.(jid);
       } else if (job.status === "FAILED") {
         clearInterval(pollRef.current);
-        setError(job.result?.message ?? "Job failed");
+        setError(formatJobError(job).message);
         setStatus("error"); setLoading(false);
       }
     }, 1500);

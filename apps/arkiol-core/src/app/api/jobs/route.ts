@@ -11,6 +11,7 @@ import { withErrorHandling, dbUnavailable } from "../../../lib/error-handling";
 import { ApiError }          from "../../../lib/types";
 import { refundCredits }     from "@arkiol/shared";
 import { logger }            from "../../../lib/logger";
+import { formatJobError }    from "../../../lib/jobErrorFormat";
 
 // GET /api/jobs — list user's jobs
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -116,6 +117,20 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       return { ...a, thumbnailUrl, svgSource: undefined };
     }));
 
+    // For FAILED jobs, run the stored error through the shared
+    // formatter server-side so: (1) historical rows with no `failReason`
+    // still get a sensible title via inferReasonFromMessage, and (2)
+    // the client can just render the returned fields without having
+    // to re-apply the same logic. We still expose the raw `error` +
+    // `failReason` for clients that want to format themselves.
+    const failedDisplay = job.status === "FAILED"
+      ? formatJobError({
+          status: job.status,
+          result: job.result as any,
+          error:  (job.result as any)?.error ?? undefined,
+        })
+      : null;
+
     return NextResponse.json({
       job: {
         id:          job.id,
@@ -132,11 +147,22 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
           format:      (job.result as any)?.format      ?? null,
           fileSize:    (job.result as any)?.fileSize     ?? null,
           assets:      assetsWithUrls,
-        } : (job.status === "FAILED" ? {
-          error:     (job.result as any)?.error ?? "Generation failed",
-          failReason:(job.result as any)?.failReason ?? null,
+        } : (failedDisplay ? {
+          // Raw fields for clients that want to re-format themselves.
+          error:      (job.result as any)?.error ?? failedDisplay.message,
+          failReason: failedDisplay.reason,
+          // Pre-formatted fields so simple clients (Recent Jobs tile,
+          // toast) can render directly without importing the formatter.
+          title:      failedDisplay.title,
+          message:    failedDisplay.message,
+          retryable:  failedDisplay.retryable,
         } : null),
-        error:       job.status === "FAILED" ? (job.result as any)?.error : undefined,
+        // Top-level `error` is kept for backward compatibility with
+        // EditorShell + AnimationStudioView which read `job.error`.
+        // Always populated on FAILED so a bare `job.error ?? "Job failed"`
+        // fallback never surfaces the generic text.
+        error:       failedDisplay?.message,
+        failReason:  failedDisplay?.reason,
         campaign:    (job as any).campaign,
         createdAt:   job.createdAt,
         startedAt:   job.startedAt,
@@ -167,7 +193,32 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     },
   });
 
-  return NextResponse.json({ jobs, total, page, limit });
+  // Enrich FAILED entries so list consumers (Recent Jobs tile) can
+  // render the real reason without a second round-trip. Non-FAILED
+  // rows pass through untouched to keep the response shape stable.
+  const enrichedJobs = jobs.map((j: any) => {
+    if (j.status !== "FAILED") return j;
+    const display = formatJobError({
+      status: j.status,
+      result: j.result,
+      error:  j.result?.error,
+    });
+    return {
+      ...j,
+      error:      display.message,
+      failReason: display.reason,
+      result: {
+        ...(j.result ?? {}),
+        error:      j.result?.error ?? display.message,
+        failReason: display.reason,
+        title:      display.title,
+        message:    display.message,
+        retryable:  display.retryable,
+      },
+    };
+  });
+
+  return NextResponse.json({ jobs: enrichedJobs, total, page, limit });
 });
 
 // DELETE /api/jobs — cancel a pending job
@@ -189,7 +240,11 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
 
   await prisma.job.update({
     where: { id: jobId },
-    data:  { status: "FAILED" as any, failedAt: new Date(), result: { error: "Cancelled by user" } as any },
+    data:  {
+      status:   "FAILED" as any,
+      failedAt: new Date(),
+      result:   { error: "Cancelled by user", failReason: "cancelled" } as any,
+    },
   });
 
   // Attempt to refund credits

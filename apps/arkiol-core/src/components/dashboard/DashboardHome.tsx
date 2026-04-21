@@ -16,7 +16,15 @@ interface BillingInfo {
   subscriptionStatus: string;
   creditBalance?: number;
 }
-interface RecentJob { id: string; type: string; status: string; result?: any; createdAt: string; }
+interface RecentJob {
+  id:         string;
+  type:       string;
+  status:     string;
+  result?:    any; // enriched by /api/jobs: on FAILED includes { title, message, error, failReason, retryable }
+  error?:     string | null;
+  failReason?: string | null;
+  createdAt:  string;
+}
 
 const STATUS_DOT: Record<string, string> = {
   COMPLETED: "#10b981", SUCCEEDED: "#10b981",
@@ -321,23 +329,38 @@ export function DashboardHome({ user }: { user?: any }) {
               <a href="/campaigns" style={{ fontSize: 12.5, color: "#4f8ef7", textDecoration: "none", fontWeight: 500 }}>View all →</a>
             </div>
             <div>
-              {recentJobs.map(job => (
-                <div key={job.id} className="dh-job">
+              {recentJobs.map(job => {
+                // The jobs API pre-populates result.title + result.message
+                // for FAILED rows (see /api/jobs/route.ts). Surface those
+                // inline so the Recent Activity tile doesn't just show
+                // "FAILED" with no explanation.
+                const isFailed  = job.status === "FAILED";
+                const failTitle = isFailed ? (job.result?.title   ?? "Generation failed") : null;
+                const failMsg   = isFailed ? (job.result?.message ?? job.result?.error ?? null) : null;
+                return (
+                <div key={job.id} className="dh-job" title={failMsg ?? undefined}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: STATUS_DOT[job.status] ?? "#737a96", flexShrink: 0, boxShadow: `0 0 6px ${STATUS_DOT[job.status] ?? "#737a96"}88` }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: "#eaedf5", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {job.type.replace(/_/g, " ").toLowerCase().replace(/^\w/, c => c.toUpperCase())}
                     </div>
-                    <div style={{ fontSize: 11.5, color: "#3e4358", marginTop: 2 }}>{new Date(job.createdAt).toLocaleString()}</div>
+                    {isFailed && failMsg ? (
+                      <div style={{ fontSize: 11.5, color: "#fca5a5", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{ fontWeight: 600 }}>{failTitle}:</span> {failMsg}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 11.5, color: "#3e4358", marginTop: 2 }}>{new Date(job.createdAt).toLocaleString()}</div>
+                    )}
                   </div>
-                  {job.result?.assetCount != null && (
+                  {job.result?.assetCount != null && !isFailed && (
                     <span style={{ fontSize: 12, color: "#737a96" }}>{job.result.assetCount} assets</span>
                   )}
                   <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", padding: "3px 10px", borderRadius: 99, background: STATUS_BG[job.status] ?? "rgba(148,163,184,0.10)", color: STATUS_DOT[job.status] ?? "#94a3b8", border: `1px solid ${STATUS_DOT[job.status] ?? "#94a3b8"}30` }}>
                     {job.status}
                   </span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

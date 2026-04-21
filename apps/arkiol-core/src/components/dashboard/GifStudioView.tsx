@@ -3,6 +3,7 @@
 // Dedicated Arkiol Studio — animate, configure, generate, manage
 
 import React, { useState, useEffect, useRef } from "react";
+import { formatJobError } from "../../lib/jobErrorFormat";
 
 const GIF_FORMATS = [
   { id: "instagram_post",  label: "Instagram Post (1:1)",   ratio: "1/1"  },
@@ -108,7 +109,7 @@ export function GifStudioView() {
         } else if (job.status === "FAILED") {
           clearInterval(pollRef.current);
           setGenerating(false);
-          setError(job.result?.message ?? "Generation failed");
+          setError(formatJobError(job).message);
         }
       }, 1500);
     } catch (e: any) {

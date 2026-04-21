@@ -3,6 +3,7 @@
 // Plan-gated: canUseStudioVideo (Creator, Pro, Studio)
 
 import React, { useState, useEffect, useRef } from "react";
+import { formatJobError } from "../../lib/jobErrorFormat";
 
 const MODES = [
   { id: "Normal Ad",   tag: "Normal",   credits: 20, icon: "◫", color: "#4f8ef7", badge: "Standard",
@@ -93,7 +94,7 @@ export function AnimationStudioView() {
         const ns = Math.min(Math.floor(p/100*STAGES.length), STAGES.length-1);
         if (ns !== si) { si = ns; setStage(STAGES[si]!); }
         if (["COMPLETED","SUCCEEDED"].includes(job.status)) { clearInterval(poll.current); setGenning(false); setTab("library"); }
-        else if (job.status === "FAILED") { clearInterval(poll.current); setGenning(false); setErr(job.error??"Failed"); }
+        else if (job.status === "FAILED") { clearInterval(poll.current); setGenning(false); setErr(formatJobError(job).message); }
       }, 2500);
     } catch(e:any) { setGenning(false); setErr(e.message); }
   }
