@@ -105,13 +105,41 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "animal-butterfly",      label: "Butterfly",         category: "beauty",      realm: "animal",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "animal-deer",           label: "Deer",              category: "wellness",    realm: "animal",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
 
-  // ── Lifestyle (6) ──────────────────────────────────────────────────
-  { slug: "lifestyle-workspace",   label: "Workspace",         category: "productivity",realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "lifestyle-reading-nook",label: "Reading nook",      category: "education",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "lifestyle-plant-room",  label: "Plant-filled room", category: "wellness",    realm: "lifestyle", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "lifestyle-kitchen",     label: "Kitchen counter",   category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "lifestyle-bedroom",     label: "Bedroom",           category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "lifestyle-home-office", label: "Home office",       category: "business",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // ── Lifestyle (20) ─────────────────────────────────────────────────
+  // Step 49: expanded the lifestyle realm into a first-class interior-scene
+  // library. Every slug is a modern real-life 3D render — consistent soft
+  // lighting, clean camera angle, realistic materials and props, rendered
+  // at 1600–2000 px on the long edge. Groupings (workspaces, reading,
+  // green interiors, kitchens, bedrooms, living areas, studios) keep the
+  // manifest readable and the diff reviewable. When ARKIOL_3D_ASSET_BASE
+  // is configured the CDN must serve each slug below at `${base}/${slug}.png`.
+  // Workspaces
+  { slug: "lifestyle-workspace",         label: "Workspace",           category: "productivity",realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-desk-flatlay",      label: "Desk flat-lay",       category: "productivity",realm: "lifestyle", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-dual-monitor-desk", label: "Dual-monitor desk",   category: "productivity",realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-minimal-desk",      label: "Minimal desk",        category: "productivity",realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-coworking",         label: "Coworking space",     category: "business",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-home-office",       label: "Home office",         category: "business",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Reading areas
+  { slug: "lifestyle-reading-nook",      label: "Reading nook",        category: "education",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-reading-armchair",  label: "Reading armchair",    category: "education",   realm: "lifestyle", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Green interiors
+  { slug: "lifestyle-plant-room",        label: "Plant-filled room",   category: "wellness",    realm: "lifestyle", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-botanical-corner",  label: "Botanical corner",    category: "wellness",    realm: "lifestyle", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Kitchens
+  { slug: "lifestyle-kitchen",           label: "Kitchen counter",     category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-modern-kitchen",    label: "Modern kitchen",      category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-sunlit-kitchen",    label: "Sunlit kitchen",      category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Bedrooms
+  { slug: "lifestyle-bedroom",           label: "Bedroom",             category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-cozy-bedroom",      label: "Cozy bedroom",        category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-scandi-bedroom",    label: "Scandi bedroom",      category: "beauty",      realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Living areas
+  { slug: "lifestyle-living-room",       label: "Living room",         category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Studios
+  { slug: "lifestyle-photo-studio",      label: "Photography studio",  category: "marketing",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-art-studio",        label: "Art studio",          category: "education",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-podcast-studio",    label: "Podcast studio",      category: "marketing",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
 
   // ── Object (8) ─────────────────────────────────────────────────────
   { slug: "object-books-stack",    label: "Books stack",       category: "education",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
@@ -224,4 +252,15 @@ export function asset3dSlugsByRealm(
  */
 export function natureAsset3dSlugs(): readonly Asset3DSlug[] {
   return asset3dSlugsByRealm("nature");
+}
+
+/**
+ * Lifestyle asset group — workspaces, desks, reading areas, plant-filled
+ * rooms, kitchens, bedrooms, home offices, living rooms, photo / art /
+ * podcast studios. Convenience alias for `asset3dSlugsByRealm("lifestyle")`
+ * so templates that want the interior-scene catalog don't have to
+ * reimplement the filter.
+ */
+export function lifestyleAsset3dSlugs(): readonly Asset3DSlug[] {
+  return asset3dSlugsByRealm("lifestyle");
 }

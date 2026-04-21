@@ -300,9 +300,9 @@ async function run() {
 
   const manifest = await import("../apps/arkiol-core/src/engines/assets/3d-asset-manifest");
 
-  test("manifest has 57 slugs", () => {
-    // 32 nature + 5 animal + 6 lifestyle + 9 object + 5 scene = 57
-    assertEq(manifest.ASSET_3D_MANIFEST.length, 57, "manifest size");
+  test("manifest has 71 slugs", () => {
+    // 32 nature + 5 animal + 20 lifestyle + 9 object + 5 scene = 71
+    assertEq(manifest.ASSET_3D_MANIFEST.length, 71, "manifest size");
   });
 
   test("every manifest slug maps to a library asset id pattern", () => {
@@ -318,8 +318,9 @@ async function run() {
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
     const s = manifest.asset3dManifestStats();
     assertEq(s.configured, false, "configured");
-    assertEq(s.totalSlugs, 57, "totalSlugs");
+    assertEq(s.totalSlugs, 71, "totalSlugs");
     assertEq(s.byRealm.nature, 32, "nature count");
+    assertEq(s.byRealm.lifestyle, 20, "lifestyle count");
   });
 
   test("asset3dUrl returns undefined without base configured", () => {
@@ -358,6 +359,34 @@ async function run() {
     for (const m of manifest.natureAsset3dSlugs()) {
       const suffix = m.slug.replace(/^nature-/, "");
       const expectedId = `real.nature.${suffix}`;
+      assert(libIds.has(expectedId),
+        `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
+    }
+  });
+
+  test("lifestyleAsset3dSlugs returns the lifestyle realm group", () => {
+    const lifestyle = manifest.lifestyleAsset3dSlugs();
+    assertEq(lifestyle.length, 20, "lifestyle count");
+    const slugs = new Set(lifestyle.map(n => n.slug));
+    for (const s of lifestyle) assertEq(s.realm, "lifestyle" as const, `realm:${s.slug}`);
+    // Spot-check that the Step 49 interior-scene additions are all present.
+    for (const expected of [
+      "lifestyle-desk-flatlay", "lifestyle-dual-monitor-desk",
+      "lifestyle-reading-armchair", "lifestyle-botanical-corner",
+      "lifestyle-modern-kitchen", "lifestyle-cozy-bedroom",
+      "lifestyle-living-room", "lifestyle-podcast-studio",
+    ]) {
+      assert(slugs.has(expected), `missing lifestyle slug ${expected}`);
+    }
+  });
+
+  test("every lifestyle manifest slug has a matching library Asset", async () => {
+    const lib2 = await import("../apps/arkiol-core/src/lib/asset-library");
+    const libLifestyle = lib2.getAssetsByRealm("lifestyle");
+    const libIds = new Set(libLifestyle.map(a => a.id));
+    for (const m of manifest.lifestyleAsset3dSlugs()) {
+      const suffix = m.slug.replace(/^lifestyle-/, "");
+      const expectedId = `real.lifestyle.${suffix}`;
       assert(libIds.has(expectedId),
         `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
     }

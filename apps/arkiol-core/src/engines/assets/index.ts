@@ -149,6 +149,7 @@ export {
   asset3dSlugsByQualityTier,
   asset3dSlugsByRealm,
   natureAsset3dSlugs,
+  lifestyleAsset3dSlugs,
   getAsset3dSlug,
   type Asset3DSlug,
 } from "./3d-asset-manifest";
