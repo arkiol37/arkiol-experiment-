@@ -32,12 +32,31 @@ export interface ThemePalette {
   secondary:  string; text:    string;  textMuted: string; highlight: string;
 }
 
+// Step 65 — painterly scene kinds used by `BgTreatment.scene`.
+// Each kind resolves to a deterministic set of SVG layers inside the
+// renderer. Keep this list append-only — themes reference kinds by name
+// and adding new ones doesn't break existing tests.
+export type SceneKind =
+  | "mountain_lake"
+  | "jungle"
+  | "sunset_sky"
+  | "meadow"
+  | "ocean_horizon"
+  | "forest";
+
 export type BgTreatment =
   | { kind: "solid";           color: string }
   | { kind: "linear_gradient"; colors: string[]; angle: number }
   | { kind: "radial_gradient"; colors: string[]; cx: number; cy: number }
   | { kind: "mesh";            colors: string[] }
   | { kind: "split";           colors: [string, string]; splitY: number }
+  // Step 65 — full-bleed painterly scene used as the canvas background.
+  // `scene` picks a drawable illustration (mountain+lake, jungle, sunset
+  // sky, meadow, ocean horizon, forest). `palette` tints the scene so it
+  // harmonizes with the theme's palette. `atmosphere` controls how warm
+  // / cool the sky layer reads. The actual painting is composed from
+  // layered SVG paths + gradients — no bitmap assets required.
+  | { kind: "scene"; scene: SceneKind; palette: string[]; atmosphere?: "dawn"|"noon"|"dusk"|"night" }
 
 // ALL coordinates are % of canvas width/height
 export type DecorShape =
@@ -74,6 +93,18 @@ export type DecorShape =
   | { kind:"starburst";      x:number; y:number; r:number; rays:number; color:string; opacity:number; rotation:number }
   | { kind:"price_tag";      x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number }
   | { kind:"banner_strip";   x:number; y:number; w:number; h:number; color:string; text:string; textColor:string; fontSize:number; opacity:number; skew?:number }
+  // ── Step 65: painterly illustration decorations ──
+  // These five kinds fill the gap against the Canva-grade reference pack:
+  //   • foliage_silhouette — layered painted leaves/grass anchored to an edge
+  //   • mountain_range     — parallax-layered mountain silhouettes
+  //   • watercolor_corner  — soft organic blob + leaf sprigs at a corner
+  //   • themed_cluster     — category-specific prop group (food/spa/study/office)
+  //   • torn_paper_frame   — irregular jagged-edge paper panel framing content
+  | { kind:"foliage_silhouette"; anchor:"bottom"|"top"|"left"|"right"; palette:[string,string,string]; density:number; height:number; opacity:number }
+  | { kind:"mountain_range";     y:number; layers:number; palette:string[]; peakVariance:number; opacity:number }
+  | { kind:"watercolor_corner";  corner:"tl"|"tr"|"bl"|"br"; size:number; palette:[string,string,string]; opacity:number }
+  | { kind:"themed_cluster";     x:number; y:number; size:number; theme:"food"|"spa"|"study"|"office"|"travel"|"floral"; palette:string[]; opacity:number }
+  | { kind:"torn_paper_frame";   x:number; y:number; w:number; h:number; color:string; shadowColor:string; opacity:number; seed:number }
 
 export interface ZoneTypography {
   fontFamily:ThemeFont; fontWeight:number; color:string;
@@ -1043,6 +1074,143 @@ export const THEMES: DesignTheme[] = [
   ],
   ctaStyle:{ backgroundColor:"#b46a55", textColor:"#fdf6ef", borderRadius:28, paddingH:36, paddingV:14 },
   overlayOpacity:0, overlayColor:"#fdf6ef",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 22. TRAVEL VISTA — Travel, outdoors, adventure  (mountain+lake scene, Step 65)
+// Hero headline over a painted landscape. Matches "Travel Inspiration" /
+// "Stress Relief Methods" / "Workout of the Day" in the reference pack.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"travel_vista", name:"Travel Vista",
+  tones:["professional","minimal","warm"], colorMoods:["cool","light","muted"],
+  headlineSizeMultiplier:1.38,
+  palette:{ background:"#b9d9eb", surface:"rgba(255,255,255,0.22)", primary:"#2f5d7c",
+    secondary:"#f4a259", text:"#ffffff", textMuted:"rgba(255,255,255,0.85)", highlight:"#fcd27b" },
+  // palette index map for the scene: 0=sky top, 1=sky bot, 2=far mtn, 3=near mtn,
+  //   4=lake top, 5=lake bot, 6=sun
+  background:{ kind:"scene", scene:"mountain_lake",
+    palette:["#9ec8e3","#f2d6b2","#6b8eb1","#2c3e50","#a5c4dd","#486b8a","#fcd27b"],
+    atmosphere:"dusk" },
+  typography:{
+    display:"Playfair Display", body:"Lato",
+    headline: { fontFamily:"Playfair Display", fontWeight:700, color:"#ffffff", letterSpacing:-0.01, fontSizeMultiplier:1.38 },
+    subhead:  { fontFamily:"Lato",             fontWeight:400, color:"rgba(255,255,255,0.92)", letterSpacing:0.04 },
+    body_text:{ fontFamily:"Lato",             fontWeight:400, color:"rgba(255,255,255,0.85)" },
+    cta:      { fontFamily:"Lato",             fontWeight:700, color:"#2f5d7c",  letterSpacing:0.08 },
+    badge:    { fontFamily:"Lato",             fontWeight:700, color:"#ffffff",  textTransform:"uppercase", letterSpacing:0.2 },
+    eyebrow:  { fontFamily:"Lato",             fontWeight:600, color:"#fcd27b",  textTransform:"uppercase", letterSpacing:0.28 },
+  },
+  decorations:[
+    // Torn-paper window behind headline so it floats over the scene
+    { kind:"torn_paper_frame", x:12, y:18, w:76, h:40, color:"#fdfaf2", shadowColor:"#000000", opacity:0.92, seed:911 },
+    // Foliage silhouette at bottom for immersive foreground
+    { kind:"foliage_silhouette", anchor:"bottom", palette:["#1e3a2a","#2c5139","#3d6a49"], density:14, height:12, opacity:0.9 },
+    // Subtle botanical corner flourish
+    { kind:"watercolor_corner", corner:"tr", size:22, palette:["#f4d7ae","#6b8eb1","#f4a259"], opacity:0.55 },
+    { kind:"noise_overlay", opacity:0.035 },
+  ],
+  ctaStyle:{ backgroundColor:"#ffffff", textColor:"#2f5d7c", borderRadius:50, paddingH:40, paddingV:16, shadow:true },
+  overlayOpacity:0, overlayColor:"#000000",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 23. WELLNESS MEADOW — Self-care, mindfulness, wellness  (meadow scene, Step 65)
+// Soft rolling hills + wildflower specks anchor a calm headline. Matches
+// "Self-Care Reminders" / "Heart Health Tips" painterly register.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"wellness_meadow", name:"Wellness Meadow",
+  tones:["warm","minimal","professional"], colorMoods:["light","muted","warm"],
+  headlineSizeMultiplier:1.28,
+  palette:{ background:"#eaf1dc", surface:"rgba(255,255,255,0.45)", primary:"#4d8640",
+    secondary:"#e76f51", text:"#2b3b26", textMuted:"rgba(43,59,38,0.62)", highlight:"#f4a261" },
+  background:{ kind:"scene", scene:"meadow",
+    palette:["#e6efd6","#cfe0b1","#9ac47a","#74a859","#4d8640","#f4a261","#e76f51"],
+    atmosphere:"noon" },
+  typography:{
+    display:"Caveat", body:"Nunito",
+    headline: { fontFamily:"Caveat",  fontWeight:700, color:"#2b3b26", letterSpacing:-0.005, fontSizeMultiplier:1.28 },
+    subhead:  { fontFamily:"Nunito",  fontWeight:400, color:"rgba(43,59,38,0.75)" },
+    body_text:{ fontFamily:"Nunito",  fontWeight:400, color:"rgba(43,59,38,0.70)" },
+    cta:      { fontFamily:"Nunito",  fontWeight:700, color:"#ffffff", letterSpacing:0.06 },
+    badge:    { fontFamily:"Nunito",  fontWeight:700, color:"#4d8640", textTransform:"uppercase", letterSpacing:0.22 },
+    eyebrow:  { fontFamily:"Nunito",  fontWeight:600, color:"#e76f51", textTransform:"uppercase", letterSpacing:0.26 },
+  },
+  decorations:[
+    { kind:"watercolor_corner", corner:"tl", size:22, palette:["#cfe0b1","#4d8640","#f4a261"], opacity:0.7 },
+    { kind:"watercolor_corner", corner:"br", size:20, palette:["#f5dcc0","#4d8640","#e76f51"], opacity:0.65 },
+    { kind:"section_divider", x:28, y:52, w:44, color:"#4d8640", opacity:0.45, strokeWidth:0.8, ornament:"diamond" },
+    { kind:"noise_overlay", opacity:0.03 },
+  ],
+  ctaStyle:{ backgroundColor:"#4d8640", textColor:"#ffffff", borderRadius:40, paddingH:36, paddingV:14 },
+  overlayOpacity:0, overlayColor:"#ffffff",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 24. VINTAGE PAPER — Quotes, tips, motivational  (torn-paper + flat-lay, Step 65)
+// Kraft / notebook-page look matching "Quick Tips for Success" and
+// "Monday Motivation" in the reference pack.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"vintage_paper", name:"Vintage Paper",
+  tones:["warm","minimal","professional"], colorMoods:["muted","warm","light"],
+  headlineSizeMultiplier:1.32,
+  palette:{ background:"#e9dcc2", surface:"rgba(90,62,40,0.06)", primary:"#3b2a1a",
+    secondary:"#a65233", text:"#2e2016", textMuted:"rgba(46,32,22,0.62)", highlight:"#a65233" },
+  background:{ kind:"linear_gradient", colors:["#efe2c9","#d9c7a5"], angle:160 },
+  typography:{
+    display:"Cormorant Garamond", body:"Lato",
+    headline: { fontFamily:"Cormorant Garamond", fontWeight:700, color:"#2e2016", letterSpacing:-0.005, fontSizeMultiplier:1.32 },
+    subhead:  { fontFamily:"Lato",               fontWeight:400, color:"rgba(46,32,22,0.72)", letterSpacing:0.05 },
+    body_text:{ fontFamily:"Lato",               fontWeight:400, color:"rgba(46,32,22,0.66)" },
+    cta:      { fontFamily:"Lato",               fontWeight:700, color:"#efe2c9", letterSpacing:0.08 },
+    badge:    { fontFamily:"Lato",               fontWeight:700, color:"#a65233", textTransform:"uppercase", letterSpacing:0.22 },
+    eyebrow:  { fontFamily:"Lato",               fontWeight:600, color:"#a65233", textTransform:"uppercase", letterSpacing:0.28 },
+  },
+  decorations:[
+    // Notebook-page torn frame as the main content surface
+    { kind:"torn_paper_frame", x:10, y:12, w:80, h:68, color:"#fdf8ec", shadowColor:"#3b2a1a", opacity:0.98, seed:271 },
+    // Floral corner flourishes evoking "Monday Motivation"
+    { kind:"themed_cluster", x:18, y:88, size:22, theme:"floral", palette:["#4d8640","#e76f51","#f4a261","#a65233"], opacity:0.9 },
+    { kind:"themed_cluster", x:82, y:14, size:18, theme:"floral", palette:["#4d8640","#e76f51","#f4a261","#a65233"], opacity:0.85 },
+    { kind:"section_divider", x:30, y:58, w:40, color:"#a65233", opacity:0.55, strokeWidth:0.8, ornament:"diamond" },
+    { kind:"noise_overlay", opacity:0.04 },
+  ],
+  ctaStyle:{ backgroundColor:"#3b2a1a", textColor:"#efe2c9", borderRadius:2, paddingH:36, paddingV:14 },
+  overlayOpacity:0, overlayColor:"#efe2c9",
+},
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 25. TROPICAL JUNGLE — Food, fitness, travel  (dense jungle scene, Step 65)
+// Immersive painted jungle as the background — matches "Workout of the Day"
+// and "Stress Relief" in the reference pack.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  id:"tropical_jungle", name:"Tropical Jungle",
+  tones:["energetic","warm","bold"], colorMoods:["vibrant","warm","cool"],
+  headlineSizeMultiplier:1.35,
+  palette:{ background:"#2f5a3e", surface:"rgba(255,255,255,0.14)", primary:"#1f4532",
+    secondary:"#f4a259", text:"#ffffff", textMuted:"rgba(255,255,255,0.85)", highlight:"#ffd27a" },
+  background:{ kind:"scene", scene:"jungle",
+    palette:["#2f5a3e","#cfe5d4","#3d6b4b","#2f5a3e","#1f4532"],
+    atmosphere:"noon" },
+  typography:{
+    display:"Montserrat", body:"Lato",
+    headline: { fontFamily:"Montserrat", fontWeight:900, color:"#ffffff", letterSpacing:-0.02, fontSizeMultiplier:1.35 },
+    subhead:  { fontFamily:"Montserrat", fontWeight:500, color:"rgba(255,255,255,0.90)" },
+    body_text:{ fontFamily:"Lato",       fontWeight:400, color:"rgba(255,255,255,0.85)" },
+    cta:      { fontFamily:"Montserrat", fontWeight:800, color:"#1f4532", textTransform:"uppercase", letterSpacing:0.08 },
+    badge:    { fontFamily:"Montserrat", fontWeight:700, color:"#ffd27a", textTransform:"uppercase", letterSpacing:0.2 },
+    eyebrow:  { fontFamily:"Montserrat", fontWeight:700, color:"#ffd27a", textTransform:"uppercase", letterSpacing:0.26 },
+  },
+  decorations:[
+    { kind:"torn_paper_frame", x:14, y:20, w:72, h:38, color:"#fdfaf2", shadowColor:"#000000", opacity:0.92, seed:431 },
+    { kind:"foliage_silhouette", anchor:"bottom", palette:["#0f2a1e","#1f4532","#2f5a3e"], density:10, height:10, opacity:0.85 },
+    { kind:"noise_overlay", opacity:0.04 },
+  ],
+  ctaStyle:{ backgroundColor:"#ffd27a", textColor:"#1f4532", borderRadius:40, paddingH:40, paddingV:16, shadow:true },
+  overlayOpacity:0.08, overlayColor:"#000000",
 },
 
 ];

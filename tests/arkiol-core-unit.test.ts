@@ -2191,6 +2191,206 @@ async function run() {
     assertEq(t!.typography.body,    "Lato",           "body font");
   });
 
+  section("engines/render · painterly scenes + foliage (Step 65)");
+
+  const decoMod = await import("../apps/arkiol-core/src/engines/render/svg-decorations");
+
+  test("foliage_silhouette emits 3-layer painted tufts anchored to bottom", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "foliage_silhouette", anchor: "bottom",
+        palette: ["#1e3a2a", "#2c5139", "#3d6a49"], density: 8, height: 10, opacity: 0.9 } as any,
+      1080, 1080,
+    );
+    // Three color layers present
+    assert(svg.includes("#1e3a2a"), "far tuft color missing");
+    assert(svg.includes("#2c5139"), "mid tuft color missing");
+    assert(svg.includes("#3d6a49"), "near tuft color missing");
+    // Tuft paths use cubic bezier commands
+    assert(svg.match(/<path d="M /g)!.length >= 8, "expected multiple tuft paths");
+    // Outer group opacity
+    assert(svg.includes(`opacity="0.9"`), "outer opacity missing");
+  });
+
+  test("foliage_silhouette supports every anchor direction", () => {
+    for (const anchor of ["top","bottom","left","right"] as const) {
+      const svg = decoMod.renderDecoration(
+        { kind: "foliage_silhouette", anchor,
+          palette: ["#111111", "#222222", "#333333"], density: 4, height: 8, opacity: 1 } as any,
+        400, 400,
+      );
+      assert(svg.includes("<path"), `anchor ${anchor} produced no path`);
+      assert(svg.length > 200, `anchor ${anchor} body too short`);
+    }
+  });
+
+  test("mountain_range draws parallax silhouettes with deterministic peaks", () => {
+    const svg1 = decoMod.renderDecoration(
+      { kind: "mountain_range", y: 60, layers: 3,
+        palette: ["#6b8eb1", "#456c8f", "#2c3e50"], peakVariance: 0.35, opacity: 0.95 } as any,
+      800, 800,
+    );
+    const svg2 = decoMod.renderDecoration(
+      { kind: "mountain_range", y: 60, layers: 3,
+        palette: ["#6b8eb1", "#456c8f", "#2c3e50"], peakVariance: 0.35, opacity: 0.95 } as any,
+      800, 800,
+    );
+    assertEq(svg1, svg2, "mountain_range is non-deterministic");
+    assert(svg1.match(/<polygon/g)!.length === 3, "expected 3 mountain layers");
+  });
+
+  test("watercolor_corner draws blob + leaf sprigs + blooms", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "watercolor_corner", corner: "tl", size: 22,
+        palette: ["#f4d7ae", "#4d8640", "#e76f51"], opacity: 0.7 } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("#f4d7ae"), "wash color missing");
+    assert(svg.includes("#4d8640"), "leaf color missing");
+    assert(svg.includes("#e76f51"), "bloom color missing");
+    // blob path + 3 stem paths + 9 leaf paths + 2 bloom circles
+    assert(svg.match(/<path/g)!.length >= 10, "expected multi-layer composition");
+    assert(svg.match(/<circle/g)!.length >= 2, "expected bloom circles");
+  });
+
+  test("themed_cluster food variant uses category-appropriate props", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "themed_cluster", x: 50, y: 50, size: 30, theme: "food",
+        palette: ["#2e7d32", "#f57f17", "#f4a261", "#ffffff"], opacity: 1 } as any,
+      1080, 1080,
+    );
+    assert(svg.length > 500, "food cluster too small");
+    assert(svg.includes("#2e7d32"), "leaf color missing");
+    assert(svg.includes("#f57f17"), "bread color missing");
+  });
+
+  test("themed_cluster supports all six theme variants", () => {
+    for (const theme of ["food","spa","study","office","travel","floral"] as const) {
+      const svg = decoMod.renderDecoration(
+        { kind: "themed_cluster", x: 50, y: 50, size: 25, theme,
+          palette: ["#4d8640","#e76f51","#f4a261","#ffffff"], opacity: 1 } as any,
+        600, 600,
+      );
+      assert(svg.includes("<g"), `${theme} cluster missing group`);
+      assert(svg.length > 200, `${theme} cluster too short`);
+    }
+  });
+
+  test("torn_paper_frame renders jagged polygon with drop shadow", () => {
+    const svg = decoMod.renderDecoration(
+      { kind: "torn_paper_frame", x: 10, y: 15, w: 80, h: 70,
+        color: "#fdfaf2", shadowColor: "#000000", opacity: 0.95, seed: 271 } as any,
+      1080, 1080,
+    );
+    assert(svg.includes("<filter"), "drop shadow filter missing");
+    assert(svg.includes("feDropShadow"), "shadow filter primitive missing");
+    assert(svg.includes(`fill="#fdfaf2"`), "paper color missing");
+    assert(svg.includes("<path"), "path missing");
+  });
+
+  test("torn_paper_frame is deterministic per seed", () => {
+    const shape = { kind: "torn_paper_frame", x: 10, y: 15, w: 80, h: 70,
+      color: "#fff", shadowColor: "#000", opacity: 1, seed: 271 };
+    const a = decoMod.renderDecoration(shape as any, 800, 800);
+    const b = decoMod.renderDecoration(shape as any, 800, 800);
+    assertEq(a, b, "torn_paper_frame non-deterministic");
+    const c = decoMod.renderDecoration({ ...shape, seed: 599 } as any, 800, 800);
+    assert(a !== c, "torn_paper_frame same output for different seeds");
+  });
+
+  test("renderScene mountain_lake paints sun, mountains, lake, ripples", () => {
+    const svg = decoMod.renderScene(
+      "mountain_lake",
+      ["#9ec8e3","#f2d6b2","#6b8eb1","#2c3e50","#a5c4dd","#486b8a","#fcd27b"],
+      1080, 1080,
+    );
+    assert(svg.includes("#fcd27b"), "sun color missing");
+    assert(svg.includes("#6b8eb1"), "far mountain color missing");
+    assert(svg.includes("#2c3e50"), "near mountain color missing");
+    assert(svg.includes("linearGradient"), "lake gradient missing");
+    assert(svg.match(/<polygon/g)!.length >= 2, "expected 2 mountain polygons");
+  });
+
+  test("renderScene supports all six scene kinds", () => {
+    const palette = ["#1","#2","#3","#4","#5","#6","#7"];
+    for (const scene of ["mountain_lake","jungle","sunset_sky","meadow","ocean_horizon","forest"] as const) {
+      const svg = decoMod.renderScene(scene, palette, 800, 800);
+      assert(svg.length > 200, `scene ${scene} too short`);
+    }
+  });
+
+  test("buildBackgroundDefs handles scene kind with sky gradient", () => {
+    const { defs, fill } = decoMod.buildBackgroundDefs(
+      { kind: "scene", scene: "meadow",
+        palette: ["#e6efd6","#cfe0b1","#9ac47a","#74a859","#4d8640","#f4a261","#e76f51"] } as any,
+    );
+    assert(defs.includes("linearGradient"), "sky gradient missing");
+    assert(defs.includes("#e6efd6"), "sky top color missing");
+    assert(defs.includes("#cfe0b1"), "sky horizon color missing");
+    assertEq(fill, "url(#bg_grad)", "fill ref");
+  });
+
+  test("renderMeshOverlay emits scene body for scene bg", () => {
+    const body = decoMod.renderMeshOverlay(
+      { kind: "scene", scene: "mountain_lake",
+        palette: ["#9ec8e3","#f2d6b2","#6b8eb1","#2c3e50","#a5c4dd","#486b8a","#fcd27b"] } as any,
+      800, 800,
+    );
+    assert(body.includes("polygon"), "scene body missing mountains");
+    assert(body.length > 300, "scene body too short");
+  });
+
+  test("travel_vista theme uses scene background with mountain_lake", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "travel_vista");
+    assert(t, "travel_vista theme missing");
+    assertEq((t!.background as any).kind, "scene", "bg kind");
+    assertEq((t!.background as any).scene, "mountain_lake", "scene kind");
+    const foliage = t!.decorations.find((d: any) => d.kind === "foliage_silhouette");
+    assert(foliage, "travel_vista missing foliage_silhouette");
+  });
+
+  test("wellness_meadow theme uses meadow scene and Caveat display font", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "wellness_meadow");
+    assert(t, "wellness_meadow theme missing");
+    assertEq((t!.background as any).scene, "meadow", "scene kind");
+    assertEq(t!.typography.display, "Caveat", "display font");
+  });
+
+  test("vintage_paper theme uses torn_paper_frame + floral cluster", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "vintage_paper");
+    assert(t, "vintage_paper theme missing");
+    const torn = t!.decorations.find((d: any) => d.kind === "torn_paper_frame");
+    assert(torn, "vintage_paper missing torn_paper_frame");
+    const floral = t!.decorations.find((d: any) => d.kind === "themed_cluster" && (d as any).theme === "floral");
+    assert(floral, "vintage_paper missing floral themed_cluster");
+  });
+
+  test("tropical_jungle theme uses jungle scene", async () => {
+    const themesLib = await import("../apps/arkiol-core/src/engines/render/design-themes");
+    const t = themesLib.THEMES.find((x: any) => x.id === "tropical_jungle");
+    assert(t, "tropical_jungle theme missing");
+    assertEq((t!.background as any).scene, "jungle", "scene kind");
+  });
+
+  test("travel category prefers travel_vista theme", async () => {
+    const packs = await import("../apps/arkiol-core/src/engines/style/category-style-packs");
+    const travel = packs.getCategoryPack("travel");
+    assert(travel, "travel pack missing");
+    assert(travel!.preferredThemeIds.includes("travel_vista"),
+      `travel preferredThemeIds should include travel_vista: ${travel!.preferredThemeIds.join(",")}`);
+    assert(travel!.preferredBgKinds.includes("scene"),
+      "travel preferredBgKinds should include scene");
+  });
+
+  test("wellness category prefers wellness_meadow theme", async () => {
+    const packs = await import("../apps/arkiol-core/src/engines/style/category-style-packs");
+    const wellness = packs.getCategoryPack("wellness");
+    assert(wellness!.preferredThemeIds.includes("wellness_meadow"),
+      `wellness preferredThemeIds should include wellness_meadow`);
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
