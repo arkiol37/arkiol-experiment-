@@ -49,6 +49,7 @@ import { validateVisualDominance }    from "../assets/visual-dominance";
 import { validateCompositionStructure } from "../assets/composition-structure";
 import { validateTypographyHierarchy, buildTypographyProfile } from "./typography-hierarchy";
 import { validateColorHarmony } from "./color-harmony";
+import { runFinishPass } from "./final-polish";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -1346,6 +1347,33 @@ async function renderAssetInner(
     }
   } catch {
     // Non-fatal — render with unpolished content
+  }
+
+  // ── Stage 6c: Final refinement pass (Step 62) ─────────────────────────
+  // Last-mile auto-fixes the earlier polish chain doesn't touch (3-digit
+  // hex expansion, overlay-opacity tidy, empty text-zone pruning, weight
+  // snap) plus an aggregate verdict over every accumulated violation.
+  // "unfinished" templates push a hard-severity violation so the
+  // rejection rules drop them; "rough" templates push a warning so the
+  // marketplace gate can down-weight them.
+  try {
+    const finish = runFinishPass({
+      content:               polishedContent,
+      accumulatedViolations: violations,
+    });
+    polishedContent = finish.content;
+    for (const a of finish.actions) {
+      const tag =
+        a.fix === "strip_empty_text" ? `@${a.zoneId}` :
+        a.fix === "snap_weight"      ? `@${a.zoneId}` :
+        "";
+      const delta =
+        "before" in a ? ` ${String(a.before)} → ${String(a.after)}` : "";
+      violations.push(`finish_pass:${a.fix}${tag}${delta}`);
+    }
+    if (finish.verdictViolation) violations.push(finish.verdictViolation);
+  } catch (fErr: any) {
+    violations.push(`finish_pass:skipped — ${fErr?.message}`);
   }
 
   // ── Stage 7: SVG render (Ultimate — theme decorations + Google Fonts) ─────

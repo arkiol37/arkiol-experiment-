@@ -94,6 +94,28 @@ export {
   type CategoryPaletteTarget,
 } from "./color-harmony";
 
+// Step 62: final refinement pass — late auto-fixes (3-digit hex
+// expansion, opacity tidy, empty-text pruning, weight snap) plus an
+// aggregate polish verdict that rejects unfinished outputs.
+export {
+  runFinishPass,
+  summarizeViolations,
+  expandShortHex,
+  nearestStandardWeight,
+  FINISH_SCORE_FINISHED,
+  FINISH_SCORE_ROUGH,
+  FINISH_ERROR_WEIGHT,
+  FINISH_WARNING_WEIGHT,
+  FINISH_ROUGH_MAX_ERRORS,
+  FINISH_OPACITY_MIN,
+  FINISH_OPACITY_MAX,
+  type FinishAction,
+  type FinishVerdict,
+  type FinishVerdictSummary,
+  type FinishPassInput,
+  type FinishPassResult,
+} from "./final-polish";
+
 export {
   createPipelineContext,
   type PipelineContext,

@@ -728,6 +728,32 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
+  // ── Unfinished polish (hard, Step 62) ────────────────────────────────────
+  // Final-refinement pass aggregates every accumulated violation into a
+  // polish verdict (finished / rough / unfinished). "unfinished" means
+  // enough errors or warnings remain that the template still reads as
+  // rough — strictly more than polish can repair — so the candidate is
+  // dropped before it can reach the gallery. Skips when `_finishVerdict`
+  // is absent (older renders / paths that bypass the final polish pass).
+  {
+    id:          "unfinished_polish",
+    severity:    "hard",
+    description: "Final polish verdict classified the template as unfinished — too many residual errors and warnings for a shippable result.",
+    evaluate(_theme, content, _score) {
+      if (!content) return null;
+      const fv = (content as any)._finishVerdict as
+        | {
+            verdict:     "finished" | "rough" | "unfinished";
+            polishScore: number;
+            errors:      number;
+            warnings:    number;
+          }
+        | undefined;
+      if (!fv || fv.verdict !== "unfinished") return null;
+      return `unfinished_polish:score=${fv.polishScore.toFixed(2)}|errors=${fv.errors}|warnings=${fv.warnings}`;
+    },
+  },
+
   // ── Low diversity (soft) ─────────────────────────────────────────────────
   {
     id:          "low_diversity",

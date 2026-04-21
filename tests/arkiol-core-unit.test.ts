@@ -1547,6 +1547,209 @@ async function run() {
     assertEq(harmony.NEUTRAL_SATURATION_THRESHOLD,   0.12, "NEUTRAL_SATURATION_THRESHOLD");
   });
 
+  section("engines/render · final polish pass (Step 62)");
+
+  const finish = await import("../apps/arkiol-core/src/engines/render/final-polish");
+
+  // Canonical SvgContent-like shape. Minimal surface the finish pass
+  // needs — the module never dereferences anything not declared here.
+  const makeContent = (overrides: any = {}): any => ({
+    backgroundColor: "#ffffff",
+    textContents: [
+      { zoneId: "headline", text: "Hello world", fontSize: 64, weight: 800, color: "#0f172a", fontFamily: "Inter" },
+      { zoneId: "body",     text: "Body copy",   fontSize: 18, weight: 400, color: "#475569", fontFamily: "Inter" },
+    ],
+    ctaStyle: {
+      backgroundColor: "#2563eb", textColor: "#ffffff",
+      borderRadius: 8, paddingH: 24, paddingV: 12,
+    },
+    ...overrides,
+  });
+
+  test("expands 3-digit hex across backgroundColor / text / cta / accent", () => {
+    const content = makeContent({
+      backgroundColor: "#fff",
+      textContents: [
+        { zoneId: "headline", text: "Hi", fontSize: 64, weight: 800, color: "#0f0", fontFamily: "Inter" },
+      ],
+      ctaStyle: { backgroundColor: "#f0f", textColor: "#000", borderRadius: 8, paddingH: 24, paddingV: 12 },
+      accentShape: { type: "circle", color: "#abc", x: 0, y: 0, w: 10, h: 10 },
+    });
+    const r = finish.runFinishPass({ content, accumulatedViolations: [] });
+    assertEq(r.content.backgroundColor,                "#ffffff",  "background expanded");
+    assertEq(r.content.textContents[0].color,           "#00ff00",  "text expanded");
+    assertEq(r.content.ctaStyle.backgroundColor,        "#ff00ff",  "cta bg expanded");
+    assertEq(r.content.accentShape.color,               "#aabbcc",  "accent expanded");
+    assert(r.actions.some(a => a.fix === "expand_short_hex" && (a as any).field === "backgroundColor"),
+      `expected backgroundColor expand action, got: ${r.actions.map((a: any) => a.fix + ":" + (a.field ?? "")).join(", ")}`);
+  });
+
+  test("strips text zones whose text is empty or whitespace", () => {
+    const content = makeContent({
+      textContents: [
+        { zoneId: "headline", text: "Hi", fontSize: 64, weight: 800, color: "#000", fontFamily: "Inter" },
+        { zoneId: "subhead",  text: "",   fontSize: 24, weight: 500, color: "#000", fontFamily: "Inter" },
+        { zoneId: "body",     text: "   ",fontSize: 18, weight: 400, color: "#000", fontFamily: "Inter" },
+      ],
+    });
+    const r = finish.runFinishPass({ content, accumulatedViolations: [] });
+    assertEq(r.content.textContents.length, 1, "only non-empty zones survive");
+    assertEq(r.content.textContents[0].zoneId, "headline", "correct zone kept");
+    assert(r.actions.filter((a: any) => a.fix === "strip_empty_text").length === 2,
+      `expected 2 strip actions, got ${r.actions.filter((a: any) => a.fix === "strip_empty_text").length}`);
+  });
+
+  test("snaps non-standard text weights to nearest CSS weight", () => {
+    const content = makeContent({
+      textContents: [
+        { zoneId: "headline", text: "Hi", fontSize: 64, weight: 780, color: "#000", fontFamily: "Inter" },
+        { zoneId: "body",     text: "Hi", fontSize: 18, weight: 420, color: "#000", fontFamily: "Inter" },
+      ],
+    });
+    const r = finish.runFinishPass({ content, accumulatedViolations: [] });
+    assertEq(r.content.textContents[0].weight, 800, "780 → 800");
+    assertEq(r.content.textContents[1].weight, 400, "420 → 400");
+  });
+
+  test("drops overlayOpacity values outside the visible band", () => {
+    const contentLow  = makeContent({ overlayOpacity: 0.01 });
+    const contentHigh = makeContent({ overlayOpacity: 0.995 });
+    const rLow  = finish.runFinishPass({ content: contentLow,  accumulatedViolations: [] });
+    const rHigh = finish.runFinishPass({ content: contentHigh, accumulatedViolations: [] });
+    assertEq(rLow.content.overlayOpacity,  undefined, "0.01 dropped");
+    assertEq(rHigh.content.overlayOpacity, undefined, "0.995 dropped");
+  });
+
+  test("rounds overlayOpacity in the visible band to 2 decimals", () => {
+    const content = makeContent({ overlayOpacity: 0.4234923 });
+    const r = finish.runFinishPass({ content, accumulatedViolations: [] });
+    assertEq(r.content.overlayOpacity, 0.42, "rounded to 2 decimals");
+  });
+
+  test("is idempotent — re-running on already-polished content is a no-op", () => {
+    const content = makeContent();
+    const r1 = finish.runFinishPass({ content,            accumulatedViolations: [] });
+    const r2 = finish.runFinishPass({ content: r1.content, accumulatedViolations: [] });
+    assertEq(r2.actions.length, 0, "second pass produces no actions");
+  });
+
+  test("summarizeViolations classifies clean input as finished", () => {
+    const summary = finish.summarizeViolations([]);
+    assertEq(summary.verdict,     "finished", "verdict");
+    assertEq(summary.errors,      0,          "errors");
+    assertEq(summary.warnings,    0,          "warnings");
+    assertEq(summary.polishScore, 1,          "polishScore");
+  });
+
+  test("summarizeViolations flags heavy errors as unfinished", () => {
+    // 3 errors × 0.25 = -0.75 → score 0.25, below ROUGH floor of 0.50.
+    const summary = finish.summarizeViolations([
+      "typography_hierarchy:headline_not_dominant[error]: headline too small",
+      "typography_hierarchy:cta_not_prominent[error]: cta blends with body",
+      "color_harmony:palette_disharmony[error]: hues scatter",
+    ]);
+    assertEq(summary.verdict, "unfinished", "verdict");
+    assertEq(summary.errors,  3,            "errors counted");
+  });
+
+  test("summarizeViolations marks modest warning pile as rough", () => {
+    // 5 warnings × 0.05 = -0.25 → score 0.75, below FINISHED floor 0.80.
+    const summary = finish.summarizeViolations([
+      "typography_hierarchy:subhead_out_of_band[warning]: w1",
+      "color_harmony:saturation_clash[warning]: w2",
+      "color_harmony:text_palette_mismatch[warning]: w3",
+      "color_harmony:accent_indistinct[warning]: w4",
+      "color_harmony:category_palette_drift[warning]: w5",
+    ]);
+    assertEq(summary.verdict, "rough", "verdict");
+    assertEq(summary.errors,  0,       "no errors");
+    assertEq(summary.warnings, 5,      "warnings counted");
+  });
+
+  test("summarizeViolations treats marketplace REJECTED as an error", () => {
+    const summary = finish.summarizeViolations([
+      "marketplace_gate:REJECTED score=0.40 failed=[gate1,gate2]",
+    ]);
+    assertEq(summary.errors,     1, "REJECTED counts as error");
+    assertEq(summary.rejections, 1, "REJECTED counted in rejections bucket");
+  });
+
+  test("summarizeViolations groups counts by source prefix", () => {
+    const summary = finish.summarizeViolations([
+      "typography_hierarchy:foo[error]: m",
+      "typography_hierarchy:bar[warning]: m",
+      "color_harmony:baz[warning]: m",
+    ]);
+    assertEq(summary.bySource.typography_hierarchy.errors,   1, "typo errors");
+    assertEq(summary.bySource.typography_hierarchy.warnings, 1, "typo warnings");
+    assertEq(summary.bySource.color_harmony.warnings,        1, "color warnings");
+  });
+
+  test("runFinishPass emits verdict violation for unfinished inputs", () => {
+    const content = makeContent();
+    const r = finish.runFinishPass({
+      content,
+      accumulatedViolations: [
+        "typography_hierarchy:headline_not_dominant[error]: m",
+        "typography_hierarchy:cta_not_prominent[error]: m",
+        "color_harmony:palette_disharmony[error]: m",
+      ],
+    });
+    assertEq(r.summary.verdict, "unfinished", "verdict");
+    assert(r.verdictViolation !== undefined, "verdict violation string is present");
+    assert(r.verdictViolation!.startsWith("finish_pass:unfinished[error]:"),
+      `expected unfinished[error] tag, got: ${r.verdictViolation}`);
+  });
+
+  test("runFinishPass emits soft verdict violation for rough inputs", () => {
+    const content = makeContent();
+    const r = finish.runFinishPass({
+      content,
+      accumulatedViolations: [
+        "color_harmony:w1[warning]: m",
+        "color_harmony:w2[warning]: m",
+        "color_harmony:w3[warning]: m",
+        "color_harmony:w4[warning]: m",
+        "color_harmony:w5[warning]: m",
+      ],
+    });
+    assertEq(r.summary.verdict, "rough", "verdict");
+    assert(r.verdictViolation?.startsWith("finish_pass:rough[warning]:") ?? false,
+      `expected rough[warning] tag, got: ${r.verdictViolation}`);
+  });
+
+  test("runFinishPass attaches _finishVerdict to content for downstream consumers", () => {
+    const content = makeContent();
+    const r = finish.runFinishPass({ content, accumulatedViolations: [] });
+    const fv = (r.content as any)._finishVerdict;
+    assert(fv !== undefined,           "_finishVerdict attached");
+    assertEq(fv.verdict, "finished",    "verdict propagated");
+  });
+
+  test("expandShortHex helper handles 3-digit, 6-digit, and garbage inputs", () => {
+    assertEq(finish.expandShortHex("#fff"),     "#ffffff", "3-digit expanded");
+    assertEq(finish.expandShortHex("#FFaaBB"),  "#FFaaBB", "6-digit untouched");
+    assertEq(finish.expandShortHex("not hex"),  "not hex", "garbage untouched");
+    assertEq(finish.expandShortHex(undefined),  undefined, "undefined passthrough");
+  });
+
+  test("nearestStandardWeight snaps to nearest 100-multiple, ties round up", () => {
+    assertEq(finish.nearestStandardWeight(420),  400, "420 → 400");
+    assertEq(finish.nearestStandardWeight(450),  500, "450 → 500 (tie rounds up)");
+    assertEq(finish.nearestStandardWeight(999),  900, "999 → 900");
+    assertEq(finish.nearestStandardWeight(50),   100, "50 → 100 (tie rounds up from floor)");
+  });
+
+  test("exports expected finish-pass thresholds", () => {
+    assertEq(finish.FINISH_SCORE_FINISHED,     0.80, "FINISH_SCORE_FINISHED");
+    assertEq(finish.FINISH_SCORE_ROUGH,        0.50, "FINISH_SCORE_ROUGH");
+    assertEq(finish.FINISH_ERROR_WEIGHT,       0.25, "FINISH_ERROR_WEIGHT");
+    assertEq(finish.FINISH_WARNING_WEIGHT,     0.05, "FINISH_WARNING_WEIGHT");
+    assertEq(finish.FINISH_ROUGH_MAX_ERRORS,   1,    "FINISH_ROUGH_MAX_ERRORS");
+    assertEq(finish.FINISH_OPACITY_MIN,        0.02, "FINISH_OPACITY_MIN");
+    assertEq(finish.FINISH_OPACITY_MAX,        0.98, "FINISH_OPACITY_MAX");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
@@ -1590,6 +1793,30 @@ async function run() {
     const verdict = reject.evaluateRejection(mono as any);
     assert(verdict.hardReasons.some(r => r.startsWith("too_repetitive")),
       `expected too_repetitive, got ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("evaluateRejection rejects content with unfinished finish verdict (Step 62)", () => {
+    const theme = themesMod.THEMES[0];
+    const contentWithVerdict: any = {
+      backgroundColor: "#ffffff",
+      textContents: [],
+      _finishVerdict: { verdict: "unfinished", polishScore: 0.25, errors: 3, warnings: 2 },
+    };
+    const verdict = reject.evaluateRejection(theme, contentWithVerdict);
+    assert(verdict.hardReasons.some(r => r.startsWith("unfinished_polish")),
+      `expected unfinished_polish, got ${verdict.hardReasons.join(",")}`);
+  });
+
+  test("evaluateRejection does not reject content with finished verdict", () => {
+    const theme = themesMod.THEMES[0];
+    const contentWithVerdict: any = {
+      backgroundColor: "#ffffff",
+      textContents: [],
+      _finishVerdict: { verdict: "finished", polishScore: 1, errors: 0, warnings: 0 },
+    };
+    const verdict = reject.evaluateRejection(theme, contentWithVerdict);
+    assert(!verdict.hardReasons.some(r => r.startsWith("unfinished_polish")),
+      `unfinished_polish should not fire for finished verdict, got: ${verdict.hardReasons.join(",")}`);
   });
 
   test("filterCandidateBatch separates accepted vs rejected", () => {
