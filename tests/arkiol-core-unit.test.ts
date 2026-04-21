@@ -2624,14 +2624,27 @@ async function run() {
     "utf-8",
   );
 
-  test("generate route fires runInlineGeneration without awaiting", () => {
+  test("generate route dispatches generation without awaiting the pipeline", () => {
+    // Durability migration: the route used to do `void runInlineGeneration(...)`
+    // directly, which on Vercel meant the container could be recycled before
+    // the unawaited promise reached "status: RUNNING", leaving a ghost
+    // PENDING job. Now generation is routed through durableRunInlineGeneration,
+    // which internally uses Next.js `after` / Vercel `waitUntil` / a
+    // last-resort fire-and-forget. The ONE thing that must never change is:
+    // runInlineGeneration is never directly awaited inside the request
+    // handler — the response must ship immediately so the 2s poll loop
+    // can take over.
     assert(
-      /void\s+runInlineGeneration\s*\(/.test(generateRouteSrc),
-      "expected `void runInlineGeneration(...)` (fire-and-forget) in route",
+      /durableRunInlineGeneration\s*\(/.test(generateRouteSrc),
+      "route must dispatch through durableRunInlineGeneration so platform waitUntil is used when available",
     );
     assert(
       !/await\s+runInlineGeneration\s*\(/.test(generateRouteSrc),
       "runInlineGeneration must NOT be awaited — it re-introduces the 504",
+    );
+    assert(
+      !/await\s+durableRunInlineGeneration\s*\(/.test(generateRouteSrc),
+      "durableRunInlineGeneration must NOT be awaited — scheduling is synchronous",
     );
   });
 
@@ -2655,10 +2668,138 @@ async function run() {
     );
   });
 
-  test("generate route attaches .catch() to the background promise", () => {
+  test("generate route returns the durability strategy to the client", () => {
+    // Exposing `durability` in the 202 response gives ops a way to see
+    // at-a-glance which path a job took — queue, next_after,
+    // vercel_waitUntil, or fire_and_forget — without having to tail
+    // server logs. Also helps the client render a different message
+    // when it falls back to fire-and-forget.
     assert(
-      /void\s+runInlineGeneration\s*\([\s\S]*?\)\.catch\(/.test(generateRouteSrc),
-      "unawaited runInlineGeneration must attach .catch() to avoid unhandledRejection",
+      /durability:/.test(generateRouteSrc),
+      "route response must include a `durability` field so the client + ops can see which path was taken",
+    );
+  });
+
+  section("durable-run · queue-first + platform waitUntil + poller resume");
+
+  // Guard the durability tier ordering: queue → next_after →
+  // vercel_waitUntil → fire_and_forget. The production symptom these
+  // tests defend against: a user clicks Generate, the /api/generate
+  // request kicks off `void runInlineGeneration(...)` and returns 202,
+  // but Vercel terminates the container BEFORE the promise flips the
+  // DB row to RUNNING. Job sits PENDING forever, credits deducted,
+  // user sees nothing.
+  const durableRunSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/durableRun.ts"),
+    "utf-8",
+  );
+  const jobsRouteSrcForDurable = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/jobs/route.ts"),
+    "utf-8",
+  );
+
+  test("durableRun tries Next.js `after` / `unstable_after` before anything else", () => {
+    // next/server `after` is the canonical Vercel-compatible primitive.
+    // Must be tried FIRST so modern deployments get the best durability.
+    assert(
+      /require\s*\(\s*["']next\/server["']\s*\)/.test(durableRunSrc),
+      "durableRun must attempt to require('next/server') to reach `after` / `unstable_after`",
+    );
+    assert(
+      /\b(?:unstable_after|mod\.after)\b/.test(durableRunSrc),
+      "durableRun must reference Next.js after / unstable_after export",
+    );
+  });
+
+  test("durableRun falls back to @vercel/functions waitUntil when Next.js after is missing", () => {
+    assert(
+      /require\s*\(\s*["']@vercel\/functions["']\s*\)/.test(durableRunSrc),
+      "durableRun must attempt to require('@vercel/functions') so raw waitUntil is still available",
+    );
+    assert(
+      /\bwaitUntil\b/.test(durableRunSrc),
+      "durableRun must reference the waitUntil primitive",
+    );
+  });
+
+  test("durableRun returns a strategy label for observability", () => {
+    // The response body surfaces `durability: <strategy>` — tests here
+    // pin the label set so ops can rely on stable values in dashboards.
+    for (const label of ["next_after", "vercel_waitUntil", "fire_and_forget"]) {
+      assert(
+        durableRunSrc.includes(`"${label}"`),
+        `DurableStrategy must include the "${label}" label`,
+      );
+    }
+  });
+
+  test("durableRun wraps the inline work in a try/catch that logs", () => {
+    // If the inline pipeline throws before its own outer catch writes
+    // FAILED (e.g. a syntax error at import time), we still want a log
+    // line for Sentry instead of a silent unhandledRejection.
+    assert(
+      /try\s*\{[\s\S]{0,400}await\s+runInlineGeneration[\s\S]{0,400}catch/.test(durableRunSrc),
+      "durableRun must wrap runInlineGeneration in try/catch so crashes are logged",
+    );
+  });
+
+  test("/api/jobs GET auto-resumes PENDING jobs with no startedAt after a grace period", () => {
+    // This is the real durability safety net — even if /api/generate's
+    // fire-and-forget never reached RUNNING, the next poll will
+    // atomically claim the job and re-dispatch via
+    // durableRunInlineGeneration. Without this, a single dropped
+    // request = credits gone forever.
+    assert(
+      /RESUME_AFTER_MS\s*=\s*([\d_]+)/.test(jobsRouteSrcForDurable),
+      "poller must declare a RESUME_AFTER_MS grace window",
+    );
+    const m = jobsRouteSrcForDurable.match(/RESUME_AFTER_MS\s*=\s*([\d_]+)/);
+    const ms = Number(m![1].replace(/_/g, ""));
+    assert(
+      ms >= 10_000 && ms <= 120_000,
+      `RESUME_AFTER_MS must leave the original handler a fair chance to start (10s..2m), got ${ms}`,
+    );
+    assert(
+      /durableRunInlineGeneration\s*\(/.test(jobsRouteSrcForDurable),
+      "poller auto-resume must dispatch through durableRunInlineGeneration",
+    );
+  });
+
+  test("/api/jobs GET claims the resume atomically via updateMany", () => {
+    // Two polls arriving in the same tick must NOT both kick off
+    // generation. `updateMany({ where: { startedAt: null }, data: { startedAt: new Date() } })`
+    // is a single SQL statement — only the first claim wins; the
+    // second sees count=0 and skips.
+    assert(
+      /prisma\.job\.updateMany\s*\(\s*\{[\s\S]{0,400}startedAt:\s*null[\s\S]{0,400}startedAt:\s*new\s+Date\(\)/.test(jobsRouteSrcForDurable),
+      "resume must use updateMany with where.startedAt=null and data.startedAt=new Date() to claim atomically",
+    );
+    assert(
+      /claim\.count\s*===\s*1/.test(jobsRouteSrcForDurable),
+      "resume must only proceed when the atomic claim reported exactly one row updated",
+    );
+  });
+
+  test("/api/jobs GET resume caps attempts so a broken job can't loop forever", () => {
+    assert(
+      /MAX_RESUME_ATTEMPTS\s*=\s*(\d+)/.test(jobsRouteSrcForDurable),
+      "resume must cap the number of re-dispatches per job",
+    );
+    const m = jobsRouteSrcForDurable.match(/MAX_RESUME_ATTEMPTS\s*=\s*(\d+)/);
+    const n = Number(m![1]);
+    assert(
+      n >= 1 && n <= 5,
+      `MAX_RESUME_ATTEMPTS must be between 1 and 5 so a genuinely broken job still terminates, got ${n}`,
+    );
+  });
+
+  test("/api/jobs GET skips auto-resume when a BullMQ worker owns the queue", () => {
+    // When an external worker is running, BullMQ's own retry ladder is
+    // the durability mechanism — resuming inline from the poller would
+    // create a double-render race.
+    assert(
+      /!\s*detectCapabilities\(\)\.queue/.test(jobsRouteSrcForDurable),
+      "resume block must be gated on queue capability being absent",
     );
   });
 

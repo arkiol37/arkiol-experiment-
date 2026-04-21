@@ -12,6 +12,7 @@ import { ApiError }          from "../../../lib/types";
 import { refundCredits }     from "@arkiol/shared";
 import { logger }            from "../../../lib/logger";
 import { formatJobError }    from "../../../lib/jobErrorFormat";
+import { durableRunInlineGeneration } from "../../../lib/durableRun";
 
 // GET /api/jobs — list user's jobs
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -35,6 +36,85 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       },
     });
     if (!job) throw new ApiError(404, "Job not found");
+
+    // ── PENDING job auto-resume ──────────────────────────────────────────
+    // If a job is still PENDING with no startedAt more than RESUME_AFTER_MS
+    // after creation, the original /api/generate handler almost certainly
+    // terminated before `runInlineGeneration` reached its "mark RUNNING"
+    // write (Vercel cold-start kill, container recycle, serverless
+    // timeout before the background promise scheduled). Without this
+    // resume, the job would sit at PENDING until the stale watchdog
+    // eventually flipped it to FAILED and the user's credits stay gone.
+    //
+    // Durability story: the first serverless container that polls this
+    // job after the grace period atomically claims it by setting
+    // `startedAt` via updateMany (so races between concurrent polls
+    // resolve cleanly — only one poll wins, rest see count=0) and then
+    // kicks off durableRunInlineGeneration on ITS OWN request lifecycle.
+    // If that poll's container is also killed before finishing, the
+    // next poll will do the same claim-and-resume dance once the grace
+    // period expires again. Effectively, polling itself becomes the
+    // durability mechanism on serverless — no cron, no new infra.
+    const RESUME_AFTER_MS    = 30_000;  // 30s grace for original launch
+    const MAX_RESUME_ATTEMPTS = 3;
+    if (
+      !detectCapabilities().queue &&
+      job.status === "PENDING" &&
+      !job.startedAt &&
+      Date.now() - new Date(job.createdAt).getTime() > RESUME_AFTER_MS &&
+      (job.attempts ?? 0) < MAX_RESUME_ATTEMPTS &&
+      job.type === "GENERATE_ASSETS" &&
+      job.payload
+    ) {
+      const claim = await prisma.job.updateMany({
+        where: {
+          id:         job.id,
+          status:     "PENDING" as any,
+          startedAt:  null,
+        },
+        data: {
+          startedAt: new Date(),
+          attempts:  { increment: 1 },
+        },
+      }).catch(() => ({ count: 0 }));
+
+      if (claim.count === 1) {
+        const payload = job.payload as any;
+        logger.info(
+          { jobId: job.id, userId: user.id, attemptsUsed: (job.attempts ?? 0) + 1 },
+          "Resuming PENDING job whose original handler never started",
+        );
+        try {
+          durableRunInlineGeneration({
+            jobId:              job.id,
+            userId:             payload.userId,
+            orgId:              payload.orgId,
+            prompt:             payload.prompt,
+            formats:            payload.formats ?? [],
+            stylePreset:        payload.stylePreset ?? "auto",
+            variations:         payload.variations ?? 1,
+            brandId:            payload.brandId ?? null,
+            campaignId:         payload.campaignId ?? null,
+            includeGif:         !!payload.includeGif,
+            locale:             payload.locale ?? "en",
+            archetypeOverride:  payload.archetypeOverride,
+            expectedCreditCost: payload.expectedCreditCost ?? 0,
+          });
+          // Re-fetch so the caller sees the claimed row (startedAt set,
+          // attempts incremented) instead of the stale pre-claim copy.
+          job = await prisma.job.findFirst({
+            where: { id: jobId, userId: user.id },
+            include: { campaign: { select: { id: true, name: true } } },
+          });
+          if (!job) throw new ApiError(404, "Job not found");
+        } catch (resumeErr: any) {
+          logger.warn(
+            { jobId: job.id, err: resumeErr?.message ?? String(resumeErr) },
+            "Failed to kick off resume for PENDING job",
+          );
+        }
+      }
+    }
 
     // Stale-job watchdog. Prisma auto-bumps `updatedAt` on every
     // `.update()` call, so the generation pipeline naturally produces a

@@ -18,6 +18,7 @@ import { getRequestUser, requirePermission } from "../../../lib/auth";
 import { isFounderEmail } from "../../../lib/ownerAccess";
 import { rateLimit, rateLimitHeaders }    from "../../../lib/rate-limit";
 import { generationQueue }  from "../../../lib/queue";
+import { durableRunInlineGeneration } from "../../../lib/durableRun";
 import { withErrorHandling, dbUnavailable, aiUnavailable, authUnavailable } from "../../../lib/error-handling";
 import { ApiError, getCreditCost, GIF_ELIGIBLE_FORMATS } from "../../../lib/types";
 import {
@@ -323,23 +324,29 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   });
 
   // ── Execute generation ─────────────────────────────────────────────────────
-  // Try BullMQ queue first (when an external worker is running).
-  // Fall through to inline execution when:
-  //   - REDIS_HOST is not configured (no queue capability)
-  //   - Queue is configured but no workers are listening
-  //   - Queue enqueue throws
+  // Preferred durability tiers, in order:
   //
-  // CRITICAL: the HTTP response MUST NOT block on generation. A full
-  // over-generation pass (up to 16 pipeline attempts × ~5-12s each) runs
-  // well past Vercel's 60s default and any proxy timeout, producing a
-  // 504 Gateway Timeout that the frontend surfaces as "Generation
-  // failed" — even though the job keeps running server-side. The
+  //   1. BullMQ queue — if REDIS_HOST is configured AND at least one
+  //      worker is listening, the job runs in a long-lived worker
+  //      process. Fully durable: worker picks up on restart, BullMQ
+  //      retries on failure.
+  //
+  //   2. Vercel waitUntil (`next_after` / `vercel_waitUntil`) — no
+  //      worker available, but the platform exposes a primitive that
+  //      keeps the serverless container alive past response flush.
+  //      durableRunInlineGeneration picks the best one.
+  //
+  //   3. Fire-and-forget — last resort. Safety net: /api/jobs
+  //      auto-resumes PENDING jobs whose original handler died before
+  //      marking RUNNING, and flips long-dead RUNNING jobs to FAILED
+  //      via the 5-min stale watchdog.
+  //
+  // CRITICAL: the HTTP response MUST NOT block on generation. The
   // frontend already polls /api/jobs?id=<jobId> every 2s, so we return
-  // {jobId, status: PENDING} immediately and let the generation run as
-  // an unawaited promise. Vercel keeps the Node.js serverless instance
-  // alive until either all pending async work completes or maxDuration
-  // is reached — so we bump maxDuration to 300s (see top of file) and
-  // let the background task finish updating the job record.
+  // {jobId, status: PENDING} immediately and let the generation run in
+  // the background. Blocking here would blow past Vercel's proxy
+  // timeout and surface as "Generation failed" in the UI even though
+  // the job is still progressing in the DB.
   let queued = false;
 
   try {
@@ -366,11 +373,13 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     queued = false;
   }
 
-  // Fire-and-forget inline execution when no worker is available. The
-  // promise is intentionally NOT awaited — see comment above.
+  // Route through the durable runner when no worker picked the job up.
+  // durableRunInlineGeneration uses the best available waitUntil
+  // primitive (Next 14.2+ `after`, then Vercel `waitUntil`, then raw
+  // fire-and-forget) and never blocks the response.
+  let durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" = "queue";
   if (!queued) {
-    const { runInlineGeneration } = require("../../../lib/inlineGenerate");
-    void runInlineGeneration({
+    const dur = durableRunInlineGeneration({
       jobId:              job.id,
       userId:             user.id,
       orgId,
@@ -384,11 +393,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       locale:             input.locale,
       archetypeOverride:  input.archetypeOverride,
       expectedCreditCost: creditCost,
-    }).catch((inlineErr: any) => {
-      // runInlineGeneration already marks the job FAILED internally on
-      // any throw, so we only need to log here for observability.
-      console.error(`[generate] Background inline generation crashed for job ${job.id}:`, inlineErr?.message ?? inlineErr);
     });
+    durability = dur.strategy;
   }
 
   // Always return immediately with jobId — the frontend polls
@@ -405,6 +411,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       creditsReserved:  creditCost,
       hqUpgrade:        input.hqUpgrade,
       inlineExecution:  !queued,
+      durability,
     },
     { status: 202 }
   );
