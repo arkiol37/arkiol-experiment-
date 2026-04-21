@@ -141,16 +141,45 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "lifestyle-art-studio",        label: "Art studio",          category: "education",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "lifestyle-podcast-studio",    label: "Podcast studio",      category: "marketing",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
 
-  // ── Object (8) ─────────────────────────────────────────────────────
+  // ── Object (24) ────────────────────────────────────────────────────
+  // Step 50: expanded the object realm into a real-life daily-use catalog.
+  // Every slug is a premium 3D render with consistent soft lighting, a
+  // clean neutral backdrop, and a ¾ / front-on camera so props can be
+  // composited onto any template without visual mismatch. Grouped by
+  // theme (books / stationery / tech / drinks / fitness / travel /
+  // beauty / toys) so the diff is reviewable and coverage is obvious.
+  // Books & reading
   { slug: "object-books-stack",    label: "Books stack",       category: "education",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-book-open",      label: "Open book",         category: "education",   realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Stationery
+  { slug: "object-notebook",       label: "Notebook",          category: "education",   realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-notebook-pen",   label: "Notebook with pen", category: "productivity",realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-pen-set",        label: "Pen set",           category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-pencil-set",     label: "Pencil set",        category: "education",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Tech
+  { slug: "object-laptop",         label: "Laptop",            category: "business",    realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-phone",          label: "Smartphone",        category: "marketing",   realm: "object",    aspectRatio: 0.8, suggestedSize: { w: 1200, h: 1500 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-camera",         label: "Camera",            category: "marketing",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-headphones",     label: "Headphones",        category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Drinks
+  { slug: "object-coffee-cup",     label: "Coffee cup",        category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-coffee-mug",     label: "Coffee mug",        category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-tea-cup",        label: "Tea cup",           category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Fitness
   { slug: "object-water-bottle",   label: "Water bottle",      category: "fitness",     realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-dumbbell",       label: "Dumbbell",          category: "fitness",     realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-yoga-mat",       label: "Yoga mat",          category: "fitness",     realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Travel
   { slug: "object-suitcase",       label: "Suitcase",          category: "travel",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "object-coffee-cup",     label: "Coffee cup",        category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "object-laptop",         label: "Laptop",            category: "business",    realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Beauty & wellness
   { slug: "object-skincare-bottle",label: "Skincare bottle",   category: "beauty",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "object-notebook",       label: "Notebook",          category: "education",   realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-perfume-bottle", label: "Perfume bottle",    category: "beauty",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-candle",         label: "Candle",            category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-diffuser",       label: "Essential-oil diffuser", category: "wellness", realm: "object",   aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Toys
   { slug: "object-toy-rocket",     label: "Toy rocket",        category: "marketing",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-plush-bear",     label: "Plush bear",        category: "marketing",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-building-blocks",label: "Building blocks",   category: "education",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
 
   // ── Scene (5) ──────────────────────────────────────────────────────
   { slug: "scene-city-skyline",    label: "City skyline",      category: "business",    realm: "scene",     aspectRatio: 2.0, suggestedSize: { w: 2000, h: 1000 }, qualityTier: "premium", visualStyle: "3d" },
@@ -263,4 +292,15 @@ export function natureAsset3dSlugs(): readonly Asset3DSlug[] {
  */
 export function lifestyleAsset3dSlugs(): readonly Asset3DSlug[] {
   return asset3dSlugsByRealm("lifestyle");
+}
+
+/**
+ * Object / daily-use asset group — books, notebooks, stationery, laptops,
+ * phones, cameras, headphones, cups, water bottles, dumbbells, yoga mats,
+ * suitcases, skincare / perfume / candles / diffusers, and toys. Convenience
+ * alias for `asset3dSlugsByRealm("object")` — this is the prop catalog
+ * that pairs with any lifestyle or nature scene.
+ */
+export function objectAsset3dSlugs(): readonly Asset3DSlug[] {
+  return asset3dSlugsByRealm("object");
 }

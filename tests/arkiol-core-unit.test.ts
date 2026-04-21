@@ -300,9 +300,9 @@ async function run() {
 
   const manifest = await import("../apps/arkiol-core/src/engines/assets/3d-asset-manifest");
 
-  test("manifest has 71 slugs", () => {
-    // 32 nature + 5 animal + 20 lifestyle + 9 object + 5 scene = 71
-    assertEq(manifest.ASSET_3D_MANIFEST.length, 71, "manifest size");
+  test("manifest has 86 slugs", () => {
+    // 32 nature + 5 animal + 20 lifestyle + 24 object + 5 scene = 86
+    assertEq(manifest.ASSET_3D_MANIFEST.length, 86, "manifest size");
   });
 
   test("every manifest slug maps to a library asset id pattern", () => {
@@ -318,9 +318,10 @@ async function run() {
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
     const s = manifest.asset3dManifestStats();
     assertEq(s.configured, false, "configured");
-    assertEq(s.totalSlugs, 71, "totalSlugs");
+    assertEq(s.totalSlugs, 86, "totalSlugs");
     assertEq(s.byRealm.nature, 32, "nature count");
     assertEq(s.byRealm.lifestyle, 20, "lifestyle count");
+    assertEq(s.byRealm.object, 24, "object count");
   });
 
   test("asset3dUrl returns undefined without base configured", () => {
@@ -387,6 +388,35 @@ async function run() {
     for (const m of manifest.lifestyleAsset3dSlugs()) {
       const suffix = m.slug.replace(/^lifestyle-/, "");
       const expectedId = `real.lifestyle.${suffix}`;
+      assert(libIds.has(expectedId),
+        `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
+    }
+  });
+
+  test("objectAsset3dSlugs returns the object realm group", () => {
+    const obj = manifest.objectAsset3dSlugs();
+    assertEq(obj.length, 24, "object count");
+    const slugs = new Set(obj.map(n => n.slug));
+    for (const s of obj) assertEq(s.realm, "object" as const, `realm:${s.slug}`);
+    // Spot-check the Step 50 daily-use additions are present.
+    for (const expected of [
+      "object-book-open", "object-notebook-pen", "object-pen-set",
+      "object-phone", "object-camera", "object-headphones",
+      "object-perfume-bottle", "object-candle", "object-diffuser",
+      "object-coffee-mug", "object-tea-cup", "object-yoga-mat",
+      "object-plush-bear", "object-building-blocks",
+    ]) {
+      assert(slugs.has(expected), `missing object slug ${expected}`);
+    }
+  });
+
+  test("every object manifest slug has a matching library Asset", async () => {
+    const lib2 = await import("../apps/arkiol-core/src/lib/asset-library");
+    const libObject = lib2.getAssetsByRealm("object");
+    const libIds = new Set(libObject.map(a => a.id));
+    for (const m of manifest.objectAsset3dSlugs()) {
+      const suffix = m.slug.replace(/^object-/, "");
+      const expectedId = `real.object.${suffix}`;
       assert(libIds.has(expectedId),
         `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
     }
