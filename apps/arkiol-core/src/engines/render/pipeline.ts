@@ -44,6 +44,7 @@ import {
   validateAssetPresence, enrichForPresence, type AssetPresenceViolation,
   validateHeroComposition,
 } from "../assets/asset-selector";
+import { validatePlacementStructure } from "../assets/placement-rules";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -763,6 +764,17 @@ async function renderAssetInner(
   for (const h of heroIssues) {
     violations.push(`hero_composition:${h.rule}[${h.severity}]: ${h.message}`);
     if (h.rule === "hero_missing") recordHeroMissing();
+  }
+
+  // ── Step 56: Structural placement enforcement ─────────────────────────
+  // Every asset must land in a canonical slot (hero / side / framed /
+  // background / corner / divider / inline). Random placements and
+  // anchor collisions that crush readability are surfaced here — errors
+  // fail the template, warnings feed the marketplace-gate's `layered`
+  // and `gridAligned` criteria.
+  const placementIssues = validatePlacementStructure(composition, spec.activeZoneIds);
+  for (const p of placementIssues) {
+    violations.push(`placement_structure:${p.rule}[${p.severity}]: ${p.message}`);
   }
 
   ctx.currentStage = "composition";

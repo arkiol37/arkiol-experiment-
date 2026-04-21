@@ -68,6 +68,19 @@ export {
   type ScaleRange,
 } from "./asset-placement";
 
+// ── Structural placement slots (Step 56) ─────────────────────────────────
+export {
+  PLACEMENT_GRID_COLUMNS,
+  SLOT_COMPATIBLE_MODES,
+  SLOT_MIN_EDGE_MARGIN,
+  slotForPlacement,
+  occupiedSlots,
+  anchorsForSlot,
+  validatePlacementStructure,
+  type PlacementSlot,
+  type PlacementStructureViolation,
+} from "./placement-rules";
+
 // ── Decorative components (Step 16) ──────────────────────────────────────
 export {
   DECORATIVE_COMPONENTS,

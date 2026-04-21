@@ -627,6 +627,156 @@ async function run() {
     assert(stepErrs.length > 0, "expected strong-presence errors on gradient-only plan");
   });
 
+  section("engines/assets · structural placement rules (Step 56)");
+
+  const placement = await import("../apps/arkiol-core/src/engines/assets/placement-rules");
+
+  test("slotForPlacement maps primary compositionMode → hero slot", () => {
+    const framedHero = heroEl({ compositionMode: "framed-center", anchor: "center" });
+    assertEq(placement.slotForPlacement(framedHero), "hero-frame" as const, "framed-center");
+
+    const sideLeftHero = heroEl({ compositionMode: "side-left", anchor: "center-left" });
+    assertEq(placement.slotForPlacement(sideLeftHero), "hero-side-left" as const, "side-left");
+
+    const sideRightHero = heroEl({ compositionMode: "side-right", anchor: "center-right" });
+    assertEq(placement.slotForPlacement(sideRightHero), "hero-side-right" as const, "side-right");
+
+    const bgHero = heroEl({ compositionMode: "background-hero", anchor: "full-bleed" });
+    assertEq(placement.slotForPlacement(bgHero), "hero-background" as const, "background-hero");
+  });
+
+  test("slotForPlacement routes corner anchors → corner-accent slots", () => {
+    const tr = accentEl({ anchor: "top-right" });
+    assertEq(placement.slotForPlacement(tr), "corner-accent-tr" as const, "top-right");
+
+    const bl = accentEl({ anchor: "bottom-left" });
+    assertEq(placement.slotForPlacement(bl), "corner-accent-bl" as const, "bottom-left");
+  });
+
+  test("anchorsForSlot round-trips with slotForPlacement", () => {
+    const anchors = placement.anchorsForSlot("corner-accent-tr");
+    assert(anchors.includes("top-right"), "top-right should map to corner-accent-tr");
+  });
+
+  test("validatePlacementStructure accepts a canonical framed-hero layout", () => {
+    // bg field + framed-center hero + one corner accent = clean composition
+    const plan = makePlan([
+      bgEl(),
+      heroEl({ compositionMode: "framed-center", anchor: "center" }),
+      accentEl({ anchor: "top-right" }),
+    ]);
+    const errors = placement.validatePlacementStructure(plan, ["headline", "subhead", "cta"])
+      .filter((v: any) => v.severity === "error");
+    assert(errors.length === 0,
+      `expected no structural errors, got: ${errors.map((e: any) => e.rule).join(",")}`);
+  });
+
+  test("rejects two accents colliding in the same corner slot", () => {
+    const plan = makePlan([
+      bgEl(),
+      heroEl({ compositionMode: "framed-center", anchor: "center" }),
+      accentEl({ anchor: "top-right", type: "badge" }),
+      accentEl({ anchor: "top-right", type: "sticker" }),
+    ]);
+    const violations = placement.validatePlacementStructure(plan, ["headline"]);
+    assert(
+      violations.some((v: any) => v.rule === "slot_collision" && v.severity === "error"),
+      "expected slot_collision error for duplicate top-right anchor",
+    );
+  });
+
+  test("rejects primary whose anchor slot mismatches its compositionMode", () => {
+    // Anchor center-right but mode framed-center — inconsistent.
+    const broken = heroEl({
+      compositionMode: "framed-center",
+      anchor:          "center-right",
+      primary:         true,
+    });
+    // With primary: true + framed-center compositionMode, slotForPlacement
+    // forces hero-frame (overriding the anchor), so mode/slot agree on
+    // the forward-mapping path. Force the mismatch by clearing primary
+    // on the slot-resolution side: a non-primary at center-right in
+    // a hero-side-right slot with framed-center mode would clash.
+    const plan = makePlan([
+      bgEl(),
+      // primary without compositionMode — slotForPlacement falls back to
+      // the anchor → slot map. Then stamp compositionMode after the fact
+      // so the validator sees a hero-side-right slot with framed-center
+      // mode, which SLOT_COMPATIBLE_MODES rejects.
+      { ...broken, compositionMode: undefined, primary: true,
+        // Manually assign the wrong mode so the validator runs mismatch logic.
+      },
+      accentEl({ anchor: "top-right" }),
+    ]);
+    // Re-stamp the compositionMode on the primary to produce the mismatch
+    // without triggering the primary/mode branch in slotForPlacement.
+    const heroIdx = plan.elements.findIndex((e: any) => e.primary);
+    plan.elements[heroIdx].anchor = "center-right";
+    plan.elements[heroIdx].compositionMode = "framed-center";
+    // slotForPlacement returns "hero-side-right" via anchor fallback, but
+    // SLOT_COMPATIBLE_MODES["hero-side-right"] = ["side-right"] which
+    // doesn't include framed-center.
+    const violations = placement.validatePlacementStructure(plan, ["headline"]);
+    assert(
+      violations.some((v: any) => v.rule === "hero_slot_mode_mismatch" && v.severity === "error"),
+      "expected hero_slot_mode_mismatch error",
+    );
+  });
+
+  test("rejects a side-hero that overlaps a text zone on the same side", () => {
+    const hero = heroEl({ compositionMode: "side-left", anchor: "center-left" });
+    const plan = makePlan([bgEl(), hero, accentEl({ anchor: "top-right" })]);
+    // bullet_1 is the only text zone mapped to "left" side in the module.
+    const violations = placement.validatePlacementStructure(plan, ["bullet_1"]);
+    assert(
+      violations.some((v: any) => v.rule === "hero_overlaps_text_zone" && v.severity === "error"),
+      "expected hero_overlaps_text_zone error",
+    );
+  });
+
+  test("warns when more than two corners carry accents", () => {
+    const plan = makePlan([
+      bgEl(),
+      heroEl(),
+      accentEl({ anchor: "top-left" }),
+      accentEl({ anchor: "top-right" }),
+      accentEl({ anchor: "bottom-left" }),
+    ]);
+    const violations = placement.validatePlacementStructure(plan, ["headline"]);
+    assert(
+      violations.some((v: any) => v.rule === "too_many_corner_accents" && v.severity === "warning"),
+      "expected too_many_corner_accents warning",
+    );
+  });
+
+  test("warns when three or more horizontal separators stack", () => {
+    const divider1 = accentEl({
+      type: "divider", zone: "divider", role: "divider", anchor: "edge-top",
+      coverageHint: 0.1,
+    });
+    const divider2 = accentEl({
+      type: "divider", zone: "divider", role: "divider", anchor: "center",
+      coverageHint: 0.1,
+    });
+    const divider3 = accentEl({
+      type: "divider", zone: "divider", role: "divider", anchor: "edge-bottom",
+      coverageHint: 0.1,
+    });
+    const plan = makePlan([bgEl(), heroEl(), divider1, divider2, divider3, accentEl({ anchor: "top-right" })]);
+    const violations = placement.validatePlacementStructure(plan, ["headline"]);
+    assert(
+      violations.some((v: any) => v.rule === "divider_stack" && v.severity === "warning"),
+      "expected divider_stack warning",
+    );
+  });
+
+  test("SLOT_MIN_EDGE_MARGIN exports the 12-column grid defaults", () => {
+    assertEq(placement.PLACEMENT_GRID_COLUMNS, 12, "grid columns");
+    assertEq(placement.SLOT_MIN_EDGE_MARGIN["corner-accent-tl"], 0.03, "corner margin");
+    assertEq(placement.SLOT_MIN_EDGE_MARGIN["hero-frame"], 0.04, "framed hero margin");
+    assertEq(placement.SLOT_MIN_EDGE_MARGIN["background-field"], 0, "bg margin");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
