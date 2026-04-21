@@ -49,15 +49,54 @@ export interface Asset3DSlug {
 }
 
 export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
-  // ── Nature (8) ─────────────────────────────────────────────────────
+  // ── Nature (32) ────────────────────────────────────────────────────
+  // Step 48: expanded the nature realm into a first-class environment
+  // library. Every slug is a modern claymorphic 3D render — consistent
+  // lighting, soft shadows, pastel or true-to-life palette, rendered
+  // at 1200–2000 px on the long edge. Layout grouping (mountain /
+  // water / sky / flora / stone / beach) keeps the manifest readable
+  // and the diff reviewable. When ARKIOL_3D_ASSET_BASE is configured
+  // the CDN must serve each slug below at `${base}/${slug}.png`.
+  // Mountains
   { slug: "nature-mountain-range", label: "Mountain range",    category: "travel",      realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-mountain-snowy", label: "Snowy mountain",    category: "travel",      realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-mountain-misty", label: "Misty mountain",    category: "travel",      realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Rivers & waterfalls
   { slug: "nature-river",          label: "River stream",      category: "wellness",    realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-river-bend",     label: "River bend",        category: "wellness",    realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-waterfall",      label: "Waterfall",         category: "wellness",    realm: "nature",    aspectRatio: 0.8, suggestedSize: { w: 1200, h: 1500 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-waterfall-tropical", label: "Tropical waterfall", category: "travel",  realm: "nature",    aspectRatio: 0.8, suggestedSize: { w: 1200, h: 1500 }, qualityTier: "premium", visualStyle: "3d" },
+  // Forests
   { slug: "nature-forest",         label: "Forest scene",      category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-pine-forest",    label: "Pine forest",       category: "wellness",    realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-autumn-forest",  label: "Autumn forest",     category: "wellness",    realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Ocean & beach
   { slug: "nature-ocean-waves",    label: "Ocean waves",       category: "travel",      realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-beach",          label: "Beach cove",        category: "travel",      realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-beach-palms",    label: "Beach with palms",  category: "travel",      realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Sky & atmosphere
   { slug: "nature-sky-clouds",     label: "Sky clouds",        category: "motivation",  realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
-  { slug: "nature-potted-plant",   label: "Potted plant",      category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-cloud-cluster",  label: "Cloud cluster",     category: "motivation",  realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-sky-dawn",       label: "Dawn sky",          category: "motivation",  realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-sky-dusk",       label: "Dusk sky",          category: "motivation",  realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-sky-starlit",    label: "Starlit sky",       category: "motivation",  realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "nature-sunset",         label: "Golden hour",       category: "motivation",  realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Plants & flora
+  { slug: "nature-potted-plant",   label: "Potted plant",      category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-cactus",         label: "Potted cactus",     category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-succulent",      label: "Succulent",         category: "beauty",      realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-fern",           label: "Fern frond",        category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "nature-leaf",           label: "Leaf",              category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-autumn-leaves",  label: "Autumn leaves",     category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Flowers
+  { slug: "nature-flower-rose",    label: "Rose bloom",        category: "beauty",      realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-flower-tulip",   label: "Tulip",             category: "beauty",      realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-flower-bouquet", label: "Flower bouquet",    category: "beauty",      realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-wildflower-field", label: "Wildflower field", category: "wellness",   realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Grass & stones
+  { slug: "nature-grass-meadow",   label: "Grass meadow",      category: "wellness",    realm: "nature",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-stone-stack",    label: "Zen stone stack",   category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "nature-pebbles",        label: "Smooth pebbles",    category: "wellness",    realm: "nature",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
 
   // ── Animal (5) ─────────────────────────────────────────────────────
   { slug: "animal-dog",            label: "Dog",               category: "wellness",    realm: "animal",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
@@ -162,4 +201,27 @@ export function asset3dSlugsByQualityTier(
 /** Look up a single manifest entry by slug. */
 export function getAsset3dSlug(slug: string): Asset3DSlug | undefined {
   return ASSET_3D_MANIFEST.find(m => m.slug === slug);
+}
+
+// ── Realm groups (Step 48) ───────────────────────────────────────────────────
+// Realms are the primary subject axis for 3D assets — nature / animal /
+// lifestyle / object / scene. Callers that want the whole "nature asset
+// group" (clouds, mountains, rivers, forests, flowers, stones, etc.) can
+// pull it here without reimplementing the filter every time.
+
+/** All manifest entries whose realm matches. Order preserved. */
+export function asset3dSlugsByRealm(
+  realm: Asset3DSlug["realm"],
+): readonly Asset3DSlug[] {
+  return ASSET_3D_MANIFEST.filter(m => m.realm === realm);
+}
+
+/**
+ * Nature asset group — mountains, rivers, waterfalls, forests, ocean,
+ * beach, sky, sunsets, plants, flowers, grass, stones. A convenience
+ * alias for `asset3dSlugsByRealm("nature")` because this is the most
+ * frequently-queried group (the platform's hero environment catalog).
+ */
+export function natureAsset3dSlugs(): readonly Asset3DSlug[] {
+  return asset3dSlugsByRealm("nature");
 }

@@ -300,9 +300,9 @@ async function run() {
 
   const manifest = await import("../apps/arkiol-core/src/engines/assets/3d-asset-manifest");
 
-  test("manifest has 33 slugs", () => {
-    // 8 nature + 5 animal + 6 lifestyle + 9 object + 5 scene = 33
-    assertEq(manifest.ASSET_3D_MANIFEST.length, 33, "manifest size");
+  test("manifest has 57 slugs", () => {
+    // 32 nature + 5 animal + 6 lifestyle + 9 object + 5 scene = 57
+    assertEq(manifest.ASSET_3D_MANIFEST.length, 57, "manifest size");
   });
 
   test("every manifest slug maps to a library asset id pattern", () => {
@@ -318,8 +318,8 @@ async function run() {
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
     const s = manifest.asset3dManifestStats();
     assertEq(s.configured, false, "configured");
-    assertEq(s.totalSlugs, 33, "totalSlugs");
-    assertEq(s.byRealm.nature, 8, "nature count");
+    assertEq(s.totalSlugs, 57, "totalSlugs");
+    assertEq(s.byRealm.nature, 32, "nature count");
   });
 
   test("asset3dUrl returns undefined without base configured", () => {
@@ -332,6 +332,35 @@ async function run() {
     const url = manifest.asset3dUrl("nature-mountain-range");
     assertEq(url, "https://cdn.test.com/3d/nature-mountain-range.png", "url");
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
+  });
+
+  test("natureAsset3dSlugs returns the nature realm group", () => {
+    const nature = manifest.natureAsset3dSlugs();
+    assertEq(nature.length, 32, "nature count");
+    const slugs = new Set(nature.map(n => n.slug));
+    for (const s of nature) assertEq(s.realm, "nature" as const, `realm:${s.slug}`);
+    // Spot-check that the Step 48 additions are all present.
+    for (const expected of [
+      "nature-waterfall", "nature-beach", "nature-sky-dawn",
+      "nature-flower-rose", "nature-grass-meadow", "nature-stone-stack",
+    ]) {
+      assert(slugs.has(expected), `missing nature slug ${expected}`);
+    }
+  });
+
+  test("every nature manifest slug has a matching library Asset", async () => {
+    const lib2 = await import("../apps/arkiol-core/src/lib/asset-library");
+    const libNature = lib2.getAssetsByRealm("nature");
+    // Library ids for real-world assets follow the `real.<realm>.<suffix>`
+    // convention where <suffix> is the manifest slug with its realm prefix
+    // stripped — e.g. manifest "nature-mountain-range" → "real.nature.mountain-range".
+    const libIds = new Set(libNature.map(a => a.id));
+    for (const m of manifest.natureAsset3dSlugs()) {
+      const suffix = m.slug.replace(/^nature-/, "");
+      const expectedId = `real.nature.${suffix}`;
+      assert(libIds.has(expectedId),
+        `library missing Asset for manifest slug ${m.slug} (expected ${expectedId})`);
+    }
   });
 
   section("evaluation · rejection-rules");
