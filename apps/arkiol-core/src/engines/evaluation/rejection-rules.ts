@@ -355,21 +355,22 @@ export const REJECTION_RULES: RejectionRule[] = [
     },
   },
 
-  // ── Poor spacing / weak composition (hard) ───────────────────────────────
-  // Templates whose spacing is tight AND composition balance is flat read
-  // as cramped or lopsided even when richness looks fine. Combined floor
-  // so either signal alone doesn't disqualify — only the joint failure.
+  // ── Weak composition (hard) ──────────────────────────────────────────────
+  // Templates whose readability (overlay / contrast / crowding) AND
+  // composition balance (decoration spread) both sink below floor read as
+  // cramped + lopsided even when richness looks fine. Joint floor so
+  // either signal alone doesn't disqualify — only the combined failure.
+  // Distinct from the geometric `poor_spacing` rule further down, which
+  // fires on touching zones or text-over-subject overlap regardless of
+  // overall score.
   {
-    id:          "poor_spacing",
+    id:          "weak_composition",
     severity:    "hard",
-    description: "Composition spacing + balance fall below usable floor.",
+    description: "Readability + composition balance fall below usable floor jointly.",
     evaluate(theme, _content, score) {
       const s = score ?? scoreThemeQuality(theme);
-      // Readability tracks overlay / contrast / crowding. Balance tracks
-      // decoration spread. When both sink together, the visual reads as
-      // cramped + lopsided and the template isn't gallery-grade.
       if (s.readability < 0.40 && s.compositionBalance < 0.32) {
-        return `poor_spacing:read=${s.readability.toFixed(2)},balance=${s.compositionBalance.toFixed(2)}`;
+        return `weak_composition:read=${s.readability.toFixed(2)},balance=${s.compositionBalance.toFixed(2)}`;
       }
       return null;
     },
