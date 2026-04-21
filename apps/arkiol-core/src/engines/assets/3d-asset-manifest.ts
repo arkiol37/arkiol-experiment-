@@ -105,14 +105,16 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "animal-butterfly",      label: "Butterfly",         category: "beauty",      realm: "animal",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "animal-deer",           label: "Deer",              category: "wellness",    realm: "animal",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
 
-  // ── Lifestyle (20) ─────────────────────────────────────────────────
+  // ── Lifestyle (23) ─────────────────────────────────────────────────
   // Step 49: expanded the lifestyle realm into a first-class interior-scene
-  // library. Every slug is a modern real-life 3D render — consistent soft
-  // lighting, clean camera angle, realistic materials and props, rendered
-  // at 1600–2000 px on the long edge. Groupings (workspaces, reading,
-  // green interiors, kitchens, bedrooms, living areas, studios) keep the
-  // manifest readable and the diff reviewable. When ARKIOL_3D_ASSET_BASE
-  // is configured the CDN must serve each slug below at `${base}/${slug}.png`.
+  // library. Step 51: added spa / yoga / bathroom setups so the wellness
+  // and self-care briefs have dedicated scene art. Every slug is a modern
+  // real-life 3D render — consistent soft lighting, clean camera angle,
+  // realistic materials and props, rendered at 1600–2000 px on the long
+  // edge. Groupings (workspaces, reading, green interiors, kitchens,
+  // bedrooms, living areas, studios, wellness) keep the manifest readable
+  // and the diff reviewable. When ARKIOL_3D_ASSET_BASE is configured the
+  // CDN must serve each slug below at `${base}/${slug}.png`.
   // Workspaces
   { slug: "lifestyle-workspace",         label: "Workspace",           category: "productivity",realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "lifestyle-desk-flatlay",      label: "Desk flat-lay",       category: "productivity",realm: "lifestyle", aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
@@ -140,14 +142,22 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "lifestyle-photo-studio",      label: "Photography studio",  category: "marketing",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "lifestyle-art-studio",        label: "Art studio",          category: "education",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "lifestyle-podcast-studio",    label: "Podcast studio",      category: "marketing",   realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Wellness & self-care setups
+  { slug: "lifestyle-spa-setup",         label: "Spa setup",           category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-yoga-setup",        label: "Yoga setup",          category: "fitness",     realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "lifestyle-bathroom",          label: "Bathroom",            category: "wellness",    realm: "lifestyle", aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
 
-  // ── Object (24) ────────────────────────────────────────────────────
+  // ── Object (36) ────────────────────────────────────────────────────
   // Step 50: expanded the object realm into a real-life daily-use catalog.
-  // Every slug is a premium 3D render with consistent soft lighting, a
-  // clean neutral backdrop, and a ¾ / front-on camera so props can be
+  // Step 51: added food / wellness / self-care props so the object realm
+  // also covers healthy meals (salad, smoothie, breakfast, fruit, meal
+  // prep) and beauty/spa kit (serum, makeup, bath essentials). Every
+  // slug is a premium 3D render with consistent soft lighting, a clean
+  // neutral backdrop, and a ¾ / front-on camera so props can be
   // composited onto any template without visual mismatch. Grouped by
-  // theme (books / stationery / tech / drinks / fitness / travel /
-  // beauty / toys) so the diff is reviewable and coverage is obvious.
+  // theme (books / stationery / tech / drinks / food / fitness / travel /
+  // beauty / self-care / toys) so the diff is reviewable and coverage
+  // is obvious.
   // Books & reading
   { slug: "object-books-stack",    label: "Books stack",       category: "education",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-book-open",      label: "Open book",         category: "education",   realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
@@ -165,6 +175,13 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "object-coffee-cup",     label: "Coffee cup",        category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-coffee-mug",     label: "Coffee mug",        category: "productivity",realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-tea-cup",        label: "Tea cup",           category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Food
+  { slug: "object-salad-bowl",     label: "Salad bowl",        category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-balanced-meal",  label: "Balanced meal bowl", category: "wellness",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-breakfast-spread", label: "Breakfast spread", category: "wellness",   realm: "object",    aspectRatio: 1.6, suggestedSize: { w: 1920, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-smoothie-bowl",  label: "Smoothie bowl",     category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-fruit-platter",  label: "Fruit platter",     category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-meal-prep",      label: "Meal-prep containers", category: "fitness",  realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
   // Fitness
   { slug: "object-water-bottle",   label: "Water bottle",      category: "fitness",     realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-dumbbell",       label: "Dumbbell",          category: "fitness",     realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
@@ -176,6 +193,14 @@ export const ASSET_3D_MANIFEST: readonly Asset3DSlug[] = Object.freeze([
   { slug: "object-perfume-bottle", label: "Perfume bottle",    category: "beauty",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-candle",         label: "Candle",            category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-diffuser",       label: "Essential-oil diffuser", category: "wellness", realm: "object",   aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-serum-dropper",  label: "Serum dropper",     category: "beauty",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  // Makeup
+  { slug: "object-makeup-brushes", label: "Makeup brush set",  category: "beauty",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-lipstick",       label: "Lipstick",          category: "beauty",      realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-makeup-palette", label: "Makeup palette",    category: "beauty",      realm: "object",    aspectRatio: 1.3, suggestedSize: { w: 1600, h: 1200 }, qualityTier: "premium", visualStyle: "3d" },
+  // Bath essentials
+  { slug: "object-bath-salts",     label: "Bath salts jar",    category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
+  { slug: "object-bath-soap-set",  label: "Bath soap set",     category: "wellness",    realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   // Toys
   { slug: "object-toy-rocket",     label: "Toy rocket",        category: "marketing",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },
   { slug: "object-plush-bear",     label: "Plush bear",        category: "marketing",   realm: "object",    aspectRatio: 1.0, suggestedSize: { w: 1600, h: 1600 }, qualityTier: "premium", visualStyle: "3d" },

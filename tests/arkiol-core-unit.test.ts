@@ -300,9 +300,9 @@ async function run() {
 
   const manifest = await import("../apps/arkiol-core/src/engines/assets/3d-asset-manifest");
 
-  test("manifest has 86 slugs", () => {
-    // 32 nature + 5 animal + 20 lifestyle + 24 object + 5 scene = 86
-    assertEq(manifest.ASSET_3D_MANIFEST.length, 86, "manifest size");
+  test("manifest has 101 slugs", () => {
+    // 32 nature + 5 animal + 23 lifestyle + 36 object + 5 scene = 101
+    assertEq(manifest.ASSET_3D_MANIFEST.length, 101, "manifest size");
   });
 
   test("every manifest slug maps to a library asset id pattern", () => {
@@ -318,10 +318,10 @@ async function run() {
     delete (process.env as any).ARKIOL_3D_ASSET_BASE;
     const s = manifest.asset3dManifestStats();
     assertEq(s.configured, false, "configured");
-    assertEq(s.totalSlugs, 86, "totalSlugs");
+    assertEq(s.totalSlugs, 101, "totalSlugs");
     assertEq(s.byRealm.nature, 32, "nature count");
-    assertEq(s.byRealm.lifestyle, 20, "lifestyle count");
-    assertEq(s.byRealm.object, 24, "object count");
+    assertEq(s.byRealm.lifestyle, 23, "lifestyle count");
+    assertEq(s.byRealm.object, 36, "object count");
   });
 
   test("asset3dUrl returns undefined without base configured", () => {
@@ -367,15 +367,16 @@ async function run() {
 
   test("lifestyleAsset3dSlugs returns the lifestyle realm group", () => {
     const lifestyle = manifest.lifestyleAsset3dSlugs();
-    assertEq(lifestyle.length, 20, "lifestyle count");
+    assertEq(lifestyle.length, 23, "lifestyle count");
     const slugs = new Set(lifestyle.map(n => n.slug));
     for (const s of lifestyle) assertEq(s.realm, "lifestyle" as const, `realm:${s.slug}`);
-    // Spot-check that the Step 49 interior-scene additions are all present.
+    // Spot-check Step 49 interior-scene additions + Step 51 wellness setups.
     for (const expected of [
       "lifestyle-desk-flatlay", "lifestyle-dual-monitor-desk",
       "lifestyle-reading-armchair", "lifestyle-botanical-corner",
       "lifestyle-modern-kitchen", "lifestyle-cozy-bedroom",
       "lifestyle-living-room", "lifestyle-podcast-studio",
+      "lifestyle-spa-setup", "lifestyle-yoga-setup", "lifestyle-bathroom",
     ]) {
       assert(slugs.has(expected), `missing lifestyle slug ${expected}`);
     }
@@ -395,16 +396,20 @@ async function run() {
 
   test("objectAsset3dSlugs returns the object realm group", () => {
     const obj = manifest.objectAsset3dSlugs();
-    assertEq(obj.length, 24, "object count");
+    assertEq(obj.length, 36, "object count");
     const slugs = new Set(obj.map(n => n.slug));
     for (const s of obj) assertEq(s.realm, "object" as const, `realm:${s.slug}`);
-    // Spot-check the Step 50 daily-use additions are present.
+    // Spot-check Step 50 daily-use additions + Step 51 food & self-care.
     for (const expected of [
       "object-book-open", "object-notebook-pen", "object-pen-set",
       "object-phone", "object-camera", "object-headphones",
       "object-perfume-bottle", "object-candle", "object-diffuser",
       "object-coffee-mug", "object-tea-cup", "object-yoga-mat",
       "object-plush-bear", "object-building-blocks",
+      "object-salad-bowl", "object-balanced-meal", "object-breakfast-spread",
+      "object-smoothie-bowl", "object-fruit-platter", "object-meal-prep",
+      "object-serum-dropper", "object-makeup-brushes", "object-lipstick",
+      "object-makeup-palette", "object-bath-salts", "object-bath-soap-set",
     ]) {
       assert(slugs.has(expected), `missing object slug ${expected}`);
     }
