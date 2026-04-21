@@ -41,11 +41,18 @@ import {
   isPhotoAssetConfigured,
   type PhotoAssetSlug,
 } from "./photo-asset-manifest";
+import {
+  ASSET_3D_MANIFEST,
+  asset3dUrl,
+  isAsset3dConfigured,
+  type Asset3DSlug,
+} from "./3d-asset-manifest";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 /** Stylistic mode the subject must align with. Driven by brief.imageStyle. */
 export type SubjectMode =
+  | "3d"            // premium 3D render — the platform's preferred hero style
   | "photo"         // realistic photography (food, fitness, lifestyle, beauty)
   | "illustration"  // flat/illustrated scene (we don't have a manifest for this yet)
   | "abstract"      // shapes + gradients only — no subject image
@@ -175,15 +182,20 @@ const DEFAULT_CATEGORY_PREF: CatFilter[] = [
 // category pack's shape-forward decorations).
 
 function modeForImageStyle(style: BriefAnalysis["imageStyle"]): SubjectMode {
+  // Step 47: when the 3D CDN is wired up, photo-style briefs promote to
+  // the premium 3D subject path so the whole template (background +
+  // hero + accents) reads as one coherent modern 3D composition
+  // rather than mixing a realistic photo against 3D decorations.
+  const prefer3d = isAsset3dConfigured();
   switch (style) {
     case "photography":
     case "product":
-    case "lifestyle":   return "photo";
+    case "lifestyle":   return prefer3d ? "3d" : "photo";
     case "illustration":return "illustration";
     case "abstract":
     case "geometric":   return "abstract";
     case "none":        return "none";
-    default:            return "photo";
+    default:            return prefer3d ? "3d" : "photo";
   }
 }
 
@@ -201,14 +213,25 @@ export function selectSubjectImage(
   // 2. Honor the brief's stylistic intent. Abstract / geometric / none
   // skip the subject entirely so we don't mix realism with flat design.
   const mode = modeForImageStyle(brief.imageStyle);
-  if (mode !== "photo") return null;
+  if (mode !== "photo" && mode !== "3d") return null;
 
   // 3. Resolve preference list.
   const catId = categoryPack?.id;
   const prefs = (catId && CATEGORY_PREFS[catId]) || DEFAULT_CATEGORY_PREF;
+  const zoneAspect = imageZone.width / Math.max(1, imageZone.height);
+  const placement = resolvePlacement(imageZone);
+
+  // Step 47: 3D path — pull from the curated premium 3D manifest.
+  // This is the platform's preferred hero style and guarantees a
+  // consistent modern look across every template when ARKIOL_3D_ASSET_BASE
+  // is configured.
+  if (mode === "3d") {
+    return select3dSubject({
+      prefs, zoneAspect, variationIdx, placement, imageZoneId: imageZone.id, templateType,
+    });
+  }
 
   // 4. Walk prefs in order, collect every matching manifest entry.
-  const zoneAspect = imageZone.width / Math.max(1, imageZone.height);
   const candidates: PhotoAssetSlug[] = [];
   for (const filter of prefs) {
     for (const entry of PHOTO_ASSET_MANIFEST) {
@@ -238,7 +261,6 @@ export function selectSubjectImage(
 
   const url       = photoAssetUrl(pick.slug) ?? unsplashFallbackUrl(pick);
   const licensed  = isPhotoAssetConfigured();
-  const placement = resolvePlacement(imageZone);
 
   const subject: SubjectImage = {
     slug:        pick.slug,
@@ -263,6 +285,79 @@ export function selectSubjectImage(
   };
 
   return subject;
+}
+
+// Step 47: 3D subject path. Mirrors the photo path but pulls from the
+// 3D manifest and only matches on category (the 3D manifest doesn't
+// carry the food / beauty / fashion realms that are photo-only).
+function select3dSubject(params: {
+  prefs:        CatFilter[];
+  zoneAspect:   number;
+  variationIdx: number;
+  placement:    SubjectPlacement;
+  imageZoneId:  string;
+  templateType: TemplateType;
+}): SubjectImage | null {
+  const { prefs, zoneAspect, variationIdx, placement, imageZoneId, templateType } = params;
+
+  // Only "realm" filters apply to the 3D manifest — the photo-specific
+  // realms (food / beauty / fashion) don't exist in 3D yet so those
+  // filters collapse to "any realm" and we rely on the category match.
+  const threeDRealms = new Set(["nature", "animal", "lifestyle", "object", "scene"]);
+  const candidates: Asset3DSlug[] = [];
+  for (const filter of prefs) {
+    for (const entry of ASSET_3D_MANIFEST) {
+      if (filter.category && entry.category !== filter.category) continue;
+      if (filter.realm && !threeDRealms.has(filter.realm)) continue;
+      if (filter.realm && entry.realm !== filter.realm) continue;
+      if (candidates.includes(entry)) continue;
+      candidates.push(entry);
+    }
+    if (candidates.length >= 4) break;
+  }
+  if (candidates.length === 0) {
+    // No premium 3D match — skip the subject rather than fall back to
+    // an off-style photo. The composition plan will still carry a 3D
+    // library asset from the category recipe.
+    return null;
+  }
+
+  candidates.sort((a, b) => Math.abs(Math.log(a.aspectRatio) - Math.log(zoneAspect)) -
+                            Math.abs(Math.log(b.aspectRatio) - Math.log(zoneAspect)));
+
+  const topN = candidates.slice(0, Math.min(4, candidates.length));
+  const idx  = Math.abs(Math.floor(variationIdx)) % topN.length;
+  const pick = topN[idx];
+
+  const url      = asset3dUrl(pick.slug);
+  // asset3dUrl returns undefined when the CDN isn't configured — but
+  // modeForImageStyle only returns "3d" when isAsset3dConfigured() is
+  // true, so `url` is always defined here in practice.
+  if (!url) return null;
+
+  return {
+    slug:        pick.slug,
+    label:       pick.label,
+    url,
+    category:    pick.category,
+    // Coerce the 3D realms into the PhotoAssetSlug realm union so the
+    // shared SubjectImage type keeps working without forks.
+    realm:       pick.realm as SubjectImage["realm"],
+    mode:        "3d",
+    placement,
+    aspectRatio: pick.aspectRatio,
+    zoneId:      imageZoneId,
+    licensed:    true,
+    auditSummary: [
+      `slug=${pick.slug}`,
+      `cat=${pick.category}`,
+      `realm=${pick.realm}`,
+      `mode=3d`,
+      `tier=${pick.qualityTier}`,
+      `place=${placement}`,
+      `tpl=${templateType}`,
+    ].join(" "),
+  };
 }
 
 function aspectDelta(entry: PhotoAssetSlug, target: number): number {
@@ -299,5 +394,9 @@ export function describeSubjectImage(s: SubjectImage | null | undefined): string
 // (geometric brief opting out of photography).
 
 export function photoSubjectExpected(brief: BriefAnalysis): boolean {
-  return modeForImageStyle(brief.imageStyle) === "photo";
+  const mode = modeForImageStyle(brief.imageStyle);
+  // Step 47: 3D subjects satisfy the same "photo-style brief expected a
+  // concrete subject" contract — rejection rules that gate on this
+  // treat them as interchangeable.
+  return mode === "photo" || mode === "3d";
 }

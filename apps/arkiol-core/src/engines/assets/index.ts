@@ -145,5 +145,8 @@ export {
   asset3dUrl,
   isAsset3dConfigured,
   asset3dManifestStats,
+  is3dManifestPremiumOnly,
+  asset3dSlugsByQualityTier,
+  getAsset3dSlug,
   type Asset3DSlug,
 } from "./3d-asset-manifest";

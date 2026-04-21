@@ -132,11 +132,31 @@ export function queryAssets(q: AssetQuery = {}): Asset[] {
     pool = pool.filter(a => a.visualStyle === undefined || a.visualStyle === q.visualStyle);
   }
 
+  // Step 47: qualityTier filter acts as a floor — passing "premium"
+  // keeps only premium-tagged assets; passing "standard" keeps premium
+  // + standard (rejecting "draft"). Unset tier is treated as "standard".
+  if (q.qualityTier) {
+    const floorRank = QUALITY_TIER_RANK[q.qualityTier];
+    pool = pool.filter(a => {
+      const tier = a.qualityTier ?? "standard";
+      return QUALITY_TIER_RANK[tier] >= floorRank;
+    });
+  }
+
   if (typeof q.limit === "number" && q.limit >= 0) {
     pool = pool.slice(0, q.limit);
   }
   return pool;
 }
+
+// Higher rank = higher quality. Used by queryAssets() to implement the
+// tier floor — e.g. a "standard" query admits premium + standard,
+// rejecting "draft" tier entirely.
+const QUALITY_TIER_RANK: Record<import("./types").AssetQualityTier, number> = {
+  draft:    0,
+  standard: 1,
+  premium:  2,
+};
 
 // Deterministic "pick one" — useful for template generation so the same
 // input yields the same asset selection across runs. The `seed` string can

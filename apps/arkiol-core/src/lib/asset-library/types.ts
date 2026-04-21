@@ -62,7 +62,11 @@ export type AssetRealm =
 // composition time (one style per template) is what turns a library
 // into a coherent design system.
 //
-//   "3d"          Modern 3D render — clay / claymorphic / glassy
+//   "3d"          Modern 3D render — clay / claymorphic / glassy.
+//                 This is the platform's preferred hero style: modern,
+//                 clean, high-resolution, consistent lighting + camera
+//                 angle. When a 3D CDN is wired up (ARKIOL_3D_ASSET_BASE)
+//                 selection pins to this style first.
 //   "photo"       Real-world photograph
 //   "illustration" Flat vector illustration (multiple colors)
 //   "flat"        Single- or two-color flat icon
@@ -77,6 +81,16 @@ export type AssetVisualStyle =
   | "flat"
   | "outline"
   | "hand-drawn";
+
+// Step 47: quality tier axis. Orthogonal to visualStyle — describes how
+// polished an individual asset is so the selector can prefer premium
+// renders over lower-grade placeholders. 3D hero assets should ship as
+// "premium" (high-resolution, consistent lighting, no mixed aesthetics).
+// "standard" is acceptable for supporting decorative elements.
+// "draft" is dev-only / placeholder — never surfaced in production templates.
+//
+// Left unset = "standard" for scoring purposes.
+export type AssetQualityTier = "premium" | "standard" | "draft";
 
 // How the asset's visual payload is delivered to a renderer.
 export type AssetPayload =
@@ -113,6 +127,12 @@ export interface Asset {
   // composition picks to enforce one-style-per-template consistency.
   // Left unset for style-agnostic assets (ribbons, badges, etc.).
   visualStyle?:AssetVisualStyle;
+  // Step 47: quality tier. When unset, treated as "standard" by the
+  // selector. Set to "premium" for curated hero-grade assets (3D
+  // renders at manifest resolution, licensed photos). Templates
+  // prefer premium picks for the primary visual and reject "draft"
+  // tier entirely in production.
+  qualityTier?:AssetQualityTier;
   payload:     AssetPayload;
 }
 
@@ -124,6 +144,7 @@ export interface AssetQuery {
   style?:       AssetStyle;          // outline / filled / duotone — icon-focused
   realm?:       AssetRealm;          // Step 35 — real-world subject filter
   visualStyle?: AssetVisualStyle;    // Step 36 — rendering-style filter
+  qualityTier?: AssetQualityTier;    // Step 47 — minimum-tier filter
   tags?:        string[];            // match if the asset has ANY of these tags
   limit?:       number;
 }

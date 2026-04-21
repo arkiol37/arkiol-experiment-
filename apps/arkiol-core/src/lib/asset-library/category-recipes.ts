@@ -9,7 +9,7 @@
 // This module is the foundation that downstream generation logic consults
 // when assembling a default visual roster for a given category.
 
-import type { Asset, AssetCategory, AssetKind, AssetVisualStyle } from "./types";
+import type { Asset, AssetCategory, AssetKind, AssetQualityTier, AssetVisualStyle } from "./types";
 import { queryAssets, pickAsset, ASSET_CATEGORIES } from "./registry";
 import { scoreAssetForCategory } from "./category-profile";
 
@@ -169,28 +169,51 @@ export interface SelectOptions {
   // pick to this style (style-agnostic assets without a visualStyle tag
   // still pass through — ribbons, badges, dividers, etc.). Default
   // behavior: when omitted, the selector auto-picks the best-available
-  // style for the category — "3d" is preferred if the category has any
-  // 3D assets, otherwise the first style that has enough coverage. This
-  // stops a single template from mixing 3D renders with flat photos or
-  // hand-drawn illustrations.
+  // style for the category — "3d" is preferred whenever the 3D CDN is
+  // configured and the category has enough 3D coverage, otherwise the
+  // first style that has enough coverage. This stops a single template
+  // from mixing 3D renders with flat photos or hand-drawn illustrations.
   visualStyle?:      AssetVisualStyle;
   // When true, the auto-style-pick skips styles with fewer than the
   // recipe's total entry count — prevents "3d" from being chosen just
   // because one 3D icon exists in the category. Default true.
   enforceStyleCoverage?: boolean;
+  // Step 47: minimum quality tier for picks that carry a qualityTier.
+  // Default "standard" — rejects draft-tier placeholders. Pass "premium"
+  // to restrict the pool to hero-grade assets (curated 3D renders,
+  // licensed photography). Style-less assets without a tier pass
+  // through regardless, so decorative ribbons / badges are not
+  // filtered out.
+  minQualityTier?:   AssetQualityTier;
 }
 
-// Step 36 + 40: preferred visual style fallback order.
+// Step 36 + 40 + 47: preferred visual style fallback order.
 //
-// "illustration" is first because Step 40 added a self-contained
-// inline-SVG illustration library (svg-scene-composer) that renders
-// offline with no CDN or AI dependency — always available, always
-// deterministic. "3d" ranks second: when ARKIOL_3D_ASSET_BASE is
-// populated with curated renders, 3D wins via per-asset scoring; when
-// it isn't, the Unsplash fallback is inconsistent and we'd rather fall
-// back to the inline illustrations. Everything after is legacy.
+// "3d" is first because the platform's hero style is a modern, clean,
+// high-resolution 3D render (claymorphic / soft-lit, consistent
+// lighting and camera angle) — that is the look we want every template
+// to carry whenever a curated 3D catalog is available. When
+// ARKIOL_3D_ASSET_BASE is wired up the CDN serves the premium renders
+// declared in 3d-asset-manifest.ts; when it isn't, the style still
+// wins as long as the category has enough coverage in the library
+// (REAL_WORLD_ASSETS in data.ts is fully populated as a fallback so
+// 3D is preferred in both dev and prod).
+//
+// "illustration" sits second because the inline-SVG scene library
+// (svg-scene-composer) is always available as a coherent secondary
+// style — never mixed with 3D in the same template, but a clean
+// single-style fallback when 3D coverage isn't sufficient.
+//
+// Flat / outline / photo / hand-drawn trail: they are legacy styles
+// kept for retrieval completeness and should never be chosen when a
+// 3D or illustration option exists.
+//
+// Enforcing this order — plus the coverage threshold enforced below —
+// is what prevents a template from rendering as "one 3D render + a
+// few flat icons + a photo background". Every template locks in to a
+// single style for its lifetime.
 const STYLE_PREFERENCE: readonly AssetVisualStyle[] = [
-  "illustration", "3d", "flat", "outline", "photo", "hand-drawn",
+  "3d", "illustration", "flat", "outline", "photo", "hand-drawn",
 ];
 
 /**
@@ -201,10 +224,15 @@ const STYLE_PREFERENCE: readonly AssetVisualStyle[] = [
  * style has enough coverage, meaning the template falls back to
  * style-agnostic selection (mixed output is acceptable in that case
  * because there's no better option).
+ *
+ * Step 47: coverage is computed against the requested qualityTier
+ * floor (default "standard"). A draft-only style never wins, so
+ * lower-quality fallbacks can't sneak in as the resolved style.
  */
 export function resolveVisualStyleForCategory(
   category: AssetCategory,
   enforceCoverage: boolean = true,
+  minQualityTier: AssetQualityTier = "standard",
 ): AssetVisualStyle | null {
   const recipe = CATEGORY_RECIPES[category];
   if (!recipe) return null;
@@ -217,7 +245,7 @@ export function resolveVisualStyleForCategory(
     .reduce((s, e) => s + e.count, 0);
 
   for (const style of STYLE_PREFERENCE) {
-    const pool = queryAssets({ category, visualStyle: style })
+    const pool = queryAssets({ category, visualStyle: style, qualityTier: minQualityTier })
       .filter(a => a.visualStyle === style);  // require exact match, not pass-through
     if (!enforceCoverage) {
       if (pool.length > 0) return style;
@@ -251,6 +279,9 @@ export function selectAssetsForCategory(
   const recipe = CATEGORY_RECIPES[category];
   if (!recipe) return [];
   const enforceRequired = opts.enforceRequired ?? true;
+  // Step 47: default to "standard" floor so draft placeholders never
+  // surface in production templates.
+  const minTier: AssetQualityTier = opts.minQualityTier ?? "standard";
   const picked: Asset[] = [];
   const seenIds = new Set<string>();
 
@@ -258,22 +289,32 @@ export function selectAssetsForCategory(
   // pins to the same style. Explicit opts.visualStyle wins; otherwise
   // auto-pick via STYLE_PREFERENCE — "3d" first when available.
   const resolvedStyle: AssetVisualStyle | null =
-    opts.visualStyle ?? resolveVisualStyleForCategory(category, opts.enforceStyleCoverage ?? true);
+    opts.visualStyle ?? resolveVisualStyleForCategory(
+      category,
+      opts.enforceStyleCoverage ?? true,
+      minTier,
+    );
 
   recipe.entries.forEach((entry, entryIdx) => {
     // Candidate pool: category + kind, pinned to the resolved visual
     // style when one was chosen. Style-agnostic assets (no visualStyle
     // set — ribbons, badges, icons, textures) still pass through.
+    // qualityTier floor rejects draft-grade placeholders across the
+    // board.
     const base = resolvedStyle
-      ? queryAssets({ category, kind: entry.kind, visualStyle: resolvedStyle })
-      : queryAssets({ category, kind: entry.kind });
+      ? queryAssets({ category, kind: entry.kind, visualStyle: resolvedStyle, qualityTier: minTier })
+      : queryAssets({ category, kind: entry.kind, qualityTier: minTier });
 
-    // Two-key sort: primary key is the category-profile score (how on-brand
-    // this asset is for the category overall), secondary key is the entry
-    // tag score (how well it matches this particular recipe slot).
+    // Three-key sort: primary key is the category-profile score (how
+    // on-brand this asset is for the category overall), secondary key
+    // is quality tier (premium wins ties so hero-grade 3D renders are
+    // always preferred over standard-grade decorations), tertiary key
+    // is the entry tag score (how well it matches this slot).
     const ranked = [...base].sort((a, b) => {
       const ds = scoreAssetForCategory(b, category) - scoreAssetForCategory(a, category);
       if (ds !== 0) return ds;
+      const dq = qualityRank(b) - qualityRank(a);
+      if (dq !== 0) return dq;
       if (entry.tags && entry.tags.length > 0) {
         return tagScore(b, entry.tags) - tagScore(a, entry.tags);
       }
@@ -369,6 +410,18 @@ function tagScore(a: Asset, wanted: string[]): number {
   let s = 0;
   for (const t of a.tags) if (set.has(t.toLowerCase())) s++;
   return s;
+}
+
+// Rank premium > standard > draft > unset. Used as a tie-breaker in
+// selectAssetsForCategory so hero-grade 3D renders are preferred over
+// supporting decorative art when both would score equally by category.
+function qualityRank(a: Asset): number {
+  switch (a.qualityTier) {
+    case "premium":  return 3;
+    case "standard": return 2;
+    case "draft":    return 0;
+    default:         return 1; // unset — assumed standard-ish
+  }
 }
 
 function pickFromPool(pool: Asset[], seed?: string): Asset | null {

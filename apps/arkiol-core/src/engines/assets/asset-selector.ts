@@ -111,6 +111,13 @@ export interface ElementPlacement {
   // working unchanged.
   depthTier?:   DepthTier;
   shadow?:      ShadowSpec | null;
+  // ── Style + quality (Step 47) ────────────────────────────────────────
+  // Propagated from the source library asset so the validator can
+  // enforce one-style-per-template and refuse to mix hero-grade 3D
+  // picks with flat icons or photo fallbacks. Optional because
+  // background / overlay / AI-generated elements aren't style-tagged.
+  visualStyle?: import("../../lib/asset-library/types").AssetVisualStyle;
+  qualityTier?: import("../../lib/asset-library/types").AssetQualityTier;
 }
 
 // Role-driven composition rules. Each role has a clear visual purpose, a
@@ -275,6 +282,11 @@ export function buildCompositionPlan(
   // Pull curated assets for the inferred content category so the template is
   // never visually empty. Each library asset carries its own URL, so these
   // placements skip the AI-generation path downstream.
+  //
+  // Step 47: the selector enforces a single visualStyle per category pass
+  // (see resolveVisualStyleForCategory in category-recipes.ts) and drops
+  // any draft-tier placeholders. Production templates stay on a single
+  // hero-grade 3D style as long as the category has enough coverage.
   const category = resolveCategory(brief);
   if (category) {
     const seed = `${brief.headline ?? ""}::${brief.tone}::${category}`;
@@ -438,24 +450,28 @@ function selectImageType(
   const styleMap: Record<string, AssetElementType> = {
     photography:    prefs.preferHuman ? "human" : "object",
     illustration:   "object",
-    "3d_render":    "object",
-    flat_design:    "object",
+    product:        "object",
     abstract:       "atmospheric",
+    geometric:      "atmospheric",
     lifestyle:      "human",
-    product_shot:   "object",
+    none:           prefs.preferHuman ? "human" : "object",
   };
   return styleMap[brief.imageStyle] ?? (prefs.preferHuman ? "human" : "object");
 }
 
 function buildImagePrompt(brief: BriefAnalysis, type: AssetElementType): string {
+  // Step 47: AI-generated fallback hero images target the same modern
+  // 3D-forward aesthetic the library catalogue ships, so even when a
+  // template falls back to AI generation the template still reads as
+  // on-style.
   const base = brief.imageStyle === "photography"
-    ? `professional ${type === "human" ? "lifestyle photography" : "product photography"}`
-    : brief.imageStyle.replace("_", " ");
+    ? `modern 3D render, claymorphic ${type === "human" ? "character scene" : "product scene"}, studio lighting`
+    : `${brief.imageStyle.replace("_", " ")}, modern clean aesthetic, consistent lighting`;
 
   const audience = brief.audience ? `targeting ${brief.audience}` : "";
   const keywords = brief.keywords.slice(0, 3).join(", ");
 
-  return `${base}, ${brief.colorMood} aesthetic, ${keywords}, ${audience}, high quality, no text`.trim();
+  return `${base}, ${brief.colorMood} palette, ${keywords}, ${audience}, high quality, no text`.trim();
 }
 
 // Background / atmospheric / texture prompts are now produced by the
@@ -543,6 +559,11 @@ function libraryAssetToPlacement(
   // badges to "floating", textures to "ground", etc., regardless of the
   // role-derived default applied by decorate().
   applyKindDepth(placement, asset.kind);
+  // Step 47: propagate the library asset's style + quality metadata onto
+  // the placement so the plan-level style-consistency validator can
+  // flag templates that mix e.g. "3d" hero with "illustration" accent.
+  if (asset.visualStyle) placement.visualStyle = asset.visualStyle;
+  if (asset.qualityTier) placement.qualityTier = asset.qualityTier;
   return placement;
 }
 
@@ -911,7 +932,8 @@ export interface AssetPresenceViolation {
           | "invisible_meaningful_visuals"
           | "below_minimum_visual_coverage"
           | "missing_decorative_accent"
-          | "insufficient_variety";
+          | "insufficient_variety"
+          | "mixed_visual_styles";   // Step 47 — multiple visual styles in one template
   severity: "error" | "warning";
   message:  string;
 }
@@ -1044,6 +1066,29 @@ export function validateAssetPresence(plan: CompositionPlan): AssetPresenceViola
     });
   }
 
+  // Step 47: style consistency. Every template must commit to a single
+  // visual style for all its non-background elements. Mixing "3d" hero
+  // + "illustration" accent + "photo" subject is the exact regression
+  // we're blocking — it produces templates that read as assembled from
+  // multiple stock libraries rather than one coherent design.
+  const styleMix = new Set<string>();
+  for (const el of plan.elements) {
+    // Only meaningful roles carry a visualStyle contract — background
+    // overlays and AI-generated fills can legitimately be untagged.
+    if (isMeaningfulRole(el.role) && el.visualStyle) {
+      styleMix.add(el.visualStyle);
+    }
+  }
+  if (styleMix.size > 1) {
+    violations.push({
+      rule: "mixed_visual_styles",
+      severity: "error",
+      message:
+        `Template mixes ${styleMix.size} visual styles (${[...styleMix].sort().join(", ")}) in the same composition. ` +
+        `Every template must commit to a single rendering style — pin visualStyle at selection time or drop the off-style picks.`,
+    });
+  }
+
   return violations;
 }
 
@@ -1090,6 +1135,18 @@ export function enrichForPresence(
     }
   };
 
+  // Step 47: if the plan already carries elements with a visualStyle,
+  // every healed pick must match that style so the repair pass doesn't
+  // re-introduce the mixed-style violation it was meant to clear.
+  const existingStyles = new Set(
+    plan.elements
+      .filter(e => isMeaningfulRole(e.role) && e.visualStyle)
+      .map(e => e.visualStyle!),
+  );
+  const healStyle = existingStyles.size === 1
+    ? [...existingStyles][0]
+    : undefined;
+
   // ── Pass 1: library assets, primary category first ────────────────────────
   for (const category of ordered) {
     if (!hasPresenceErrors()) break;
@@ -1097,6 +1154,7 @@ export function enrichForPresence(
     const picks = selectAssetsForCategory(category, {
       seed:  `${brief.headline ?? ""}::${category}::heal`,
       limit: 4,
+      visualStyle: healStyle,
     });
 
     for (const asset of picks) {

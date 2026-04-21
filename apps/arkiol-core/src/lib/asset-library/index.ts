@@ -10,6 +10,7 @@ export type {
   AssetStyle,
   AssetRealm,
   AssetVisualStyle,
+  AssetQualityTier,
   AssetPayload,
   AssetQuery,
 } from "./types";
