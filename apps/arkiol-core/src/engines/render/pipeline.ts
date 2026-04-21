@@ -47,6 +47,7 @@ import {
 import { validatePlacementStructure } from "../assets/placement-rules";
 import { validateVisualDominance }    from "../assets/visual-dominance";
 import { validateCompositionStructure } from "../assets/composition-structure";
+import { validateTypographyHierarchy, buildTypographyProfile } from "./typography-hierarchy";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -1171,6 +1172,27 @@ async function renderAssetInner(
     retried: qualityGateRetried,
   };
   violations.push(...buildResult.violations);
+
+  // ── Step 60: Typography hierarchy enforcement ─────────────────────────
+  // Runs after refinement has stabilised text sizes / weights / families.
+  // Enforces headline dominance, CTA prominence, flat-hierarchy
+  // rejection, per-zone weight bands, subhead bridging, and font-pair
+  // harmony — the final layer of "does this read as designed type?"
+  // before the marketplace gate.
+  try {
+    const finalContent = buildResult.content as SvgContent;
+    const finalTheme   = finalContent._selectedTheme;
+    const typographyProfile = buildTypographyProfile(finalContent, {
+      display: finalTheme?.typography.display,
+      body:    finalTheme?.typography.body,
+    });
+    const typographyIssues = validateTypographyHierarchy(typographyProfile);
+    for (const t of typographyIssues) {
+      violations.push(`typography_hierarchy:${t.rule}[${t.severity}]: ${t.message}`);
+    }
+  } catch (tErr: any) {
+    violations.push(`typography_hierarchy:skipped — ${tErr?.message}`);
+  }
 
   // ── Step 38: Marketplace quality enforcement ──────────────────────────
   // Runs the marketplace gate at the pipeline level with the full

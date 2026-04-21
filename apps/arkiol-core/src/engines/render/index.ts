@@ -45,6 +45,27 @@ export {
   type MicroPolishOptions,
 } from "./micro-polish";
 
+// Step 60: typography hierarchy — final-output validator that enforces
+// headline dominance, CTA prominence, flat-hierarchy rejection, per-zone
+// weight bands, subhead bridging, and font-pair harmony.
+export {
+  ZONE_TYPOGRAPHY_DEFAULTS,
+  HEADLINE_DOMINANCE_RATIO,
+  FLAT_HIERARCHY_MIN_COUNT,
+  SUBHEAD_MAX_FRACTION_OF_HEADLINE,
+  SUBHEAD_MIN_MULTIPLIER_OF_BODY,
+  PAIR_SCORE_HARMONY_FLOOR,
+  SINGLE_FONT_ZONE_THRESHOLD,
+  validateTypographyHierarchy,
+  buildTypographyProfile,
+  sizeBandOrdinal,
+  type TextZoneStyle,
+  type TypographyProfile,
+  type TypographyViolation,
+  type ZoneTypographyProfile,
+  type SizeBand,
+} from "./typography-hierarchy";
+
 export {
   createPipelineContext,
   type PipelineContext,
