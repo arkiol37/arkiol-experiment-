@@ -906,6 +906,88 @@ async function run() {
     }
   });
 
+  section("engines/assets · visual dominance (Step 58)");
+
+  const dominance = await import("../apps/arkiol-core/src/engines/assets/visual-dominance");
+
+  test("accepts a canonical hero-dominant layout (primary 40%, accent 5%)", () => {
+    const plan = makePlan([bgEl(), heroEl(), accentEl()]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(v.filter(x => x.severity === "error").length === 0,
+      `expected no errors, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("rejects primary that doesn't dominate the next-largest decoration", () => {
+    // Primary 0.25, decoration 0.22 — ratio 1.14, below 1.5× floor.
+    const hero   = heroEl({ coverageHint: 0.25 });
+    const bigDec = accentEl({ type: "object", role: "support", coverageHint: 0.22 });
+    const plan   = makePlan([bgEl(), hero, bigDec]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(v.some(x => x.rule === "primary_not_dominant" && x.severity === "error"),
+      `expected primary_not_dominant error, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("rejects gradient-dominated templates (foreground sum < 25%)", () => {
+    // Hero at presence floor (15%) + tiny accent (5%) = 20% foreground.
+    const hero = heroEl({ coverageHint: 0.15 });
+    const tiny = accentEl({ coverageHint: 0.05 });
+    const plan = makePlan([bgEl(), hero, tiny]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(v.some(x => x.rule === "foreground_too_sparse" && x.severity === "error"),
+      `expected foreground_too_sparse error, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("warns when a non-primary visual competes with the hero for focus", () => {
+    // Primary 0.30, competitor 0.22 — ratio 1.36 fails dominance, and
+    // competitor/primary = 0.73 triggers competing_focal_points warning.
+    const hero       = heroEl({ coverageHint: 0.30 });
+    const competitor = accentEl({ type: "object", role: "support", coverageHint: 0.22 });
+    const plan       = makePlan([bgEl(), hero, competitor]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(v.some(x => x.rule === "competing_focal_points" && x.severity === "warning"),
+      `expected competing_focal_points warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("warns when the primary is pinned to a weak depth tier", () => {
+    // Override role so the derived tier drops to surface / ground.
+    const buriedHero = heroEl({ role: "background" });
+    // Decorations carry the foreground mass so we isolate the tier rule.
+    const obj1 = accentEl({ type: "object", role: "support",
+                            coverageHint: 0.20, anchor: "center-left"  });
+    const obj2 = accentEl({ type: "object", role: "support",
+                            coverageHint: 0.15, anchor: "center-right" });
+    const plan = makePlan([bgEl(), buriedHero, obj1, obj2]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(v.some(x => x.rule === "primary_on_weak_tier" && x.severity === "warning"),
+      `expected primary_on_weak_tier warning, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("no-ops when no primary exists (Step 8 owns that error)", () => {
+    const plan = makePlan([bgEl(), { ...heroEl(), primary: false }, accentEl()]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(v.length === 0,
+      `expected no dominance issues when primary missing, got: ${v.map(x => x.rule).join(", ")}`);
+  });
+
+  test("background-hero primary still counts as foreground for coverage sum", () => {
+    // A full-bleed hero (type=background, coverageHint=1) is the focal
+    // subject — the foreground-sum check must treat it as foreground.
+    const hero = heroEl({
+      type: "background", compositionMode: "background-hero",
+      anchor: "full-bleed", coverageHint: 1.0, role: "support",
+    });
+    const plan = makePlan([bgEl(), hero]);
+    const v = dominance.validateVisualDominance(plan);
+    assert(!v.some(x => x.rule === "foreground_too_sparse"),
+      "background-hero primary should satisfy foreground coverage");
+  });
+
+  test("exports expected dominance thresholds", () => {
+    assertEq(dominance.MIN_DOMINANCE_RATIO,     1.5,  "dominance ratio");
+    assertEq(dominance.MIN_FOREGROUND_COVERAGE, 0.25, "foreground floor");
+    assertEq(dominance.COMPETING_FOCAL_RATIO,   0.70, "competing ratio");
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");

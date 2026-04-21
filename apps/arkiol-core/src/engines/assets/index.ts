@@ -81,6 +81,15 @@ export {
   type PlacementStructureViolation,
 } from "./placement-rules";
 
+// ── Visual dominance enforcement (Step 58) ───────────────────────────────
+export {
+  MIN_DOMINANCE_RATIO,
+  MIN_FOREGROUND_COVERAGE,
+  COMPETING_FOCAL_RATIO,
+  validateVisualDominance,
+  type DominanceViolation,
+} from "./visual-dominance";
+
 // ── Decorative components (Step 16) ──────────────────────────────────────
 export {
   DECORATIVE_COMPONENTS,

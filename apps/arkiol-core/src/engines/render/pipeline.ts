@@ -45,6 +45,7 @@ import {
   validateHeroComposition,
 } from "../assets/asset-selector";
 import { validatePlacementStructure } from "../assets/placement-rules";
+import { validateVisualDominance }    from "../assets/visual-dominance";
 import {
   validatePlacement, buildZoneOwnershipMap, totalDensityScore,
   motionCompatibleElements, ASSET_CONTRACTS,
@@ -775,6 +776,18 @@ async function renderAssetInner(
   const placementIssues = validatePlacementStructure(composition, spec.activeZoneIds);
   for (const p of placementIssues) {
     violations.push(`placement_structure:${p.rule}[${p.severity}]: ${p.message}`);
+  }
+
+  // ── Step 58: Visual dominance enforcement ────────────────────────────
+  // The primary visual must clearly dominate the composition — no
+  // decoration may match it in coverage, the foreground must carry
+  // enough visual mass to out-weigh the background gradient, and the
+  // hero must sit on a visible depth tier (mid / raised / elevated /
+  // floating). Errors here surface gradient-dominated / multi-focal
+  // templates that slip past presence and placement validators.
+  const dominanceIssues = validateVisualDominance(composition);
+  for (const d of dominanceIssues) {
+    violations.push(`visual_dominance:${d.rule}[${d.severity}]: ${d.message}`);
   }
 
   ctx.currentStage = "composition";
