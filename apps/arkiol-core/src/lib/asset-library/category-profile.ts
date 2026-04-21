@@ -13,6 +13,7 @@
 // (asset, category) → numeric score, and exposes rank/filter helpers.
 
 import type { Asset, AssetCategory, AssetKind } from "./types";
+import { scoreRealmForCategory } from "./category-realm-affinity";
 
 // ── Profile shape ─────────────────────────────────────────────────────────────
 
@@ -248,7 +249,16 @@ export function scoreAssetForCategory(
     if (assetTags.has(t.toLowerCase())) score += SCORE_TAG_AVOID;
   }
 
-  // 3. Kind bias.
+  // 3. Realm affinity (Step 57). Category declares which 3D realms
+  // (nature / lifestyle / object / scene / animal / decorative) are
+  // on-brand for its subject matter — fitness leans on lifestyle +
+  // object (gym / dumbbells), wellness on nature + animal, business
+  // on lifestyle + object + scene, travel on nature + scene + object.
+  // A realm bonus / penalty here is how we make 3D selection intentional
+  // without hand-coded per-category slug lists.
+  score += scoreRealmForCategory(asset.realm, category);
+
+  // 4. Kind bias.
   const bias = profile.kindBias[asset.kind] ?? 1;
   score *= bias;
 

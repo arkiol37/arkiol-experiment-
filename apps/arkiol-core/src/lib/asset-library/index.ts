@@ -53,3 +53,16 @@ export {
   rankAssetsForCategory,
   filterAssetsForCategory,
 } from "./category-profile";
+
+// Step 57: category → realm affinity
+export type {
+  CategoryRealmAffinity,
+} from "./category-realm-affinity";
+
+export {
+  CATEGORY_REALM_AFFINITY,
+  scoreRealmForCategory,
+  realmsForCategory,
+  compareAssetsByRealmAffinity,
+  asset3dSlugsForCategory,
+} from "./category-realm-affinity";

@@ -777,6 +777,135 @@ async function run() {
     assertEq(placement.SLOT_MIN_EDGE_MARGIN["background-field"], 0, "bg margin");
   });
 
+  section("asset-library · category → realm affinity (Step 57)");
+
+  test("CATEGORY_REALM_AFFINITY covers every category with non-empty prefer list", () => {
+    for (const c of lib.ASSET_CATEGORIES) {
+      const a = lib.CATEGORY_REALM_AFFINITY[c];
+      assert(a !== undefined, `missing affinity for ${c}`);
+      assert(a.prefer.length > 0, `empty prefer list for ${c}`);
+      // Prefer / avoid must be disjoint — a realm can't be both.
+      for (const r of a.prefer) {
+        assert(!a.avoid.includes(r), `${c}: realm ${r} is both prefer and avoid`);
+      }
+    }
+  });
+
+  test("scoreRealmForCategory ranks first-choice > secondary > neutral > avoid", () => {
+    // Fitness: prefer [lifestyle, object], avoid [animal, nature]
+    const first  = lib.scoreRealmForCategory("lifestyle",  "fitness");
+    const second = lib.scoreRealmForCategory("object",     "fitness");
+    const neut   = lib.scoreRealmForCategory("decorative", "fitness");
+    const avoid  = lib.scoreRealmForCategory("nature",     "fitness");
+    assert(first >  second, `first > second (got ${first} vs ${second})`);
+    assert(second > neut,   `second > neutral (got ${second} vs ${neut})`);
+    assert(neut   > avoid,  `neutral > avoid (got ${neut} vs ${avoid})`);
+    assert(avoid < 0,       `avoid should be negative, got ${avoid}`);
+  });
+
+  test("scoreRealmForCategory returns 0 for unset realm", () => {
+    assertEq(lib.scoreRealmForCategory(undefined, "fitness"), 0, "unset realm");
+  });
+
+  test("realmsForCategory walks prefer → neutral → avoid in order", () => {
+    const order = lib.realmsForCategory("business");
+    const aff   = lib.CATEGORY_REALM_AFFINITY["business"];
+    // All prefer realms come before any avoid realm.
+    const firstAvoidIdx = Math.min(...aff.avoid.map(r => order.indexOf(r)));
+    for (const p of aff.prefer) {
+      assert(order.indexOf(p) < firstAvoidIdx,
+        `prefer ${p} should come before first avoid (idx ${order.indexOf(p)} vs ${firstAvoidIdx})`);
+    }
+    // Round-trip: every realm appears exactly once.
+    assertEq(order.length, lib.ASSET_REALMS.length, "all realms present");
+    assertEq(new Set(order).size, order.length, "no duplicates");
+  });
+
+  test("scoreAssetForCategory prefers on-realm 3D over off-realm 3D (fitness)", () => {
+    const gym    = lib.getAssetById("real.lifestyle.gym");
+    const bqt    = lib.getAssetById("real.nature.flower-bouquet");
+    assert(gym && bqt, "seed assets should exist");
+    const gs = lib.scoreAssetForCategory(gym!, "fitness");
+    const bs = lib.scoreAssetForCategory(bqt!, "fitness");
+    assert(gs > bs, `fitness: gym (${gs}) should outrank flower-bouquet (${bs})`);
+  });
+
+  test("scoreAssetForCategory prefers nature for wellness over laptop", () => {
+    const forest = lib.getAssetById("real.nature.forest");
+    const laptop = lib.getAssetById("real.object.laptop");
+    assert(forest && laptop, "seed assets should exist");
+    const fs = lib.scoreAssetForCategory(forest!, "wellness");
+    const ls = lib.scoreAssetForCategory(laptop!, "wellness");
+    assert(fs > ls, `wellness: forest (${fs}) should outrank laptop (${ls})`);
+  });
+
+  test("scoreAssetForCategory prefers workspace for business over waterfall", () => {
+    const workspace = lib.getAssetById("real.lifestyle.workspace");
+    const waterfall = lib.getAssetById("real.nature.waterfall");
+    assert(workspace && waterfall, "seed assets should exist");
+    const ws = lib.scoreAssetForCategory(workspace!, "business");
+    const fs = lib.scoreAssetForCategory(waterfall!, "business");
+    assert(ws > fs, `business: workspace (${ws}) should outrank waterfall (${fs})`);
+  });
+
+  test("scoreAssetForCategory prefers scenic nature for travel over boardroom", () => {
+    const mountain  = lib.getAssetById("real.nature.mountain-range");
+    const boardroom = lib.getAssetById("real.lifestyle.boardroom");
+    assert(mountain && boardroom, "seed assets should exist");
+    const ms = lib.scoreAssetForCategory(mountain!, "travel");
+    const bs = lib.scoreAssetForCategory(boardroom!, "travel");
+    assert(ms > bs, `travel: mountain (${ms}) should outrank boardroom (${bs})`);
+  });
+
+  test("asset3dSlugsForCategory returns category-native slugs at the top", () => {
+    const top5 = lib.asset3dSlugsForCategory("fitness", { limit: 5 });
+    assertEq(top5.length, 5, "should return 5 slugs");
+    // At least the first 3 must be on-category or on-prefer-realm.
+    const aff = lib.CATEGORY_REALM_AFFINITY["fitness"];
+    for (let i = 0; i < 3; i++) {
+      const m = top5[i];
+      const onCat   = m.category === "fitness";
+      const onRealm = aff.prefer.includes(m.realm as any);
+      assert(onCat || onRealm,
+        `top-${i} slug "${m.slug}" should match fitness category or prefer-realm (got category=${m.category}, realm=${m.realm})`);
+    }
+  });
+
+  test("asset3dSlugsForCategory can exclude avoided realms entirely", () => {
+    const filtered = lib.asset3dSlugsForCategory("business", { excludeAvoidedRealms: true });
+    const aff = lib.CATEGORY_REALM_AFFINITY["business"];
+    for (const m of filtered) {
+      assert(!aff.avoid.includes(m.realm as any),
+        `business: slug ${m.slug} is in avoided realm ${m.realm}`);
+    }
+    assert(filtered.length > 0, "filter should still return some slugs");
+  });
+
+  test("selectAssetsForCategory returns picks aligned to category-realm (fitness)", () => {
+    const picks = lib.selectAssetsForCategory("fitness", { seed: "step-57-fit" });
+    assert(picks.length > 0, "fitness recipe returned zero picks");
+    // The hero illustration (first illustration in the pick list) should be
+    // a fitness-aligned realm: lifestyle (gym / yoga / running) or object
+    // (dumbbell / yoga-mat / running-shoes), NOT a flower bouquet.
+    const hero = picks.find(a => a.kind === "illustration");
+    if (hero && hero.realm) {
+      const aff = lib.CATEGORY_REALM_AFFINITY["fitness"];
+      assert(!aff.avoid.includes(hero.realm),
+        `fitness hero (${hero.id}) landed in avoided realm ${hero.realm}`);
+    }
+  });
+
+  test("selectAssetsForCategory returns picks aligned to category-realm (travel)", () => {
+    const picks = lib.selectAssetsForCategory("travel", { seed: "step-57-trv" });
+    assert(picks.length > 0, "travel recipe returned zero picks");
+    const hero = picks.find(a => a.kind === "illustration");
+    if (hero && hero.realm) {
+      const aff = lib.CATEGORY_REALM_AFFINITY["travel"];
+      assert(!aff.avoid.includes(hero.realm),
+        `travel hero (${hero.id}) landed in avoided realm ${hero.realm}`);
+    }
+  });
+
   section("evaluation · rejection-rules");
 
   const reject = await import("../apps/arkiol-core/src/engines/evaluation/rejection-rules");
