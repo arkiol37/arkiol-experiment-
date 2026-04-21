@@ -2896,28 +2896,158 @@ async function run() {
     );
   });
 
-  test("/api/jobs GET handler declares a stale-job watchdog threshold", () => {
-    const m = jobsRouteSrc.match(/JOB_STALE_MS\s*=\s*([\d_]+)/);
-    assert(m, "GET handler must declare JOB_STALE_MS");
-    const ms = Number(m![1].replace(/_/g, ""));
+  test("/api/jobs GET handler routes stale detection through the stage-aware helper", () => {
+    // The old flat JOB_STALE_MS = 300_000 threshold was replaced by
+    // the evaluateStale() helper, which combines heartbeat gap,
+    // cold-start running grace, expected duration from formats ×
+    // variations, and a hard runtime ceiling. See
+    // apps/arkiol-core/src/lib/staleDetection.ts.
     assert(
-      ms >= 240_000 && ms <= 900_000,
-      `JOB_STALE_MS must be between the generation budget (~4 min) and 15 min, got ${ms}`,
+      /evaluateStale\s*\(\s*job\s*\)/.test(jobsRouteSrc),
+      "watchdog must call evaluateStale(job) from lib/staleDetection instead of re-implementing a flat threshold",
+    );
+    assert(
+      !/JOB_STALE_MS\s*=/.test(jobsRouteSrc),
+      "old flat JOB_STALE_MS constant must be removed — evaluateStale() owns the logic now",
     );
   });
 
   test("/api/jobs GET handler flips stale PENDING/RUNNING jobs to FAILED", () => {
-    assert(
-      /status\s*===\s*"PENDING"\s*\|\|\s*job\.status\s*===\s*"RUNNING"/.test(jobsRouteSrc),
-      "watchdog must target PENDING/RUNNING jobs",
-    );
-    assert(
-      /Date\.now\(\)\s*-\s*new\s+Date\s*\(\s*job\.updatedAt\s*\)\.getTime\s*\(\s*\)\s*>\s*JOB_STALE_MS/.test(jobsRouteSrc),
-      "watchdog must compare Date.now() - job.updatedAt against JOB_STALE_MS",
-    );
+    // The verdict.message + failReason fields are what the UI renders;
+    // the sub-reason is written alongside for observability so ops can
+    // tell no_heartbeat from runtime_ceiling from no_progress_total
+    // without having to tail logs.
     assert(
       /status:\s*"FAILED"[\s\S]{0,600}failReason:\s*"stale_worker"/.test(jobsRouteSrc),
       "watchdog must write status=FAILED with failReason=stale_worker for the UI to surface a clear error",
+    );
+    assert(
+      /staleReason:\s*staleVerdict\.reason/.test(jobsRouteSrc),
+      "watchdog must persist the verdict.reason sub-code for observability",
+    );
+  });
+
+  section("stale-detection · stage-aware helper");
+
+  // Guards the pure helper that decides whether a job should be flipped
+  // to FAILED. Heavy 6-variation + 9-format runs need patience; a
+  // 1-variation job that sat silent for 3 minutes is dead. Without
+  // stage-aware detection, either light jobs hang forever or heavy
+  // jobs get killed mid-render.
+  const stale = await import("../apps/arkiol-core/src/lib/staleDetection");
+
+  test("evaluateStale leaves healthy RUNNING jobs alone when heartbeat is fresh", () => {
+    const out = stale.evaluateStale({
+      status:    "RUNNING",
+      createdAt: new Date(Date.now() - 60_000),
+      startedAt: new Date(Date.now() - 50_000),
+      updatedAt: new Date(Date.now() - 5_000),   // fresh pulse 5s ago
+      payload:   { formats: ["instagram_post"], variations: 4 },
+    });
+    assert(!out.stale, `fresh heartbeat must be healthy, got reason=${out.reason}`);
+    assert(out.reason === null, `healthy verdict must have null reason, got ${out.reason}`);
+  });
+
+  test("evaluateStale flags RUNNING jobs whose heartbeat is past HEARTBEAT_GAP_MS", () => {
+    const out = stale.evaluateStale({
+      status:    "RUNNING",
+      createdAt: new Date(Date.now() - 200_000),
+      startedAt: new Date(Date.now() - 180_000),  // well past RUNNING_GRACE_MS
+      updatedAt: new Date(Date.now() - 120_000),  // 120s since last pulse > 90s gap
+      payload:   { formats: ["instagram_post"], variations: 1 },
+    });
+    assert(out.stale,               "heartbeat gap >90s must flag stale");
+    assert(out.reason === "no_heartbeat", `reason should be no_heartbeat, got ${out.reason}`);
+    assert((out.message ?? "").includes("heartbeat"), "message must mention heartbeat");
+  });
+
+  test("evaluateStale spares freshly-started jobs within RUNNING_GRACE_MS", () => {
+    // Even if heartbeat happens to be a bit stale, a job that only
+    // just started gets cold-start slack. Matters because the first
+    // pulse fires after ~10s and the font-init step can run ~5-15s.
+    const out = stale.evaluateStale({
+      status:    "RUNNING",
+      createdAt: new Date(Date.now() - 30_000),
+      startedAt: new Date(Date.now() - 25_000),   // within RUNNING_GRACE_MS (60s)
+      updatedAt: new Date(Date.now() - 120_000),  // would otherwise trip heartbeat gap
+      payload:   { formats: ["instagram_post"], variations: 1 },
+    });
+    assert(!out.stale, "cold-start grace must protect a freshly-started job");
+  });
+
+  test("evaluateStale flips heartbeating-but-wedged jobs past the hard ceiling", () => {
+    const out = stale.evaluateStale({
+      status:    "RUNNING",
+      createdAt: new Date(Date.now() - 1_000_000),
+      startedAt: new Date(Date.now() -   950_000),  // > HARD_CEILING_MS (15m)
+      updatedAt: new Date(Date.now() -       500),  // pulse is fresh!
+      payload:   { formats: ["instagram_post"], variations: 4 },
+    });
+    assert(out.stale,                      "runtime > ceiling must flip regardless of heartbeat freshness");
+    assert(out.reason === "runtime_ceiling", `reason should be runtime_ceiling, got ${out.reason}`);
+  });
+
+  test("evaluateStale scales expected duration with formats × variations", () => {
+    const small = stale.computeExpectedDurationMs({ formats: ["instagram_post"], variations: 1 });
+    const large = stale.computeExpectedDurationMs({ formats: ["instagram_post", "poster", "flyer", "business_card", "resume", "logo", "presentation_slide", "youtube_thumbnail"], variations: 6 });
+    assert(small < large, `heavier jobs must get larger patience budgets, got small=${small} large=${large}`);
+    assert(small >= stale.MIN_EXPECTED_MS, `small expected must be clamped to MIN_EXPECTED_MS`);
+    assert(large <= stale.MAX_EXPECTED_MS, `large expected must be clamped to MAX_EXPECTED_MS`);
+  });
+
+  test("evaluateStale flags never-started jobs only after expected duration + cushion", () => {
+    const expected = stale.computeExpectedDurationMs({ formats: ["instagram_post"], variations: 2 });
+    // Brand new never-started job, well within expected — must be healthy.
+    const fresh = stale.evaluateStale({
+      status:    "PENDING",
+      createdAt: new Date(Date.now() - 45_000),
+      startedAt: null,
+      updatedAt: new Date(Date.now() - 45_000),
+      payload:   { formats: ["instagram_post"], variations: 2 },
+    });
+    assert(!fresh.stale, "fresh PENDING must not be flagged");
+
+    // Never-started job past expected + heartbeat cushion — must flag.
+    const stuck = stale.evaluateStale({
+      status:    "PENDING",
+      createdAt: new Date(Date.now() - (expected + 5 * stale.HEARTBEAT_GAP_MS)),
+      startedAt: null,
+      updatedAt: new Date(Date.now() - (expected + 5 * stale.HEARTBEAT_GAP_MS)),
+      payload:   { formats: ["instagram_post"], variations: 2 },
+    });
+    assert(stuck.stale, "PENDING past expected + cushion must be flagged");
+    assert(stuck.reason === "no_progress_total", `reason should be no_progress_total, got ${stuck.reason}`);
+  });
+
+  test("evaluateStale leaves terminal jobs alone", () => {
+    for (const status of ["COMPLETED", "FAILED", "CANCELLED"] as const) {
+      const out = stale.evaluateStale({
+        status,
+        createdAt: new Date(Date.now() - 2_000_000),
+        startedAt: new Date(Date.now() - 1_900_000),
+        updatedAt: new Date(Date.now() - 1_000_000),
+      });
+      assert(!out.stale, `terminal ${status} must never be flagged stale`);
+    }
+  });
+
+  test("evaluateStale heartbeat-gap threshold is tight enough for 10s pulses", () => {
+    // Inline worker pulses every PULSE_INTERVAL_MS=10s. A gap >9× that
+    // means the worker is genuinely dead, not just blocking on an
+    // OpenAI call (those fire heartbeats via the setInterval timer).
+    assert(
+      stale.HEARTBEAT_GAP_MS >= 60_000 && stale.HEARTBEAT_GAP_MS <= 180_000,
+      `HEARTBEAT_GAP_MS must be 60s..3m — tight enough to catch dead workers but forgiving of pulse jitter — got ${stale.HEARTBEAT_GAP_MS}`,
+    );
+  });
+
+  test("evaluateStale hard ceiling is bounded and past the generation budget", () => {
+    // Budget in inlineGenerate is 240_000ms. Ceiling must exceed that
+    // comfortably so legitimate jobs finish, but still terminate
+    // wedged jobs well under an hour.
+    assert(
+      stale.HARD_CEILING_MS >= 300_000 && stale.HARD_CEILING_MS <= 1_800_000,
+      `HARD_CEILING_MS must be 5m..30m, got ${stale.HARD_CEILING_MS}`,
     );
   });
 

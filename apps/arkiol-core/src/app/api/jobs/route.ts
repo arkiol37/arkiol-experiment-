@@ -13,6 +13,7 @@ import { refundCredits }     from "@arkiol/shared";
 import { logger }            from "../../../lib/logger";
 import { formatJobError }    from "../../../lib/jobErrorFormat";
 import { durableRunInlineGeneration } from "../../../lib/durableRun";
+import { evaluateStale }     from "../../../lib/staleDetection";
 
 // GET /api/jobs — list user's jobs
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -116,27 +117,31 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       }
     }
 
-    // Stale-job watchdog. Prisma auto-bumps `updatedAt` on every
-    // `.update()` call, so the generation pipeline naturally produces a
-    // heartbeat each time it nudges progress. If a PENDING/RUNNING job's
-    // last update is older than JOB_STALE_MS the worker has almost
-    // certainly died mid-flight (Vercel maxDuration kill, container
-    // recycle, crashed dyno), and the UI would otherwise poll
-    // "Analyzing prompt… 5%" forever. Flip it to FAILED with a concrete
-    // reason so the frontend can render a retry button.
+    // Stage-aware stale-job watchdog. Instead of a flat 5-min threshold
+    // for every job, `evaluateStale()` combines:
+    //   - heartbeat gap (primary signal — the inline worker pulses
+    //     every 10s so any gap > ~90s is a dead container),
+    //   - cold-start running grace (freshly-RUNNING jobs get 60s slack),
+    //   - expected duration scaled by formats × variations (so a heavy
+    //     6-variation run gets more patience than a 1-variation one),
+    //   - and a hard 15-min runtime ceiling that catches wedged jobs
+    //     that somehow keep heartbeating.
     //
-    // Threshold = generation budget + per-batch slack. If a real job ever
-    // exceeds this, the inline worker has already hit its own time
-    // budget and bailed out, so flagging it here is safe.
-    const JOB_STALE_MS = 300_000; // 5 min
-    if (
-      (job.status === "PENDING" || job.status === "RUNNING") &&
-      job.updatedAt &&
-      Date.now() - new Date(job.updatedAt).getTime() > JOB_STALE_MS
-    ) {
-      const staleForMs = Date.now() - new Date(job.updatedAt).getTime();
+    // See lib/staleDetection.ts for the full ladder. The helper is
+    // pure — this handler owns the DB write + credit refund side
+    // effects.
+    const staleVerdict = evaluateStale(job);
+    if (staleVerdict.stale) {
       logger.warn(
-        { jobId: job.id, userId: user.id, status: job.status, staleForMs },
+        {
+          jobId:          job.id,
+          userId:         user.id,
+          status:         job.status,
+          reason:         staleVerdict.reason,
+          heartbeatGapMs: staleVerdict.heartbeatGapMs,
+          runningMs:      staleVerdict.runningMs,
+          expectedMs:     staleVerdict.expectedMs,
+        },
         "Flipping stale job to FAILED",
       );
       try {
@@ -146,8 +151,16 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
             status:   "FAILED" as any,
             failedAt: new Date(),
             result:   {
-              error:      `Generation timed out — no progress for ${Math.round(staleForMs / 1000)}s. The worker was likely killed mid-render. Please retry.`,
+              error:      staleVerdict.message ?? "Generation stalled. Please retry.",
               failReason: "stale_worker",
+              // Diagnostic breadcrumb so ops can distinguish the
+              // specific stale sub-reason (no_heartbeat vs
+              // runtime_ceiling vs no_progress_total) from the UI-
+              // facing `stale_worker` bucket.
+              staleReason:    staleVerdict.reason,
+              heartbeatGapMs: staleVerdict.heartbeatGapMs,
+              runningMs:      staleVerdict.runningMs,
+              expectedMs:     staleVerdict.expectedMs,
             } as any,
           },
         });
