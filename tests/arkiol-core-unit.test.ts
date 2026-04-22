@@ -3202,6 +3202,221 @@ async function run() {
     );
   });
 
+  section("safe-mode · reduced runtime load for serverless stability");
+
+  // Defends the safe-mode runtime profile: when the platform can't
+  // guarantee a long-lived worker (no queue, fire_and_forget
+  // durability, or explicit ARKIOL_SAFE_MODE=1 opt-in), the pipeline
+  // lowers concurrency + candidate fan-out and pulses inside every
+  // heavy stage so updatedAt can never go silent for 90 seconds.
+  const { detectSafeMode, resolveRuntimeLimits } = await import("../apps/arkiol-core/src/lib/safeMode");
+  // Local handle to the diagnostics module — the later "job-diagnostics"
+  // section imports it as `jobDiag` but runs AFTER this section, so
+  // we can't reach into its binding.
+  const jobDiagForSafe = await import("../apps/arkiol-core/src/lib/jobDiagnostics");
+  const inlineGenForSafeMode = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+
+  test("detectSafeMode triggers on env var, missing queue, and fire_and_forget", () => {
+    // ARKIOL_SAFE_MODE=1 wins unconditionally.
+    const prev = process.env.ARKIOL_SAFE_MODE;
+    process.env.ARKIOL_SAFE_MODE = "1";
+    try {
+      const v = detectSafeMode("queue");
+      assertEq(v.safeMode, true, "env_var must flip safe mode on regardless of other triggers");
+      assert(v.reasons.includes("env_var"), "reasons must include env_var when ARKIOL_SAFE_MODE=1");
+    } finally { process.env.ARKIOL_SAFE_MODE = prev; }
+
+    // fire_and_forget is the weakest durability tier — automatic safe.
+    delete process.env.ARKIOL_SAFE_MODE;
+    const far = detectSafeMode("fire_and_forget");
+    assertEq(far.safeMode, true, "fire_and_forget must trigger safe mode");
+    assert(far.reasons.includes("fire_and_forget"), "reasons must include fire_and_forget");
+  });
+
+  test("detectSafeMode reports every triggered reason, not just the first", () => {
+    // Multiple triggers can fire simultaneously. All must be
+    // recorded so ops can see the whole picture.
+    const prev = process.env.ARKIOL_SAFE_MODE;
+    process.env.ARKIOL_SAFE_MODE = "1";
+    try {
+      const v = detectSafeMode("fire_and_forget");
+      assertEq(v.safeMode, true, "combined triggers");
+      assert(v.reasons.includes("env_var"),         "env_var reason");
+      assert(v.reasons.includes("fire_and_forget"), "fire_and_forget reason");
+    } finally { process.env.ARKIOL_SAFE_MODE = prev; }
+  });
+
+  test("resolveRuntimeLimits caps safe-mode concurrency at 2 regardless of variations", () => {
+    // The whole point of safe-mode concurrency is keeping sharp's
+    // libvips pool unsaturated — that's a fixed-size pool, so safe
+    // concurrency must be a constant, not a function of variations.
+    for (const v of [1, 3, 6, 9, 12]) {
+      const r = resolveRuntimeLimits({ safeMode: true, totalVariations: v });
+      assertEq(r.concurrency, 2, `safe-mode concurrency at ${v} variations must be 2`);
+    }
+  });
+
+  test("resolveRuntimeLimits safe-mode maxAttempts covers all variations with modest headroom", () => {
+    // Must always have >= v attempts (so every variation at least
+    // tries once). Must be strictly smaller than non-safe for at
+    // least some realistic v (proving it's "fewer stronger" attempts).
+    for (const v of [1, 3, 6]) {
+      const safe = resolveRuntimeLimits({ safeMode: true,  totalVariations: v });
+      const non  = resolveRuntimeLimits({ safeMode: false, totalVariations: v });
+      assert(
+        safe.maxAttempts >= v,
+        `safe maxAttempts must cover all ${v} variations, got ${safe.maxAttempts}`,
+      );
+      assert(
+        safe.maxAttempts <= non.maxAttempts,
+        `safe maxAttempts (${safe.maxAttempts}) must not exceed non-safe (${non.maxAttempts}) at ${v} variations`,
+      );
+    }
+    // Spot check: the 3-variation case specifically drops from 6 to
+    // 4, matching the "fewer stronger" spec.
+    const three = resolveRuntimeLimits({ safeMode: true, totalVariations: 3 });
+    assert(
+      three.maxAttempts <= 5,
+      `safe maxAttempts at 3 variations should be <= 5 to actually reduce fan-out, got ${three.maxAttempts}`,
+    );
+  });
+
+  test("inlineGenerate computes safe-mode verdict + sources runtime limits from it", () => {
+    assert(
+      /detectSafeMode\s*\(\s*params\.workerMode\s*\)/.test(inlineGenForSafeMode),
+      "runInlineGeneration must call detectSafeMode(params.workerMode) to decide the profile",
+    );
+    assert(
+      /resolveRuntimeLimits\s*\(\s*\{\s*safeMode:\s*safeVerdict\.safeMode/.test(inlineGenForSafeMode),
+      "runInlineGeneration must pass the safeMode verdict into resolveRuntimeLimits",
+    );
+    assert(
+      /CONCURRENCY\s*=\s*runtimeLimits\.concurrency/.test(inlineGenForSafeMode),
+      "CONCURRENCY must come from runtimeLimits so safe-mode takes effect",
+    );
+    assert(
+      /MAX_ATTEMPTS\s*=\s*runtimeLimits\.maxAttempts/.test(inlineGenForSafeMode),
+      "MAX_ATTEMPTS must come from runtimeLimits so safe-mode takes effect",
+    );
+  });
+
+  test("inlineGenerate records the safe-mode verdict on the diagnostics collector", () => {
+    // Persisting the verdict + runtime limits means ops can pivot
+    // failure rates by safe-mode / concurrency / maxAttempts —
+    // essential for evaluating whether safe mode is actually helping.
+    assert(
+      /diag\.setSafeMode\s*\(/.test(inlineGenForSafeMode),
+      "inlineGenerate must call diag.setSafeMode so the diagnostics snapshot carries the verdict",
+    );
+    assert(
+      /safeMode:\s*safeVerdict\.safeMode/.test(inlineGenForSafeMode) &&
+      /reasons:\s*safeVerdict\.reasons/.test(inlineGenForSafeMode) &&
+      /concurrency:\s*runtimeLimits\.concurrency/.test(inlineGenForSafeMode) &&
+      /maxAttempts:\s*runtimeLimits\.maxAttempts/.test(inlineGenForSafeMode),
+      "setSafeMode must receive safeMode + reasons + concurrency + maxAttempts so the admin dashboard can render them",
+    );
+  });
+
+  test("DiagnosticsCollector.snapshot() carries safe-mode + runtime-limit fields", () => {
+    const diag = new jobDiagForSafe.DiagnosticsCollector({
+      workerMode: "fire_and_forget", attempt: 1, maxAttempts: 3,
+    });
+    diag.setSafeMode({ safeMode: true, reasons: ["no_queue", "fire_and_forget"], concurrency: 2, maxAttempts: 5 });
+    const snap = diag.snapshot();
+    assertEq(snap.safeMode, true, "safeMode persisted");
+    assert(Array.isArray(snap.safeModeReasons), "reasons is array");
+    assert(snap.safeModeReasons!.includes("no_queue"), "reasons content");
+    assertEq(snap.concurrencyUsed, 2, "concurrency stored");
+    assertEq(snap.maxAttemptsUsed, 5, "maxAttempts stored");
+  });
+
+  test("readDiagnostics normalises safe-mode fields from older / missing rows", () => {
+    const rich = jobDiagForSafe.readDiagnostics({
+      diagnostics: {
+        failStage: "pipeline_render",
+        safeMode:  true,
+        safeModeReasons: ["no_queue"],
+        concurrencyUsed: 2,
+        maxAttemptsUsed: 5,
+      },
+    });
+    assert(rich !== null, "readDiagnostics returns shape");
+    assertEq(rich!.safeMode, true, "safeMode normalised");
+    assertEq(rich!.concurrencyUsed, 2, "concurrencyUsed normalised");
+    // Legacy row with no safe-mode fields should normalize to
+    // safeMode=false without throwing.
+    const legacy = jobDiagForSafe.readDiagnostics({ diagnostics: { failStage: "init" } });
+    assert(legacy !== null, "legacy shape returns");
+    assertEq(legacy!.safeMode, false, "legacy safeMode defaults to false");
+  });
+
+  test("inlineGenerate pulses inside the candidate-evaluation for-loop", () => {
+    // The verdict-computation + admission loop over batchResults
+    // used to be synchronous from the pulse standpoint — pulsing on
+    // every iteration means updatedAt moves forward even when the
+    // main thread is running those small O(1) verdict merges
+    // back-to-back for a large batch.
+    assert(
+      /for\s*\(\s*let\s+i\s*=\s*0;\s*i\s*<\s*batchResults\.length[\s\S]{0,800}await\s+pulse\s*\(/.test(inlineGenForSafeMode),
+      "the for-loop over batchResults must await pulse() on every iteration so candidate evaluation never goes silent",
+    );
+  });
+
+  test("inlineGenerate pulses after admission ordering + before upload starts", () => {
+    // Admission sort is O(n log n) and typically fast, but with the
+    // diagnostic + audit logging that runs alongside it, the
+    // transition from rank_select into s3_upload can hold the main
+    // thread for a noticeable stretch. Pulsing here means the gap
+    // is always covered. Lazy match for the sort args because the
+    // arrow callback contains `)` characters.
+    assert(
+      /admitted\.sort\s*\([\s\S]*?\)\s*;[\s\S]{0,400}await\s+pulse\s*\(/.test(inlineGenForSafeMode),
+      "inlineGenerate must await pulse() immediately after the admission sort",
+    );
+    // Floor-fill is rare but when it runs it iterates the full
+    // rejected pool — pulse before it.
+    assert(
+      /admitted\.length\s*<\s*totalVariations[\s\S]{0,400}await\s+pulse\s*\(/.test(inlineGenForSafeMode),
+      "inlineGenerate must await pulse() inside the floor-fill branch so the rescue pass is not silent",
+    );
+  });
+
+  test("inlineGenerate pulses after every prisma.asset.create so the save loop stays alive", () => {
+    // Prisma asset.create is a full round-trip per asset; 6-12
+    // assets in a gallery batch can total several seconds. Without
+    // a per-iteration pulse the save loop was the quietest stage.
+    assert(
+      /allAssetIds\.push[\s\S]{0,500}await\s+pulse\s*\(/.test(inlineGenForSafeMode),
+      "the asset-save loop must await pulse() after pushing the new assetId so DB round-trips never starve the heartbeat",
+    );
+  });
+
+  test("AdminOpsDashboard surfaces safe-mode + runtime limits in the failure detail", () => {
+    const adminDash = fs.readFileSync(
+      path.resolve("apps/arkiol-core/src/components/dashboard/AdminOpsDashboard.tsx"),
+      "utf-8",
+    );
+    assert(
+      /safeMode\?\s*:\s*boolean/.test(adminDash),
+      "FailureDiagnostics interface must declare safeMode",
+    );
+    assert(
+      /safeModeReasons/.test(adminDash),
+      "admin dashboard must render safeModeReasons so the reason list is visible",
+    );
+    assert(
+      /concurrencyUsed/.test(adminDash) && /maxAttemptsUsed/.test(adminDash),
+      "admin dashboard must render concurrencyUsed + maxAttemptsUsed — needed for 'what runtime profile was this job on' debugging",
+    );
+    assert(
+      /safe mode:/.test(adminDash),
+      "admin dashboard must render a 'safe mode: ON/off' badge",
+    );
+  });
+
   section("heartbeat-reliability · cpu-starvation guards");
 
   // Defends the production fix for "Generation stalled — no worker
@@ -3313,17 +3528,33 @@ async function run() {
     );
   });
 
-  test("inlineGenerate caps render concurrency at 4 or less", () => {
-    const m = inlineGenForHeartbeat.match(/CONCURRENCY\s*=\s*Math\.min\s*\(\s*(\d+)\s*,/);
-    assert(m, "CONCURRENCY must remain a Math.min(<cap>, ...) expression");
-    const cap = Number(m![1]);
+  test("inlineGenerate caps render concurrency at 4 or less (via safe-mode resolver)", () => {
+    // CONCURRENCY is now resolved by lib/safeMode.ts
+    // resolveRuntimeLimits(), not a hardcoded Math.min in the
+    // pipeline source. Pin the effective caps returned by the
+    // resolver.
+    const { resolveRuntimeLimits } = require("../apps/arkiol-core/src/lib/safeMode");
+    for (const v of [1, 3, 6, 9]) {
+      const non = resolveRuntimeLimits({ safeMode: false, totalVariations: v });
+      assert(
+        non.concurrency >= 2 && non.concurrency <= 4,
+        `non-safe concurrency for ${v} variations must be 2..4, got ${non.concurrency}`,
+      );
+      const safe = resolveRuntimeLimits({ safeMode: true, totalVariations: v });
+      assert(
+        safe.concurrency <= non.concurrency,
+        `safe-mode concurrency (${safe.concurrency}) must not exceed non-safe (${non.concurrency}) for ${v} variations`,
+      );
+      assert(
+        safe.concurrency >= 2,
+        `safe-mode concurrency must be >= 2 so single stuck attempts don't serialize the run, got ${safe.concurrency}`,
+      );
+    }
+    // And the pipeline still references the resolver's output as its
+    // CONCURRENCY source.
     assert(
-      cap <= 4,
-      `CONCURRENCY cap must be <= 4 — any higher saturates sharp's libvips worker pool and starves the main-thread pulse, got ${cap}`,
-    );
-    assert(
-      cap >= 2,
-      `CONCURRENCY cap must be >= 2 — lower than that and a single flaky variation serialises the whole run, got ${cap}`,
+      /CONCURRENCY\s*=\s*runtimeLimits\.concurrency/.test(inlineGenForHeartbeat),
+      "inlineGenerate must source CONCURRENCY from runtimeLimits.concurrency so safe-mode takes effect",
     );
   });
 
@@ -3411,15 +3642,32 @@ async function run() {
     );
   });
 
-  test("inline worker caps MAX_ATTEMPTS to a bounded ceiling", () => {
-    // Must terminate the Math.min(...) call with `,<cap>)` at the top
-    // level — nested parens are stepped over by the lazy [\s\S]*? and
-    // the trailing `;` anchors the final close-paren.
-    const m = inlineGenSrc.match(/MAX_ATTEMPTS\s*=\s*Math\.min\([\s\S]*?,\s*(\d+)\s*\)\s*;/);
-    assert(m, "MAX_ATTEMPTS must be clamped with an explicit Math.min(..., <cap>)");
+  test("inline worker caps MAX_ATTEMPTS to a bounded ceiling (via safe-mode resolver)", () => {
+    // MAX_ATTEMPTS is now resolved by lib/safeMode.ts
+    // resolveRuntimeLimits() rather than hard-coded in the pipeline.
+    // The cap must still be bounded so a pathological request can't
+    // spin forever.
+    const { resolveRuntimeLimits } = require("../apps/arkiol-core/src/lib/safeMode");
+    for (const v of [1, 3, 6, 9]) {
+      const non  = resolveRuntimeLimits({ safeMode: false, totalVariations: v });
+      const safe = resolveRuntimeLimits({ safeMode: true,  totalVariations: v });
+      assert(
+        non.maxAttempts <= 12,
+        `non-safe MAX_ATTEMPTS for ${v} variations must be <= 12, got ${non.maxAttempts}`,
+      );
+      assert(
+        safe.maxAttempts <= 10 && safe.maxAttempts <= non.maxAttempts,
+        `safe-mode MAX_ATTEMPTS (${safe.maxAttempts}) must be <= 10 AND <= non-safe (${non.maxAttempts}) for ${v} variations`,
+      );
+      assert(
+        safe.maxAttempts >= v,
+        `safe-mode MAX_ATTEMPTS must cover every requested variation (>= ${v}), got ${safe.maxAttempts}`,
+      );
+    }
+    // Pipeline must source MAX_ATTEMPTS from the resolver.
     assert(
-      Number(m![1]) <= 12,
-      `MAX_ATTEMPTS ceiling must be <= 12 so the total render budget stays bounded, got ${m![1]}`,
+      /MAX_ATTEMPTS\s*=\s*runtimeLimits\.maxAttempts/.test(inlineGenSrc),
+      "inlineGenerate must source MAX_ATTEMPTS from runtimeLimits.maxAttempts so safe-mode takes effect",
     );
   });
 
@@ -4455,24 +4703,25 @@ async function run() {
     );
   });
 
-  test("inline worker scales CONCURRENCY with totalVariations", () => {
-    // CONCURRENCY is capped conservatively (≤ 4) because sharp's
-    // SVG→PNG render is CPU-bound via libvips — too many concurrent
-    // renders saturate the worker-thread pool and starve Node's main
-    // thread, delaying the setInterval pulse past the backend's 90s
-    // heartbeat-gap threshold. The earlier ceiling of 6 tripped
-    // production with "no worker heartbeat for 91s" errors; see
-    // Step 2 of the worker-reliability hardening.
+  test("inline worker scales CONCURRENCY via the safe-mode resolver", () => {
+    // CONCURRENCY is resolved by lib/safeMode.ts resolveRuntimeLimits()
+    // rather than a hard-coded Math.min. The non-safe profile must
+    // still scale with totalVariations (so small requests aren't
+    // artificially throttled) while remaining bounded.
+    const { resolveRuntimeLimits } = require("../apps/arkiol-core/src/lib/safeMode");
+    // Pipeline must source CONCURRENCY from the resolver.
     assert(
-      /CONCURRENCY\s*=\s*Math\.min\s*\(\s*(\d+)\s*,\s*totalVariations\s*\+\s*\d+\s*\)/.test(inlineGenSrc),
-      "CONCURRENCY must remain a Math.min(<cap>, totalVariations + N) expression",
+      /CONCURRENCY\s*=\s*runtimeLimits\.concurrency/.test(inlineGenSrc),
+      "inlineGenerate must source CONCURRENCY from runtimeLimits.concurrency",
     );
-    const capMatch = inlineGenSrc.match(/CONCURRENCY\s*=\s*Math\.min\s*\(\s*(\d+)\s*,/);
-    const cap = Number(capMatch?.[1] ?? 99);
-    assert(
-      cap >= 2 && cap <= 4,
-      `CONCURRENCY cap must be 2..4 so sharp's libvips pool doesn't starve the event loop — got ${cap}`,
-    );
+    // Non-safe: scales up to the cap as variations increase.
+    const tiny    = resolveRuntimeLimits({ safeMode: false, totalVariations: 1 });
+    const medium  = resolveRuntimeLimits({ safeMode: false, totalVariations: 3 });
+    const large   = resolveRuntimeLimits({ safeMode: false, totalVariations: 6 });
+    assert(tiny.concurrency    >= 2 && tiny.concurrency    <= 4, `1-var concurrency 2..4, got ${tiny.concurrency}`);
+    assert(medium.concurrency  >= 2 && medium.concurrency  <= 4, `3-var concurrency 2..4, got ${medium.concurrency}`);
+    assert(large.concurrency   >= 2 && large.concurrency   <= 4, `6-var concurrency 2..4, got ${large.concurrency}`);
+    assert(medium.concurrency >= tiny.concurrency, "concurrency must monotonically scale with variations in non-safe mode");
   });
 
   // ── Dense heartbeat invariants (Step 2) ────────────────────────────────

@@ -118,6 +118,19 @@ export interface JobDiagnostics {
    *  dashboards don't need a second query. */
   attempt:       number;
   maxAttempts:   number;
+  /** Whether this run executed in safe mode (reduced concurrency /
+   *  fan-out). Persisted so ops can compute separate failure rates
+   *  for safe vs non-safe profiles and see whether safe-mode
+   *  triggers are working as intended. */
+  safeMode?:          boolean;
+  /** Reasons that triggered safe mode, if any. `["env_var"]`,
+   *  `["no_queue", "fire_and_forget"]`, etc. */
+  safeModeReasons?:   string[];
+  /** Runtime limits actually applied for this run (after safe-mode
+   *  resolution). Needed for "what CONCURRENCY did this job run
+   *  under" forensics. */
+  concurrencyUsed?:   number;
+  maxAttemptsUsed?:   number;
   /** Capability snapshot at run time. Ops needs this to distinguish
    *  "storage_failure because S3 wasn't configured" from "storage
    *  failed despite being configured". */
@@ -140,6 +153,10 @@ export class DiagnosticsCollector {
   private attempt:     number;
   private maxAttempts: number;
   private capabilitySnapshot?: Record<string, boolean>;
+  private safeMode?:        boolean;
+  private safeModeReasons?: string[];
+  private concurrencyUsed?: number;
+  private maxAttemptsUsed?: number;
 
   constructor(opts: {
     workerMode:  WorkerMode;
@@ -154,6 +171,15 @@ export class DiagnosticsCollector {
     this.startedAt   = (opts.now ?? Date.now)();
     this.capabilitySnapshot = opts.capabilitySnapshot;
     this.stages.push({ stage: "init", enteredAt: this.startedAt, durationMs: null });
+  }
+
+  /** Record the safe-mode verdict for this run. Called once, right
+   *  after the inline pipeline resolves runtime limits. */
+  setSafeMode(v: { safeMode: boolean; reasons: string[]; concurrency: number; maxAttempts: number }): void {
+    this.safeMode = v.safeMode;
+    this.safeModeReasons = v.reasons;
+    this.concurrencyUsed = v.concurrency;
+    this.maxAttemptsUsed = v.maxAttempts;
   }
 
   /** Mark a stage boundary. Closes the previous entry's `durationMs`
@@ -206,6 +232,10 @@ export class DiagnosticsCollector {
       staleDiagnostic: this.stale ?? null,
       attempt:         this.attempt,
       maxAttempts:     this.maxAttempts,
+      safeMode:        this.safeMode,
+      safeModeReasons: this.safeModeReasons,
+      concurrencyUsed: this.concurrencyUsed,
+      maxAttemptsUsed: this.maxAttemptsUsed,
       capabilitySnapshot: this.capabilitySnapshot,
     };
   }
@@ -235,6 +265,10 @@ export function readDiagnostics(result: unknown): JobDiagnostics | null {
     staleDiagnostic: (raw.staleDiagnostic as any) ?? null,
     attempt:     Number(raw.attempt     ?? 0),
     maxAttempts: Number(raw.maxAttempts ?? 0),
+    safeMode:        (raw.safeMode === true),
+    safeModeReasons: Array.isArray(raw.safeModeReasons) ? (raw.safeModeReasons as string[]) : undefined,
+    concurrencyUsed: raw.concurrencyUsed == null ? undefined : Number(raw.concurrencyUsed),
+    maxAttemptsUsed: raw.maxAttemptsUsed == null ? undefined : Number(raw.maxAttemptsUsed),
     capabilitySnapshot: (raw.capabilitySnapshot as Record<string, boolean>) ?? undefined,
   };
 }

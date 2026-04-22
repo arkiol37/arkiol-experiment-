@@ -34,6 +34,7 @@ import { detectCapabilities } from "@arkiol/shared";
 import { tagError, extractReason } from "./jobErrorFormat";
 import { DiagnosticsCollector, type JobFailStage, type WorkerMode } from "./jobDiagnostics";
 import { userStageForDiagStage, USER_STAGE_LABEL } from "./generationStages";
+import { detectSafeMode, resolveRuntimeLimits } from "./safeMode";
 
 export interface InlineGenerateParams {
   jobId: string;
@@ -93,6 +94,20 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     maxAttempts: 3,
     capabilitySnapshot: capSnapshot,
   });
+
+  // Safe-mode resolution. Fires when the platform can't guarantee a
+  // long-lived worker (no queue, fire_and_forget durability, or
+  // operator opt-in via ARKIOL_SAFE_MODE=1). Under safe mode we
+  // reduce concurrency + candidate fan-out so the pipeline finishes
+  // comfortably inside the serverless budget even under heavy sharp
+  // render load. See lib/safeMode.ts for the exact trigger rules.
+  const safeVerdict = detectSafeMode(params.workerMode);
+  if (safeVerdict.safeMode) {
+    console.info(
+      `[inline-generate] Job ${jobId} running in SAFE MODE (reasons: ${safeVerdict.reasons.join(", ")}). ` +
+      `Reduced concurrency + attempts to protect against serverless container kills.`,
+    );
+  }
 
   // ── Heartbeat plumbing ────────────────────────────────────────────────────
   // Prisma auto-bumps `updatedAt` on every `.update()`, so the stale-job
@@ -322,11 +337,25 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     } : undefined;
 
     // Target: `totalVariations` accepted candidates, each strong enough
-    // for the gallery. We over-generate up to 2x attempts (bounded), run
-    // the strict rejection gate on every render, dedup near-clones by
-    // theme palette + typography, and only persist survivors.
+    // for the gallery. In non-safe mode we over-generate up to 2x
+    // attempts; in safe mode we prefer fewer stronger attempts so the
+    // pipeline finishes inside the serverless budget.
     const totalVariations = Math.max(1, variations);
-    const MAX_ATTEMPTS    = Math.min(Math.max(totalVariations * 2, totalVariations + 3), 10);
+    const runtimeLimits   = resolveRuntimeLimits({
+      safeMode:        safeVerdict.safeMode,
+      totalVariations,
+    });
+    const MAX_ATTEMPTS    = runtimeLimits.maxAttempts;
+    // Persist the resolved safe-mode verdict + runtime limits so the
+    // admin failure dashboard can pivot by safe-mode, and so
+    // post-mortems can see exactly what CONCURRENCY / MAX_ATTEMPTS
+    // was active.
+    diag.setSafeMode({
+      safeMode:    safeVerdict.safeMode,
+      reasons:     safeVerdict.reasons,
+      concurrency: runtimeLimits.concurrency,
+      maxAttempts: runtimeLimits.maxAttempts,
+    });
 
     // ── Time budget ──────────────────────────────────────────────────────────
     // Vercel kills the serverless function at maxDuration (300s in
@@ -341,15 +370,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const startedAt = Date.now();
     const deadlineAt = startedAt + GENERATION_BUDGET_MS;
     const timeLeft = () => Math.max(0, deadlineAt - Date.now());
-    // Concurrency is deliberately conservative. The earlier CONCURRENCY
-    // = min(6, totalVariations+2) assumed each attempt was pure I/O on
-    // OpenAI, but sharp's SVG→PNG render is heavily CPU-bound via
-    // libvips — with 6 concurrent renders the worker-thread pool
-    // saturates and the Node main thread starves, delaying setInterval
-    // callbacks past the backend's 90s heartbeat threshold. At 3-4
-    // concurrent renders the main thread keeps capacity to fire
-    // pulse() on schedule. Lose ~20% throughput, gain reliability.
-    const CONCURRENCY = Math.min(4, totalVariations + 1);
+    // Concurrency is deliberately conservative. The earlier cap of 6
+    // assumed each attempt was pure I/O on OpenAI, but sharp's
+    // SVG→PNG render is heavily CPU-bound via libvips — too many
+    // concurrent renders saturate the worker-thread pool and starve
+    // the Node main thread, delaying setInterval callbacks past the
+    // backend's 90s heartbeat threshold. Non-safe mode caps at 4 (for
+    // queue-backed deploys); safe mode drops to 2 for maximum
+    // main-thread breathing room. See lib/safeMode.ts.
+    const CONCURRENCY = runtimeLimits.concurrency;
 
     interface RenderedCandidate {
       vi:             number;
@@ -564,6 +593,14 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       await pulse(lastProgress);
 
       for (let i = 0; i < batchResults.length; i++) {
+        // Per-candidate evaluation heartbeat. The verdict/palette-dedup/
+        // logging block below is O(1) but reads the whole rendered[]
+        // array + emits a console line per iteration; a batch of 4
+        // candidates with several log lines each has enough sync work
+        // that on a starved main thread we could go 10s+ between
+        // iterations. Pulsing on each iteration guarantees updatedAt
+        // moves forward even if nothing else does.
+        await pulse();
         const vi = batchVis[i];
         const settled = batchResults[i];
         if (settled.status === "rejected") {
@@ -739,6 +776,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     );
 
     if (admitted.length < totalVariations) {
+      // Floor-fill pulse so the watchdog sees progress even if
+      // rendering 10+ candidates across a big request makes this
+      // pass take noticeable time.
+      await pulse();
       const admittedVis = new Set(admitted.map(a => a.vi));
       const fill = greedyPickN(
         rendered.filter(r => !admittedVis.has(r.vi)),
@@ -752,6 +793,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // Stable order by render index so the UI shows variation numbering
     // in the order they were produced.
     admitted.sort((a, b) => a.vi - b.vi);
+    // Post-admission pulse so the transition from ranking into the S3
+    // upload loop doesn't leave a silent gap.
+    await pulse();
 
     // Fail loudly rather than returning an empty gallery. Without this
     // guard, a fully-exhausted budget with zero rendered candidates
@@ -891,6 +935,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       allAssetIds.push(assetId);
       lastThumbnailUrl = thumbnailUrl;
       lastResult = result;
+
+      // Post-asset-write heartbeat. Prisma's asset.create can be
+      // several hundred ms (Postgres round-trip + JSONB column
+      // write) and on a big gallery batch these stack up. Pulsing
+      // here means even a 12-asset save loop never goes silent.
+      await pulse();
     }
 
     const uniqueTypes = new Set(admitted.map(a => a.templateType));

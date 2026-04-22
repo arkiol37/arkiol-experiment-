@@ -28,6 +28,10 @@ interface FailureDiagnostics {
   staleDiagnostic?: { reason: string; heartbeatGapMs: number; runningMs: number; expectedMs: number } | null;
   attempt?:      number;
   maxAttempts?:  number;
+  safeMode?:        boolean;
+  safeModeReasons?: string[];
+  concurrencyUsed?: number;
+  maxAttemptsUsed?: number;
   capabilitySnapshot?: Record<string, boolean>;
 }
 interface FailureEntry {
@@ -442,6 +446,32 @@ export function AdminOpsDashboard() {
                               ))}
                             </div>
                           </div>
+
+                          {(f.diagnostics.safeMode !== undefined || f.diagnostics.concurrencyUsed !== undefined) && (
+                            <div style={{ marginBottom: 10 }}>
+                              <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text-muted)', marginBottom: 6 }}>Runtime limits</p>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                <span className={`ak-badge ${f.diagnostics.safeMode ? 'ak-badge-warning' : 'ak-badge-muted'}`} style={{ fontSize: 10 }}>
+                                  safe mode: {f.diagnostics.safeMode ? 'ON' : 'off'}
+                                </span>
+                                {f.diagnostics.safeMode && f.diagnostics.safeModeReasons && f.diagnostics.safeModeReasons.length > 0 && (
+                                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                    ({f.diagnostics.safeModeReasons.join(', ')})
+                                  </span>
+                                )}
+                                {f.diagnostics.concurrencyUsed !== undefined && (
+                                  <span className="ak-badge ak-badge-accent" style={{ fontSize: 10 }}>
+                                    concurrency: {f.diagnostics.concurrencyUsed}
+                                  </span>
+                                )}
+                                {f.diagnostics.maxAttemptsUsed !== undefined && (
+                                  <span className="ak-badge ak-badge-accent" style={{ fontSize: 10 }}>
+                                    maxAttempts: {f.diagnostics.maxAttemptsUsed}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
 
                           {f.diagnostics.capabilitySnapshot && (
                             <div>
