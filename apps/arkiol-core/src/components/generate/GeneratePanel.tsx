@@ -66,9 +66,9 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
   const poll = useJobPolling();
 
   const gifEligible = ["instagram_post", "instagram_story"].includes(format);
-  // `loading` now covers: initial POST in flight OR hook is polling OR
-  // a retry is in flight. The AIGenerationStage component keys off
-  // this single flag.
+  // `isBusy` covers: initial POST in flight OR hook is polling OR
+  // a retry is in flight. The AIGenerationStage component and every
+  // form-field `disabled` prop key off this single flag.
   const isBusy = dispatching || poll.isRetrying ||
     (poll.jobId !== null && !poll.shouldStopPolling);
 
@@ -176,7 +176,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
             {/* Prompt */}
             <div className="ak-form-group" style={{ marginBottom: 16 }}>
               <label className="ak-form-label">Describe your design</label>
-              <textarea value={prompt} onChange={e => setPrompt(e.target.value)} disabled={loading}
+              <textarea value={prompt} onChange={e => setPrompt(e.target.value)} disabled={isBusy}
                 className="ak-input" placeholder='e.g. "Bold product launch post for a minimalist skincare brand — warm neutral tones, elegant typography"'
                 style={{ resize: "vertical", minHeight: 96, fontFamily: "var(--font-body)" }} />
             </div>
@@ -184,7 +184,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
             {/* Format */}
             <div className="ak-form-group" style={{ marginBottom: 16 }}>
               <label className="ak-form-label">Format</label>
-              <select value={format} onChange={e => setFormat(e.target.value as any)} disabled={loading}
+              <select value={format} onChange={e => setFormat(e.target.value as any)} disabled={isBusy}
                 className="ak-input ak-select">
                 {ARKIOL_CATEGORIES.map(c => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}
               </select>
@@ -196,7 +196,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
                 <label className="ak-form-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   Archetype <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>AI-powered</span>
                 </label>
-                <select value={archetype} onChange={e => setArchetype(e.target.value)} disabled={loading}
+                <select value={archetype} onChange={e => setArchetype(e.target.value)} disabled={isBusy}
                   className="ak-input ak-select">
                   {ARCHETYPE_OPTIONS.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
                 </select>
@@ -205,7 +205,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
                 <label className="ak-form-label" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   Style <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 400 }}>AI-powered</span>
                 </label>
-                <select value={preset} onChange={e => setPreset(e.target.value)} disabled={loading}
+                <select value={preset} onChange={e => setPreset(e.target.value)} disabled={isBusy}
                   className="ak-input ak-select">
                   {STYLE_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
