@@ -377,6 +377,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // durableRunInlineGeneration uses the best available waitUntil
   // primitive (Next 14.2+ `after`, then Vercel `waitUntil`, then raw
   // fire-and-forget) and never blocks the response.
+  //
+  // workerMode is omitted on this first dispatch — durableRun will
+  // choose the right label based on the strategy it actually picked
+  // (next_after / vercel_waitUntil / fire_and_forget). If the queue
+  // path took the job, the BullMQ worker's own inline runner gets the
+  // tag elsewhere (see lib/queueWorker if present).
   let durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" = "queue";
   if (!queued) {
     const dur = durableRunInlineGeneration({

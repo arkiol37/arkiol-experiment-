@@ -89,23 +89,32 @@ function tryVercelWaitUntil(work: () => Promise<void>): boolean {
  *  the frontend can start polling /api/jobs.
  */
 export function durableRunInlineGeneration(params: InlineGenerateParams): DurableRunResult {
-  // Every durability path runs this wrapper so a crash in the inline
-  // pipeline is logged once centrally. runInlineGeneration's own outer
-  // catch already writes FAILED to the DB, so this handler is purely
-  // for container logs / Sentry.
-  const work = async (): Promise<void> => {
-    try {
-      await runInlineGeneration(params);
-    } catch (err: any) {
-      console.error(
-        `[durable-run] Inline generation threw for job ${params.jobId}:`,
-        err?.message ?? err,
-      );
-    }
+  // Decide workerMode for diagnostics BEFORE dispatching. The strategy
+  // we ultimately pick via tryNextAfter / tryVercelWaitUntil defines
+  // which workerMode value the inline pipeline will record — callers
+  // that already tagged a more-specific class (prepareRetry sets
+  // "retry"; the poller auto-resume sets "poller_resume") are
+  // preserved via the ?? below.
+  //
+  // We build two closures that each stamp the correct workerMode on
+  // the params so recording happens BEFORE the scheduler hands us a
+  // lifecycle commitment.
+  const mkWork = (workerMode: InlineGenerateParams["workerMode"]) => {
+    const enriched: InlineGenerateParams = { ...params, workerMode: params.workerMode ?? workerMode };
+    return async (): Promise<void> => {
+      try {
+        await runInlineGeneration(enriched);
+      } catch (err: any) {
+        console.error(
+          `[durable-run] Inline generation threw for job ${enriched.jobId}:`,
+          err?.message ?? err,
+        );
+      }
+    };
   };
 
-  if (tryNextAfter(work))       return { strategy: "next_after" };
-  if (tryVercelWaitUntil(work)) return { strategy: "vercel_waitUntil" };
+  if (tryNextAfter(mkWork("next_after")))             return { strategy: "next_after" };
+  if (tryVercelWaitUntil(mkWork("vercel_waitUntil"))) return { strategy: "vercel_waitUntil" };
 
   // Last resort. The job row's 5-min stale watchdog + poller auto-resume
   // in /api/jobs provide a safety net when we land here (e.g. running
@@ -115,6 +124,6 @@ export function durableRunInlineGeneration(params: InlineGenerateParams): Durabl
     `[durable-run] No platform waitUntil primitive available for job ${params.jobId}. ` +
     `Falling back to fire-and-forget — durability depends on /api/jobs poller resume + stale watchdog.`,
   );
-  void work();
+  void mkWork("fire_and_forget")();
   return { strategy: "fire_and_forget" };
 }

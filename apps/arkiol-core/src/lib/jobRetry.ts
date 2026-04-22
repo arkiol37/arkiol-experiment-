@@ -104,6 +104,10 @@ function paramsFromPayload(jobId: string, payload: any): InlineGenerateParams {
     // Skip analyzeBrief on retry if we already cached its result on the
     // first run. Saves an OpenAI call and ~2-5 seconds.
     briefSnapshot:      payload.briefSnapshot ?? undefined,
+    // Tag so diagnostics record this as a retry dispatch, not the
+    // original /api/generate worker-mode. Ops uses this to compute
+    // retry success rate distinct from first-attempt success rate.
+    workerMode:         "retry",
   };
 }
 

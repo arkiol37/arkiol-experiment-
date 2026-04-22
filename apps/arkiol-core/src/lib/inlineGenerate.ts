@@ -32,6 +32,7 @@ import "server-only";
 import { prisma } from "./prisma";
 import { detectCapabilities } from "@arkiol/shared";
 import { tagError, extractReason } from "./jobErrorFormat";
+import { DiagnosticsCollector, type WorkerMode } from "./jobDiagnostics";
 
 export interface InlineGenerateParams {
   jobId: string;
@@ -53,6 +54,11 @@ export interface InlineGenerateParams {
    *  the cached structured brief is reused. Saves an OpenAI call and
    *  several seconds per retry. */
   briefSnapshot?: unknown;
+  /** Which dispatch path owned this run. Propagated by durableRun,
+   *  the queue entry path, the poller auto-resume, and prepareRetry —
+   *  so the diagnostics collector can record it at the top of the
+   *  pipeline without peering into the runtime's private state. */
+  workerMode?: WorkerMode;
 }
 
 export async function runInlineGeneration(params: InlineGenerateParams): Promise<void> {
@@ -60,6 +66,32 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     jobId, userId, orgId, prompt, formats, stylePreset,
     variations, brandId, campaignId, locale, archetypeOverride,
   } = params;
+
+  // Diagnostics collector — captures stage transitions, per-class
+  // failure counts, elapsed time, and worker mode. Persisted to
+  // job.result.diagnostics on both terminal paths so ops can query
+  // "why did this specific job fail" without grepping serverless logs.
+  const capSnapshot = (() => {
+    try {
+      const c = detectCapabilities();
+      return {
+        database: !!c.database,
+        ai:       !!c.ai,
+        queue:    !!c.queue,
+        storage:  !!c.storage,
+        auth:     !!c.auth,
+      } as Record<string, boolean>;
+    } catch { return undefined; }
+  })();
+  const diag = new DiagnosticsCollector({
+    workerMode:  params.workerMode ?? "fire_and_forget",
+    // attempt defaults to 1 here because the outer catch re-reads the
+    // live row's attempts before persisting — the collector value is
+    // only a fallback when the read fails.
+    attempt:     1,
+    maxAttempts: 3,
+    capabilitySnapshot: capSnapshot,
+  });
 
   // ── Heartbeat plumbing ────────────────────────────────────────────────────
   // Prisma auto-bumps `updatedAt` on every `.update()`, so the stale-job
@@ -107,14 +139,17 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // Initialize fonts for Vercel/serverless — downloads Google Fonts TTFs
     // to /tmp so buildUltimateFontFaces() can base64-embed them in SVG.
     // Critical for sharp PNG rendering with custom typography.
+    diag.enterStage("font_init");
     try {
       const { initUltimateFonts } = require("../engines/render/font-registry-ultimate");
       await initUltimateFonts();
     } catch (fontErr: any) {
       console.warn("[inline-generate] Font init failed (non-fatal):", fontErr.message);
+      diag.recordFailure("render", fontErr);
     }
 
     // Mark job as RUNNING + initial 2% so the UI bar moves immediately.
+    diag.enterStage("mark_running");
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -127,6 +162,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     currentProgress = 2;
 
     // Load brand if specified
+    diag.enterStage("brand_load");
     const brand = brandId
       ? await prisma.brand.findUnique({ where: { id: brandId } }).catch(() => null)
       : null;
@@ -139,6 +175,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // the slowest single operations in the pipeline, so reusing the
     // snapshot turns a retry into a "resume from render" instead of
     // "start from zero".
+    diag.enterStage("brief_analyze");
     const { analyzeBrief } = require("../engines/ai/brief-analyzer");
     let brief: any;
     let briefFromCache = false;
@@ -147,18 +184,27 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       briefFromCache = true;
       console.info(`[inline-generate] Job ${jobId} reusing cached briefSnapshot (retry resume).`);
     } else {
-      brief = await analyzeBrief({
-        prompt,
-        stylePreset,
-        format: formats[0],
-        locale: locale ?? "en",
-        brand: brand ? {
-          primaryColor:   brand.primaryColor,
-          secondaryColor: brand.secondaryColor,
-          voiceAttribs:   brand.voiceAttribs as Record<string, number>,
-          fontDisplay:    brand.fontDisplay,
-        } : undefined,
-      });
+      try {
+        brief = await analyzeBrief({
+          prompt,
+          stylePreset,
+          format: formats[0],
+          locale: locale ?? "en",
+          brand: brand ? {
+            primaryColor:   brand.primaryColor,
+            secondaryColor: brand.secondaryColor,
+            voiceAttribs:   brand.voiceAttribs as Record<string, number>,
+            fontDisplay:    brand.fontDisplay,
+          } : undefined,
+        });
+      } catch (briefErr: any) {
+        // Record + rethrow — the brief stage is required, so a failure
+        // here terminates the run. The outer catch will persist the
+        // diagnostic bundle which now shows both `failStage:
+        // "brief_analyze"` and `openaiFailures.count = 1`.
+        diag.recordFailure("openai", briefErr);
+        throw briefErr;
+      }
       // Persist the snapshot back onto the job's payload so the next
       // retry (auto or explicit) can skip this step. Best-effort: if
       // the merge fails (legacy row, race with concurrent write), we
@@ -177,6 +223,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await pulse(briefFromCache ? 18 : 15);
 
+    diag.enterStage("pipeline_render");
     const format = formats[0];
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
     const { getCreditCost, getCategoryLabel } = require("./types");
@@ -408,6 +455,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         const settled = batchResults[i];
         if (settled.status === "rejected") {
           console.warn(`[inline-generate] vi=${vi} pipeline threw: ${settled.reason?.message ?? settled.reason}`);
+          // Classify the per-variation crash by its message so
+          // diagnostics show openai vs render counts. The pipeline
+          // orchestrator wraps OpenAI calls already — a fetch / rate
+          // limit / 5xx shows up with openai markers; sharp / svg
+          // crashes surface render markers.
+          const msg = String(settled.reason?.message ?? settled.reason ?? "").toLowerCase();
+          const kind: "openai" | "render" =
+            (msg.includes("openai") || msg.includes("rate limit") || msg.includes("429") || msg.includes("502") || msg.includes("timeout"))
+              ? "openai" : "render";
+          diag.recordFailure(kind, settled.reason);
           continue;
         }
         const { orchestrated } = settled.value;
@@ -558,6 +615,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // pool so it's fast, but updating here means the UI bar tracks the
     // pipeline entering its "ranking" stage instead of sitting on the
     // last batch's attempt percentage.
+    diag.enterStage("rank_select");
     await pulse(Math.max(lastProgress, 86));
 
     const seenTypes = new Set<string>();
@@ -606,6 +664,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     // Pre-upload heartbeat so the user sees the bar tick forward from
     // "ranking" into "uploading" immediately when the loop starts.
+    diag.enterStage("s3_upload");
     await pulse(Math.max(lastProgress, 88));
 
     for (let idx = 0; idx < admitted.length; idx++) {
@@ -635,6 +694,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           ]);
         } catch (s3Err: any) {
           console.warn("[inline-generate] S3 upload failed, using inline SVG:", s3Err.message);
+          // Storage failure is non-fatal per asset (we fall back to
+          // inline SVG), but we still want it recorded so diagnostics
+          // show "storageFailures.count > 0" for post-mortem.
+          diag.recordFailure("storage", s3Err);
           s3Key  = null;
           svgKey = null;
         }
@@ -815,6 +878,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     await pulse(96);
 
     // Deduct credits (creditBalance = canonical credit field)
+    diag.enterStage("credit_deduction");
     try {
       await prisma.org.update({
         where: { id: orgId },
@@ -831,7 +895,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // clobber the final terminal row.
     stopHeartbeat();
 
-    // Mark job COMPLETED
+    // Mark job COMPLETED. Diagnostics attach here too so successful
+    // runs carry the same breadcrumb bundle as failures — ops can pivot
+    // "average pipeline_render duration" across all COMPLETED jobs, not
+    // just failed ones.
+    diag.enterStage("terminal_write");
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -849,6 +917,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           format,
           width:           lastResult?.width,
           height:          lastResult?.height,
+          diagnostics:     diag.snapshot(),
         } as any,
       },
     });
@@ -870,6 +939,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // then resets the row through prepareRetry — which goes through the
     // same atomic FAILED→PENDING claim the explicit /retry endpoint
     // uses, so we can't accidentally race a user-initiated retry.
+    //
+    // diagnostics bundle is snapshot()ed BEFORE any side-effectful
+    // work so the persisted stage reflects where the error actually
+    // fired (pipeline_render, brief_analyze, etc.) rather than
+    // "terminal_write". That single field makes ops queries like
+    // "which stage produces the most failures" possible.
+    const diagSnapshot = diag.snapshot();
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -878,7 +954,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         result: {
           error:           err.message ?? "Generation failed",
           failReason:      reason,
+          failStage:       diagSnapshot.failStage,
+          elapsedMs:       diagSnapshot.elapsedMs,
+          workerMode:      diagSnapshot.workerMode,
           inlineGenerated: true,
+          diagnostics:     diagSnapshot,
         } as any,
       },
     }).catch(() => {});

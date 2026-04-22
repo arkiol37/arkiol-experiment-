@@ -103,6 +103,9 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
             // Forward the cached brief if a previous attempt analyzed
             // it — keeps resume from re-doing the analyzer call.
             briefSnapshot:      payload.briefSnapshot ?? undefined,
+            // Tag the diagnostic trace so ops can distinguish auto-
+            // resumed runs from their original dispatch mechanism.
+            workerMode:         "poller_resume",
           });
           // Re-fetch so the caller sees the claimed row (startedAt set,
           // attempts incremented) instead of the stale pre-claim copy.
@@ -148,6 +151,13 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         "Flipping stale job to FAILED",
       );
       try {
+        // Carry forward any pre-existing diagnostics (e.g. if a
+        // previous inline attempt wrote stage breadcrumbs before the
+        // container died, we want those preserved rather than
+        // overwritten). The watchdog owns the `failStage:
+        // "stale_watchdog"` pivot but keeps everything else.
+        const priorDiag = (job.result as any)?.diagnostics ?? null;
+        const existingPayload = (job.payload as any) ?? {};
         await prisma.job.update({
           where: { id: job.id },
           data: {
@@ -156,6 +166,11 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
             result:   {
               error:      staleVerdict.message ?? "Generation stalled. Please retry.",
               failReason: "stale_worker",
+              failStage:  "stale_watchdog",
+              // Watchdog is synchronous with the poll — elapsedMs is
+              // the whole running window, not a stage duration.
+              elapsedMs:  staleVerdict.runningMs,
+              workerMode: existingPayload.workerMode ?? priorDiag?.workerMode ?? "fire_and_forget",
               // Diagnostic breadcrumb so ops can distinguish the
               // specific stale sub-reason (no_heartbeat vs
               // runtime_ceiling vs no_progress_total) from the UI-
@@ -164,6 +179,27 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
               heartbeatGapMs: staleVerdict.heartbeatGapMs,
               runningMs:      staleVerdict.runningMs,
               expectedMs:     staleVerdict.expectedMs,
+              // Full diagnostic bundle — builds on any inline
+              // breadcrumbs the worker already wrote and tags the
+              // watchdog as the failStage.
+              diagnostics: {
+                ...(priorDiag ?? {}),
+                failStage:  "stale_watchdog",
+                workerMode: priorDiag?.workerMode ?? existingPayload.workerMode ?? "fire_and_forget",
+                elapsedMs:  staleVerdict.runningMs,
+                stages:     priorDiag?.stages ?? [],
+                openaiFailures:  priorDiag?.openaiFailures  ?? { count: 0, lastMessage: null },
+                renderFailures:  priorDiag?.renderFailures  ?? { count: 0, lastMessage: null },
+                storageFailures: priorDiag?.storageFailures ?? { count: 0, lastMessage: null },
+                staleDiagnostic: {
+                  reason:         staleVerdict.reason ?? "no_heartbeat",
+                  heartbeatGapMs: staleVerdict.heartbeatGapMs,
+                  runningMs:      staleVerdict.runningMs,
+                  expectedMs:     staleVerdict.expectedMs,
+                },
+                attempt:     job.attempts ?? 0,
+                maxAttempts: job.maxAttempts ?? 3,
+              },
             } as any,
           },
         });

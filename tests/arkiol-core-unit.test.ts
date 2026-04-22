@@ -3567,6 +3567,277 @@ async function run() {
     );
   });
 
+  section("job-diagnostics · structured failure metadata");
+
+  // Defends the diagnostics collector. Production debugging nightmare
+  // this prevents: a user reports a 30-second failure and ops has
+  // nothing to go on except `result.error: "502"`. With this in place
+  // every FAILED row carries `failStage`, `elapsedMs`, `workerMode`,
+  // per-stage duration breakdown, and per-class failure counters — so
+  // queries like "what fraction of failures happen in s3_upload under
+  // fire_and_forget" are answerable.
+  const jobDiag = await import("../apps/arkiol-core/src/lib/jobDiagnostics");
+  const jobDiagSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/jobDiagnostics.ts"),
+    "utf-8",
+  );
+  const inlineGenForDiag = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+  const durableRunForDiag = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/durableRun.ts"),
+    "utf-8",
+  );
+  const jobsRouteForDiag = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/jobs/route.ts"),
+    "utf-8",
+  );
+  const failuresRouteSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/admin/failures/route.ts"),
+    "utf-8",
+  );
+  const adminDashSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/components/dashboard/AdminOpsDashboard.tsx"),
+    "utf-8",
+  );
+
+  test("JOB_FAIL_STAGES covers every stage the pipeline enters", () => {
+    const required = [
+      "init", "font_init", "mark_running", "brand_load", "brief_analyze",
+      "pipeline_render", "rank_select", "s3_upload", "credit_deduction",
+      "terminal_write", "stale_watchdog",
+    ];
+    for (const s of required) {
+      assert(
+        (jobDiag.JOB_FAIL_STAGES as readonly string[]).includes(s),
+        `JOB_FAIL_STAGES must include "${s}" — drift here hides failures under "unknown"`,
+      );
+    }
+  });
+
+  test("WORKER_MODES covers every dispatch class", () => {
+    for (const w of ["queue", "next_after", "vercel_waitUntil", "fire_and_forget", "poller_resume", "retry"]) {
+      assert(
+        (jobDiag.WORKER_MODES as readonly string[]).includes(w),
+        `WORKER_MODES must include "${w}" — every dispatch path must be labelable`,
+      );
+    }
+  });
+
+  test("DiagnosticsCollector records stage timings and returns a stable snapshot", () => {
+    let now = 1_000;
+    const c = new jobDiag.DiagnosticsCollector({
+      workerMode:  "next_after",
+      attempt:     1,
+      maxAttempts: 3,
+      now:         () => now,
+    });
+    c.enterStage("brief_analyze", (now += 250));
+    c.enterStage("pipeline_render", (now += 1_500));
+    c.recordFailure("openai", new Error("rate_limit"));
+    c.recordFailure("render", new Error("sharp crash"));
+    now += 500;
+    const snap = c.snapshot(now);
+    assertEq(snap.failStage, "pipeline_render", "currently-open stage reported as failStage");
+    assertEq(snap.workerMode, "next_after", "worker mode carried through");
+    assertEq(snap.openaiFailures.count, 1, "openai counter");
+    assertEq(snap.renderFailures.count, 1, "render counter");
+    assertEq(snap.stages.length, 3, "init + brief_analyze + pipeline_render");
+    assertEq(snap.stages[0].stage, "init", "first stage is init");
+    assert(snap.stages[0].durationMs! >= 250, "init duration includes first transition");
+    assert(
+      snap.stages[2].durationMs! >= 500,
+      "final open stage is closed by snapshot()",
+    );
+    assert(snap.elapsedMs >= 2250, "elapsedMs spans start → snapshot");
+  });
+
+  test("DiagnosticsCollector enterStage is idempotent for repeated same-stage calls", () => {
+    // The render loop body may call enterStage("pipeline_render")
+    // repeatedly as it iterates batches. Without dedup the stage list
+    // would bloat with dozens of zero-duration entries.
+    const c = new jobDiag.DiagnosticsCollector({
+      workerMode: "fire_and_forget", attempt: 1, maxAttempts: 3,
+    });
+    c.enterStage("pipeline_render");
+    c.enterStage("pipeline_render");
+    c.enterStage("pipeline_render");
+    const snap = c.snapshot();
+    const pipelineEntries = snap.stages.filter(s => s.stage === "pipeline_render");
+    assertEq(pipelineEntries.length, 1, "repeated enterStage must not duplicate");
+  });
+
+  test("DiagnosticsCollector setStaleDiagnostic threads stale values into snapshot", () => {
+    const c = new jobDiag.DiagnosticsCollector({
+      workerMode: "poller_resume", attempt: 2, maxAttempts: 3,
+    });
+    c.setStaleDiagnostic({
+      reason: "no_heartbeat", heartbeatGapMs: 120_000, runningMs: 180_000, expectedMs: 90_000,
+    });
+    const snap = c.snapshot();
+    assertEq(snap.staleDiagnostic?.reason, "no_heartbeat", "stale reason");
+    assertEq(snap.staleDiagnostic?.heartbeatGapMs, 120_000, "heartbeat gap");
+  });
+
+  test("readDiagnostics tolerates legacy / missing result.diagnostics", () => {
+    assertEq(jobDiag.readDiagnostics(null), null, "null result");
+    assertEq(jobDiag.readDiagnostics({}), null, "no diagnostics key");
+    const v = jobDiag.readDiagnostics({ diagnostics: { failStage: "brief_analyze" } });
+    assert(v !== null, "shape with partial diagnostics");
+    assertEq(v!.failStage, "brief_analyze", "failStage survived");
+  });
+
+  test("inlineGenerate instantiates a DiagnosticsCollector and calls enterStage at every stage", () => {
+    // Regression guard — if anyone removes the stage annotations the
+    // diagnostic breadcrumbs would revert to "init" for every failure.
+    assert(
+      /new\s+DiagnosticsCollector\s*\(/.test(inlineGenForDiag),
+      "runInlineGeneration must instantiate DiagnosticsCollector at the top",
+    );
+    for (const stage of ["font_init", "mark_running", "brand_load", "brief_analyze", "pipeline_render", "rank_select", "s3_upload", "credit_deduction", "terminal_write"]) {
+      assert(
+        new RegExp(`diag\\.enterStage\\s*\\(\\s*"${stage}"`).test(inlineGenForDiag),
+        `inlineGenerate must call diag.enterStage("${stage}") — drift hides the true failStage in diagnostics`,
+      );
+    }
+  });
+
+  test("inlineGenerate persists diagnostics on both FAILED and COMPLETED writes", () => {
+    // Both success and failure paths must persist diagnostics so ops
+    // can compute stage-timing percentiles over successful runs too.
+    assert(
+      /status:\s*"COMPLETED"[\s\S]{0,800}diagnostics:\s*diag\.snapshot\(\)/.test(inlineGenForDiag),
+      "COMPLETED write must attach diagnostics (for stage-timing analytics on healthy runs)",
+    );
+    assert(
+      /status:\s*"FAILED"[\s\S]{0,800}diagnostics:\s*diagSnapshot/.test(inlineGenForDiag),
+      "FAILED write must attach the pre-caught snapshot so failStage reflects where the error fired",
+    );
+    assert(
+      /failStage:\s*diagSnapshot\.failStage/.test(inlineGenForDiag),
+      "FAILED write must surface failStage at the top level so admin queries can filter without unpacking the nested diagnostics blob",
+    );
+    assert(
+      /workerMode:\s*diagSnapshot\.workerMode/.test(inlineGenForDiag),
+      "FAILED write must surface workerMode at the top level for dashboard pivots",
+    );
+  });
+
+  test("inlineGenerate records OpenAI and render failures into the collector", () => {
+    assert(
+      /diag\.recordFailure\s*\(\s*"openai"/.test(inlineGenForDiag),
+      "brief_analyze catch must record openai failures into the collector",
+    );
+    assert(
+      /diag\.recordFailure\s*\(\s*kind/.test(inlineGenForDiag),
+      "per-variation render catch must classify openai vs render failures",
+    );
+    assert(
+      /diag\.recordFailure\s*\(\s*"storage"/.test(inlineGenForDiag),
+      "s3 upload catch must record storage failures",
+    );
+  });
+
+  test("durableRun tags workerMode on the params it dispatches", () => {
+    // Without this, every inline run would report workerMode:
+    // "fire_and_forget" regardless of the strategy that actually ran.
+    assert(
+      /workerMode:\s*params\.workerMode\s*\?\?\s*/.test(durableRunForDiag),
+      "durableRun must stamp workerMode on enriched params (preserving caller-supplied labels like 'retry' / 'poller_resume')",
+    );
+    assert(
+      /mkWork\(\s*"next_after"\s*\)/.test(durableRunForDiag) &&
+      /mkWork\(\s*"vercel_waitUntil"\s*\)/.test(durableRunForDiag) &&
+      /mkWork\(\s*"fire_and_forget"\s*\)/.test(durableRunForDiag),
+      "durableRun must invoke work factory with each of the three durability labels so the inline pipeline sees the correct label",
+    );
+  });
+
+  test("prepareRetry tags workerMode as 'retry' so diagnostics distinguish retry attempts", () => {
+    const jobRetrySrc2 = fs.readFileSync(
+      path.resolve("apps/arkiol-core/src/lib/jobRetry.ts"),
+      "utf-8",
+    );
+    assert(
+      /workerMode:\s*"retry"/.test(jobRetrySrc2),
+      "prepareRetry must stamp workerMode: 'retry' on the reconstructed params — otherwise retry success/failure rates can't be computed",
+    );
+  });
+
+  test("/api/jobs poller resume tags workerMode as 'poller_resume'", () => {
+    assert(
+      /workerMode:\s*"poller_resume"/.test(jobsRouteForDiag),
+      "poller auto-resume must tag workerMode so ops can correlate resume attempts with failure rates",
+    );
+  });
+
+  test("/api/jobs stale watchdog persists a diagnostics bundle with failStage=stale_watchdog", () => {
+    assert(
+      /failStage:\s*"stale_watchdog"/.test(jobsRouteForDiag),
+      "stale watchdog must write failStage: 'stale_watchdog' for dashboard pivots",
+    );
+    assert(
+      /staleDiagnostic:\s*\{/.test(jobsRouteForDiag),
+      "stale watchdog must write a staleDiagnostic block carrying reason + gaps",
+    );
+    assert(
+      /diagnostics:\s*\{/.test(jobsRouteForDiag),
+      "stale watchdog must persist a full diagnostics bundle, not just the stale breadcrumbs",
+    );
+  });
+
+  test("/api/admin/failures returns rows with diagnostics and a totals histogram", () => {
+    assert(
+      /export\s+const\s+GET\s*=/.test(failuresRouteSrc),
+      "failures endpoint must export a GET handler",
+    );
+    assert(
+      /status:\s*"FAILED"/.test(failuresRouteSrc),
+      "failures endpoint must filter Prisma to status=FAILED",
+    );
+    assert(
+      /readDiagnostics\s*\(/.test(failuresRouteSrc),
+      "failures endpoint must normalize rows through readDiagnostics",
+    );
+    assert(
+      /byStage/.test(failuresRouteSrc) && /byReason/.test(failuresRouteSrc) && /byWorkerMode/.test(failuresRouteSrc),
+      "failures endpoint must return the three histogram pivots so dashboards don't re-tally client-side",
+    );
+    assert(
+      /\["SUPER_ADMIN",\s*"ADMIN"\]/.test(failuresRouteSrc),
+      "failures endpoint must gate on SUPER_ADMIN or ADMIN — diagnostics expose internal stage info",
+    );
+  });
+
+  test("/api/admin/failures supports stage + reason + workerMode filters", () => {
+    for (const param of ["stage", "reason", "workerMode"]) {
+      assert(
+        new RegExp(`searchParams\\.get\\(\\s*["']${param}["']`).test(failuresRouteSrc),
+        `failures endpoint must read the "${param}" query parameter so the dashboard filters round-trip to the server`,
+      );
+    }
+  });
+
+  test("AdminOpsDashboard adds a Failures tab that fetches /api/admin/failures", () => {
+    assert(
+      /id:\s*'failures'/.test(adminDashSrc),
+      "AdminOpsDashboard TABS must include a 'failures' tab",
+    );
+    assert(
+      /\/api\/admin\/failures/.test(adminDashSrc),
+      "AdminOpsDashboard must fetch /api/admin/failures",
+    );
+    assert(
+      /failStage/.test(adminDashSrc) && /workerMode/.test(adminDashSrc),
+      "AdminOpsDashboard must surface failStage + workerMode in its failure cards",
+    );
+    assert(
+      /FailureCounter/.test(adminDashSrc),
+      "AdminOpsDashboard must render per-class (openai/render/storage) counters via a FailureCounter helper",
+    );
+  });
+
   section("background worker · per-attempt UX invariants");
 
   // Second round of hang-prevention fixes after the first fix left the
