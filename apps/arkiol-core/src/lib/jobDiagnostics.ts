@@ -219,7 +219,7 @@ export function readDiagnostics(result: unknown): JobDiagnostics | null {
   const d = (result as Record<string, unknown>).diagnostics;
   if (!d || typeof d !== "object") return null;
   const raw = d as Record<string, unknown>;
-  const stages = Array.isArray(raw.stages) ? raw.stages.map(s => ({
+  const stages = Array.isArray(raw.stages) ? (raw.stages as unknown[]).map((s: unknown) => ({
     stage:      String((s as any)?.stage ?? "unknown") as JobFailStage,
     enteredAt:  Number((s as any)?.enteredAt ?? 0),
     durationMs: (s as any)?.durationMs == null ? null : Number((s as any).durationMs),

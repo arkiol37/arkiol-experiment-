@@ -71,7 +71,40 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Map + filter in memory — these are capped to `limit` rows, so the
   // extra client-side pass is negligible and keeps the Prisma query
   // simple (the result JSON shape varies across rows).
-  const failures = rows.map(r => {
+  //
+  // Row + Failure types declared explicitly because noImplicitAny
+  // doesn't infer through Prisma's generated generics in CI builds.
+  interface PrismaFailureRow {
+    id:          string;
+    type:        string;
+    userId:      string;
+    orgId:       string;
+    createdAt:   Date;
+    startedAt:   Date | null;
+    failedAt:    Date | null;
+    attempts:    number;
+    maxAttempts: number;
+    result:      unknown;
+  }
+  interface FailureView {
+    id:          string;
+    type:        string;
+    userId:      string;
+    orgId:       string;
+    createdAt:   Date;
+    startedAt:   Date | null;
+    failedAt:    Date | null;
+    attempts:    number;
+    maxAttempts: number;
+    error:       string | null;
+    failReason:  string;
+    failStage:   string;
+    elapsedMs:   number;
+    workerMode:  string;
+    diagnostics: ReturnType<typeof readDiagnostics>;
+  }
+
+  const failures: FailureView[] = (rows as PrismaFailureRow[]).map((r: PrismaFailureRow): FailureView => {
     const res = (r.result ?? {}) as Record<string, unknown>;
     const diag = readDiagnostics(res);
     return {
@@ -91,7 +124,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       workerMode:  (res.workerMode as string) ?? diag?.workerMode ?? "fire_and_forget",
       diagnostics: diag,
     };
-  }).filter(f => {
+  }).filter((f: FailureView) => {
     if (stageFilter  && f.failStage  !== stageFilter)  return false;
     if (reasonFilter && f.failReason !== reasonFilter) return false;
     if (workerFilter && f.workerMode !== workerFilter) return false;
@@ -101,7 +134,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // Stage / reason / worker-mode histograms over the filtered window.
   // Surfaced so the dashboard can render "N failures broken down by
   // stage" without a second round-trip.
-  const tally = (items: typeof failures, pick: (f: typeof failures[number]) => string) => {
+  const tally = (items: FailureView[], pick: (f: FailureView) => string): Record<string, number> => {
     const out: Record<string, number> = {};
     for (const f of items) out[pick(f)] = (out[pick(f)] ?? 0) + 1;
     return out;
