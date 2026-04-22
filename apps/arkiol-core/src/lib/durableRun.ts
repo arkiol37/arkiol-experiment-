@@ -67,10 +67,20 @@ function tryNextAfter(work: () => Promise<void>): boolean {
 }
 
 /** Try @vercel/functions waitUntil. Not a hard dep — present on Vercel
- *  deploys, absent in CI / local tests. */
+ *  deploys, absent in CI / local tests.
+ *
+ *  We resolve the module name through an indirect binding so webpack's
+ *  static analyser can't trace the import. Without this indirection,
+ *  production builds emit a noisy "Module not found: '@vercel/functions'"
+ *  warning on every deploy, because webpack doesn't know the package
+ *  will be present at runtime. The try/catch still catches the real
+ *  "module not found" at execution time when the package genuinely
+ *  isn't installed. */
 function tryVercelWaitUntil(work: () => Promise<void>): boolean {
   try {
-    const mod = require("@vercel/functions") as Record<string, unknown>;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const req: NodeRequire = eval("require");
+    const mod = req("@vercel/functions") as Record<string, unknown>;
     if (typeof mod.waitUntil === "function") {
       (mod.waitUntil as (p: Promise<unknown>) => void)(work());
       return true;

@@ -2712,13 +2712,24 @@ async function run() {
   });
 
   test("durableRun falls back to @vercel/functions waitUntil when Next.js after is missing", () => {
+    // The require must be hidden from webpack's static analysis
+    // (via eval('require') indirection) so production builds don't
+    // emit a noisy "Module not found" warning, but the literal
+    // module name must still be present in source for runtime
+    // resolution on Vercel. Either require() form is accepted.
     assert(
-      /require\s*\(\s*["']@vercel\/functions["']\s*\)/.test(durableRunSrc),
-      "durableRun must attempt to require('@vercel/functions') so raw waitUntil is still available",
+      /["']@vercel\/functions["']/.test(durableRunSrc),
+      "durableRun must reference the '@vercel/functions' module by name somewhere in source",
     );
     assert(
       /\bwaitUntil\b/.test(durableRunSrc),
       "durableRun must reference the waitUntil primitive",
+    );
+    // The webpack-build-silencing indirection must not regress.
+    assert(
+      /eval\s*\(\s*["']require["']\s*\)/.test(durableRunSrc) ||
+      /require\s*\(\s*["']@vercel\/functions["']\s*\)/.test(durableRunSrc),
+      "durableRun must either use eval('require') indirection (preferred — silences webpack) or a plain require('@vercel/functions')",
     );
   });
 
