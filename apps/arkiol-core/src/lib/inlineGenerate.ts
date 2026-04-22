@@ -34,7 +34,7 @@ import { detectCapabilities } from "@arkiol/shared";
 import { tagError, extractReason } from "./jobErrorFormat";
 import { DiagnosticsCollector, type JobFailStage, type WorkerMode } from "./jobDiagnostics";
 import { userStageForDiagStage, USER_STAGE_LABEL } from "./generationStages";
-import { detectSafeMode, resolveRuntimeLimits } from "./safeMode";
+import { detectSafeMode, resolveRuntimeLimits, resolveTimeBudgetMs } from "./safeMode";
 
 export interface InlineGenerateParams {
   jobId: string;
@@ -364,9 +364,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // and leave the DB job stuck in RUNNING — producing the "generating
     // forever / 30-minute hang" symptom the user reported.
     //
-    // 240s budget leaves ~60s of headroom for: S3 uploads, Prisma
-    // writes, credit deduction, and the final job.update(COMPLETED).
-    const GENERATION_BUDGET_MS = 240_000;
+    // Non-safe mode: 240s budget, leaves ~60s headroom for uploads.
+    // Safe mode (Vercel default): 180s budget, leaves ~120s headroom
+    // — enough cushion for cold-start recovery + S3 uploads + final
+    // writes even when sharp's libvips is contending for CPU. See
+    // resolveTimeBudgetMs() in lib/safeMode.ts.
+    const GENERATION_BUDGET_MS = resolveTimeBudgetMs(safeVerdict.safeMode);
     const startedAt = Date.now();
     const deadlineAt = startedAt + GENERATION_BUDGET_MS;
     const timeLeft = () => Math.max(0, deadlineAt - Date.now());

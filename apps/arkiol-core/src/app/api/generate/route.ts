@@ -19,6 +19,7 @@ import { isFounderEmail } from "../../../lib/ownerAccess";
 import { rateLimit, rateLimitHeaders }    from "../../../lib/rate-limit";
 import { generationQueue }  from "../../../lib/queue";
 import { durableRunInlineGeneration } from "../../../lib/durableRun";
+import { detectSafeMode } from "../../../lib/safeMode";
 import { withErrorHandling, dbUnavailable, aiUnavailable, authUnavailable } from "../../../lib/error-handling";
 import { ApiError, getCreditCost, GIF_ELIGIBLE_FORMATS } from "../../../lib/types";
 import {
@@ -347,46 +348,53 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // the background. Blocking here would blow past Vercel's proxy
   // timeout and surface as "Generation failed" in the UI even though
   // the job is still progressing in the DB.
+  // ── Queue dispatch (skipped in safe mode) ─────────────────────────────────
   // The queue path is a PERFORMANCE optimisation, not a correctness
-  // guarantee. If BullMQ is configured we enqueue the job so a
-  // dedicated long-lived worker can claim it first (faster cold-start,
-  // parallelism), but we also ALWAYS fire the inline durable dispatch
-  // — Vercel's `unstable_after` / `waitUntil` keeps the serverless
-  // container alive past response-flush, so the inline path can claim
-  // the job too. Whichever reaches runInlineGeneration first wins the
-  // atomic `startedAt=null → startedAt=new Date()` claim in
+  // guarantee. If BullMQ is configured AND we're not in safe mode, we
+  // enqueue the job so a dedicated long-lived worker can claim it
+  // first (faster cold-start, parallelism). We also ALWAYS fire the
+  // inline durable dispatch below — Vercel's `unstable_after` /
+  // `waitUntil` keeps the serverless container alive past
+  // response-flush, so the inline path can claim the job too.
+  // Whichever reaches runInlineGeneration first wins the atomic
+  // `startedAt=null → startedAt=new Date()` claim in
   // inlineGenerate.ts; the loser sees `count === 0` and bails.
   //
-  // Before this double-dispatch, production jobs would stall
-  // indefinitely when BullMQ reported workers as registered (via
-  // getWorkers()) but the worker process was actually not consuming
-  // jobs — common on Vercel where REDIS_HOST is set but no external
-  // worker service is running. The stale watchdog only flipped them
-  // to FAILED after ~4.5 minutes, producing the "Worker stalled:
-  // Generation never started" user-facing error.
+  // SAFE MODE: skip the queue.add() call entirely. On Vercel-only
+  // deploys (or any deploy where ARKIOL_SAFE_MODE=1 or the queue is
+  // unavailable), `getWorkers()` reporting registered-but-dead workers
+  // would just confuse the durability story. Going inline-only
+  // collapses the dispatch surface to one path that we know works
+  // under serverless constraints. The user can opt back into the
+  // queue path on a Vercel deploy by setting
+  // ARKIOL_DISABLE_VERCEL_SAFE_MODE=1 (only do this when a real
+  // dedicated worker service is running elsewhere).
+  const earlySafe = detectSafeMode(undefined).safeMode;
   let queued = false;
-  try {
-    if (detectCapabilities().queue) {
-      await generationQueue.add(
-        "generate",
-        { ...(job.payload as object), jobId: job.id },
-        {
-          jobId:    job.id,
-          attempts: 3,
-          backoff:  { type: "exponential", delay: 3000 },
-          removeOnComplete: { count: 100 },
-          removeOnFail:     false,
+  if (!earlySafe) {
+    try {
+      if (detectCapabilities().queue) {
+        await generationQueue.add(
+          "generate",
+          { ...(job.payload as object), jobId: job.id },
+          {
+            jobId:    job.id,
+            attempts: 3,
+            backoff:  { type: "exponential", delay: 3000 },
+            removeOnComplete: { count: 100 },
+            removeOnFail:     false,
+          }
+        );
+        try {
+          const workers = await generationQueue.getWorkers?.() ?? [];
+          queued = workers.length > 0;
+        } catch {
+          queued = false;
         }
-      );
-      try {
-        const workers = await generationQueue.getWorkers?.() ?? [];
-        queued = workers.length > 0;
-      } catch {
-        queued = false;
       }
+    } catch {
+      queued = false;
     }
-  } catch {
-    queued = false;
   }
 
   // Inline dispatch — ALWAYS runs. durableRunInlineGeneration uses the

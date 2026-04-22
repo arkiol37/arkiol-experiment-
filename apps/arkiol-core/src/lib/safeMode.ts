@@ -49,6 +49,7 @@ export interface SafeModeVerdict {
     | "env_var"           // ARKIOL_SAFE_MODE=1
     | "no_queue"          // no BullMQ capability
     | "fire_and_forget"   // weakest durability tier active
+    | "vercel"            // running on Vercel (process.env.VERCEL=1)
   >;
 }
 
@@ -63,7 +64,26 @@ export function detectSafeMode(workerMode: WorkerMode | undefined): SafeModeVerd
     reasons.push("env_var");
   }
 
-  // (2) No BullMQ capability — means no long-lived worker is available
+  // (2) Vercel deployment marker. Production failures showed that
+  // even with all the heartbeat + concurrency fixes in place,
+  // Vercel's serverless containers can be killed mid-render under
+  // heavy load. Treating Vercel as a safe-mode trigger means the
+  // platform automatically gets the conservative profile (sequential
+  // renders, no over-generation, tighter time budget) regardless of
+  // whether queue capability happens to be configured. The override
+  // path is still available: a deploy that knows it has a real
+  // dedicated worker can flip ARKIOL_DISABLE_VERCEL_SAFE_MODE=1 to
+  // opt out.
+  const isVercel =
+    (process.env.VERCEL ?? "") === "1" ||
+    (process.env.VERCEL_ENV ?? "") !== "";
+  const vercelOptOut =
+    (process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE ?? "").trim() === "1";
+  if (isVercel && !vercelOptOut) {
+    reasons.push("vercel");
+  }
+
+  // (3) No BullMQ capability — means no long-lived worker is available
   // to absorb heavy work; every request runs the inline path.
   //
   // `detectCapabilities` is lazy-required so this module can also be
@@ -75,7 +95,7 @@ export function detectSafeMode(workerMode: WorkerMode | undefined): SafeModeVerd
     if (!detectCapabilities().queue) reasons.push("no_queue");
   } catch { /* capability probe failed — assume safe */ reasons.push("no_queue"); }
 
-  // (3) Weakest durability tier. next_after and vercel_waitUntil keep
+  // (4) Weakest durability tier. next_after and vercel_waitUntil keep
   // the container alive past response-flush; fire_and_forget doesn't.
   if (workerMode === "fire_and_forget") {
     reasons.push("fire_and_forget");
@@ -98,19 +118,21 @@ export function resolveRuntimeLimits(opts: {
   const v = Math.max(1, opts.totalVariations);
   if (opts.safeMode) {
     return {
-      // 2 concurrent sharps keep libvips + the main-thread pulse
-      // breathing room even on cold-start-heavy serverless
-      // containers. Any higher and we re-introduce the main-thread
-      // starvation symptoms from earlier steps.
-      concurrency: 2,
-      // `v + 1` attempts — one headroom for rejection-and-retry on
-      // top of every requested variation. Capped at 10 to match the
-      // non-safe ceiling; floored at 3 so a single-variation request
-      // still gets real over-generation. Gives ~30% fewer attempts
-      // than non-safe mode at v=3 (4 vs 6) and ~50% fewer at v=6
-      // (7 vs 10), while always covering every variation at least
-      // once.
-      maxAttempts: Math.min(Math.max(v + 1, 3), 10),
+      // Sequential renders (concurrency 1) eliminate the libvips
+      // worker-pool saturation that has been the root cause of the
+      // recurring "no worker heartbeat for 91s" failures on Vercel.
+      // Yes, this is slower; the trade is a job that ALWAYS finishes
+      // vs a faster job that sometimes gets killed mid-render.
+      concurrency: 1,
+      // Exactly `v` attempts — no over-generation. The pipeline's
+      // floor-fill path (already in inlineGenerate) handles the
+      // rare case where some attempts get rejected by the quality
+      // gate, by promoting the strongest rejected candidates into
+      // the gallery. Floored at 2 so even single-variation requests
+      // get one retry attempt. Capped at 6 so the worst case
+      // (6 sequential renders × ~30s each) still finishes inside
+      // the safe-mode time budget.
+      maxAttempts: Math.min(Math.max(v, 2), 6),
     };
   }
   // Non-safe (queue-backed) profile — prior generation budget.
@@ -118,4 +140,12 @@ export function resolveRuntimeLimits(opts: {
     concurrency: Math.min(4, v + 1),
     maxAttempts: Math.min(Math.max(v * 2, v + 3), 10),
   };
+}
+
+/** Time budget the inline pipeline gives itself before it stops
+ *  launching new attempts. Safe mode shaves the budget so we leave
+ *  more headroom inside Vercel's 300s maxDuration — a partial-result
+ *  job is better than a SIGKILL'd one. */
+export function resolveTimeBudgetMs(safeMode: boolean): number {
+  return safeMode ? 180_000 : 240_000;
 }

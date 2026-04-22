@@ -3249,13 +3249,15 @@ async function run() {
     } finally { process.env.ARKIOL_SAFE_MODE = prev; }
   });
 
-  test("resolveRuntimeLimits caps safe-mode concurrency at 2 regardless of variations", () => {
-    // The whole point of safe-mode concurrency is keeping sharp's
-    // libvips pool unsaturated — that's a fixed-size pool, so safe
-    // concurrency must be a constant, not a function of variations.
+  test("resolveRuntimeLimits forces sequential renders in safe mode (concurrency = 1)", () => {
+    // Step 2 tightening: safe mode now uses concurrency=1
+    // (sequential renders) to fully eliminate libvips worker-pool
+    // contention. The trade is throughput for reliability — a job
+    // that ALWAYS finishes vs a faster job that sometimes gets
+    // killed mid-render. Must be a constant, not a function of v.
     for (const v of [1, 3, 6, 9, 12]) {
       const r = resolveRuntimeLimits({ safeMode: true, totalVariations: v });
-      assertEq(r.concurrency, 2, `safe-mode concurrency at ${v} variations must be 2`);
+      assertEq(r.concurrency, 1, `safe-mode concurrency at ${v} variations must be 1 (sequential)`);
     }
   });
 
@@ -3417,6 +3419,143 @@ async function run() {
     );
   });
 
+  section("vercel-safe-mode · platform-aware reliability");
+
+  // Step 2 hardening: even with reduced concurrency + intra-stage
+  // pulses, Vercel deploys were still showing "no worker heartbeat
+  // for 91s" mid-render. The fix is to treat Vercel itself as a
+  // safe-mode trigger (so the platform automatically gets sequential
+  // renders + a tighter time budget) AND to skip the queue.add()
+  // call entirely when in safe mode (so phantom worker registrations
+  // can't ghost the job). These tests pin both contracts.
+  const generateRouteForVercel = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/generate/route.ts"),
+    "utf-8",
+  );
+
+  test("detectSafeMode treats VERCEL=1 as a safe-mode trigger", () => {
+    const prevVercel    = process.env.VERCEL;
+    const prevVercelEnv = process.env.VERCEL_ENV;
+    const prevSafe      = process.env.ARKIOL_SAFE_MODE;
+    const prevOptOut    = process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE;
+    delete process.env.ARKIOL_SAFE_MODE;
+    delete process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE;
+    try {
+      process.env.VERCEL = "1";
+      delete process.env.VERCEL_ENV;
+      const v = detectSafeMode("queue");
+      assertEq(v.safeMode, true, "VERCEL=1 must trigger safe mode even when worker mode is queue");
+      assert(v.reasons.includes("vercel"), "reasons must include 'vercel'");
+
+      // VERCEL_ENV (preview/production) is also a valid signal —
+      // covers cases where VERCEL itself isn't set but the platform
+      // marker still leaks through.
+      delete process.env.VERCEL;
+      process.env.VERCEL_ENV = "production";
+      const v2 = detectSafeMode("queue");
+      assertEq(v2.safeMode, true, "VERCEL_ENV must also trigger safe mode");
+      assert(v2.reasons.includes("vercel"), "reasons must include 'vercel' from VERCEL_ENV");
+    } finally {
+      process.env.VERCEL     = prevVercel;
+      process.env.VERCEL_ENV = prevVercelEnv;
+      process.env.ARKIOL_SAFE_MODE = prevSafe;
+      process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE = prevOptOut;
+    }
+  });
+
+  test("ARKIOL_DISABLE_VERCEL_SAFE_MODE=1 lets a confirmed-worker deploy opt out", () => {
+    const prevVercel    = process.env.VERCEL;
+    const prevSafe      = process.env.ARKIOL_SAFE_MODE;
+    const prevOptOut    = process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE;
+    delete process.env.ARKIOL_SAFE_MODE;
+    try {
+      process.env.VERCEL = "1";
+      process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE = "1";
+      const v = detectSafeMode("queue");
+      // Vercel reason must be absent when the opt-out is set; other
+      // triggers (no_queue) might still fire though. The contract
+      // is just that the explicit opt-out removes the vercel
+      // trigger.
+      assert(
+        !v.reasons.includes("vercel"),
+        "ARKIOL_DISABLE_VERCEL_SAFE_MODE=1 must remove the 'vercel' reason from the verdict",
+      );
+    } finally {
+      process.env.VERCEL = prevVercel;
+      process.env.ARKIOL_SAFE_MODE = prevSafe;
+      process.env.ARKIOL_DISABLE_VERCEL_SAFE_MODE = prevOptOut;
+    }
+  });
+
+  test("resolveTimeBudgetMs returns a tighter budget in safe mode", () => {
+    const { resolveTimeBudgetMs } = require("../apps/arkiol-core/src/lib/safeMode");
+    const non  = resolveTimeBudgetMs(false);
+    const safe = resolveTimeBudgetMs(true);
+    assert(safe < non, `safe budget (${safe}) must be < non-safe (${non})`);
+    assert(safe >= 120_000, `safe budget must be >= 120s, got ${safe}`);
+    assert(non >= 200_000 && non <= 270_000, `non-safe budget must be 200-270s, got ${non}`);
+  });
+
+  test("safe mode pipeline runs sequential (concurrency=1) with minimal over-generation", () => {
+    const { resolveRuntimeLimits } = require("../apps/arkiol-core/src/lib/safeMode");
+    // The whole point of Step 2: in safe mode, EVERY size of
+    // request runs single-threaded with no real fan-out. The only
+    // exception is single-variation requests which get a 2-attempt
+    // floor (one retry) so a flaky first attempt isn't fatal.
+    for (const v of [1, 2, 3, 4, 5, 6]) {
+      const r = resolveRuntimeLimits({ safeMode: true, totalVariations: v });
+      assertEq(r.concurrency, 1, `safe-mode concurrency for v=${v} must be 1`);
+      // No real over-generation: maxAttempts equals v exactly,
+      // except for the v=1 floor case which gets 2 attempts.
+      const expected = Math.max(v, 2);
+      assertEq(
+        r.maxAttempts,
+        expected,
+        `safe-mode maxAttempts for v=${v} must be exactly ${expected} (no over-generation, v=1 floor)`,
+      );
+    }
+  });
+
+  test("/api/generate skips queue.add() when in safe mode", () => {
+    // The queue path was the source of multiple production
+    // failures: phantom workers, double-fire confusion, jobs
+    // sitting in Redis waiting for a non-existent consumer. In
+    // safe mode we collapse to inline-only.
+    assert(
+      /detectSafeMode\s*\(/.test(generateRouteForVercel),
+      "/api/generate must call detectSafeMode() to know the runtime profile",
+    );
+    assert(
+      /earlySafe/.test(generateRouteForVercel) || /safeMode\b/.test(generateRouteForVercel),
+      "/api/generate must capture the safe-mode verdict in a local variable",
+    );
+    // The queue.add() must be guarded by `if (!earlySafe)` (or
+    // equivalent) so safe-mode runs never enqueue.
+    assert(
+      /if\s*\(\s*!\s*earlySafe\s*\)\s*\{[\s\S]{0,1000}generationQueue\.add/.test(generateRouteForVercel),
+      "generationQueue.add must be guarded by `if (!earlySafe)` so safe-mode runs never enqueue (avoiding phantom worker confusion)",
+    );
+  });
+
+  test("/api/generate still always dispatches the inline runner regardless of safe mode", () => {
+    // The Step 1 contract — durableRunInlineGeneration must be
+    // unconditional — is preserved. Safe mode only skips the
+    // queue.add() call, not the inline dispatch.
+    const callCount = (generateRouteForVercel.match(/durableRunInlineGeneration\s*\(/g) ?? []).length;
+    assertEq(callCount, 1, "durableRunInlineGeneration must still be called exactly once, unconditionally");
+  });
+
+  test("inlineGenerate sources the time budget from resolveTimeBudgetMs", () => {
+    const src = fs.readFileSync(
+      path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+      "utf-8",
+    );
+    assert(
+      /GENERATION_BUDGET_MS\s*=\s*resolveTimeBudgetMs\s*\(\s*safeVerdict\.safeMode\s*\)/.test(src),
+      "inlineGenerate must source GENERATION_BUDGET_MS from resolveTimeBudgetMs(safeVerdict.safeMode)",
+    );
+  });
+
   section("heartbeat-reliability · cpu-starvation guards");
 
   // Defends the production fix for "Generation stalled — no worker
@@ -3546,8 +3685,8 @@ async function run() {
         `safe-mode concurrency (${safe.concurrency}) must not exceed non-safe (${non.concurrency}) for ${v} variations`,
       );
       assert(
-        safe.concurrency >= 2,
-        `safe-mode concurrency must be >= 2 so single stuck attempts don't serialize the run, got ${safe.concurrency}`,
+        safe.concurrency >= 1,
+        `safe-mode concurrency must be >= 1 (Step 2 allows fully sequential renders), got ${safe.concurrency}`,
       );
     }
     // And the pipeline still references the resolver's output as its
@@ -3612,13 +3751,28 @@ async function run() {
     );
   });
 
-  test("inline worker declares an explicit generation time budget", () => {
-    const m = inlineGenSrc.match(/GENERATION_BUDGET_MS\s*=\s*([\d_]+)/);
-    assert(m, "runInlineGeneration must declare GENERATION_BUDGET_MS");
-    const ms = Number(m![1].replace(/_/g, ""));
+  test("inline worker declares an explicit generation time budget (via safe-mode helper)", () => {
+    // GENERATION_BUDGET_MS is now sourced from
+    // resolveTimeBudgetMs(safeMode) so safe-mode jobs get a tighter
+    // budget. Pin both branches.
     assert(
-      ms > 0 && ms <= 270_000,
-      `GENERATION_BUDGET_MS must be <= 270000 (< maxDuration=300s with headroom), got ${ms}`,
+      /GENERATION_BUDGET_MS\s*=\s*resolveTimeBudgetMs\s*\(/.test(inlineGenSrc),
+      "GENERATION_BUDGET_MS must be sourced from resolveTimeBudgetMs(safeVerdict.safeMode)",
+    );
+    const { resolveTimeBudgetMs } = require("../apps/arkiol-core/src/lib/safeMode");
+    const non  = resolveTimeBudgetMs(false);
+    const safe = resolveTimeBudgetMs(true);
+    assert(
+      non > 0 && non <= 270_000,
+      `non-safe budget must be <= 270000 (< maxDuration=300s), got ${non}`,
+    );
+    assert(
+      safe > 0 && safe < non,
+      `safe-mode budget (${safe}) must be strictly less than non-safe (${non}) so safe runs leave more cushion`,
+    );
+    assert(
+      safe >= 120_000,
+      `safe-mode budget must be >= 120s so multi-attempt sequential renders still have time, got ${safe}`,
     );
   });
 
@@ -3656,12 +3810,23 @@ async function run() {
         `non-safe MAX_ATTEMPTS for ${v} variations must be <= 12, got ${non.maxAttempts}`,
       );
       assert(
-        safe.maxAttempts <= 10 && safe.maxAttempts <= non.maxAttempts,
-        `safe-mode MAX_ATTEMPTS (${safe.maxAttempts}) must be <= 10 AND <= non-safe (${non.maxAttempts}) for ${v} variations`,
+        safe.maxAttempts <= 6 && safe.maxAttempts <= non.maxAttempts,
+        `safe-mode MAX_ATTEMPTS (${safe.maxAttempts}) must be <= 6 AND <= non-safe (${non.maxAttempts}) for ${v} variations`,
+      );
+      // Step 2 trade-off: at v > 6 the safe-mode cap (6) is below
+      // the requested variation count. The pipeline's floor-fill
+      // path (which promotes the strongest rejected candidates into
+      // the gallery) handles this — better to ship 6 sequential
+      // attempts and floor-fill than to launch a 9-attempt parallel
+      // batch that gets killed mid-render.
+      const expectedFloor = Math.min(v, 6);
+      assert(
+        safe.maxAttempts >= Math.min(v, 2),
+        `safe-mode MAX_ATTEMPTS must allow at least ${Math.min(v, 2)} attempts for ${v} variations, got ${safe.maxAttempts}`,
       );
       assert(
-        safe.maxAttempts >= v,
-        `safe-mode MAX_ATTEMPTS must cover every requested variation (>= ${v}), got ${safe.maxAttempts}`,
+        safe.maxAttempts >= expectedFloor || v > 6,
+        `safe-mode MAX_ATTEMPTS for ${v} variations must be >= ${expectedFloor} (or v > 6 where floor-fill takes over), got ${safe.maxAttempts}`,
       );
     }
     // Pipeline must source MAX_ATTEMPTS from the resolver.
