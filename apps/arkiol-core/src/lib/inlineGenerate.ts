@@ -32,7 +32,8 @@ import "server-only";
 import { prisma } from "./prisma";
 import { detectCapabilities } from "@arkiol/shared";
 import { tagError, extractReason } from "./jobErrorFormat";
-import { DiagnosticsCollector, type WorkerMode } from "./jobDiagnostics";
+import { DiagnosticsCollector, type JobFailStage, type WorkerMode } from "./jobDiagnostics";
+import { userStageForDiagStage, USER_STAGE_LABEL } from "./generationStages";
 
 export interface InlineGenerateParams {
   jobId: string;
@@ -135,16 +136,53 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
   };
 
-  // Combined stage-transition + pulse helper. Every enterStage() call
-  // now also bumps the DB row's updatedAt so even if the periodic
-  // setInterval is starved (main thread pinned by sharp / libvips),
-  // stage boundaries alone keep the backend heartbeat watchdog
-  // satisfied. The progress arg is optional — if provided it
-  // monotonically advances currentProgress; if omitted the pulse just
-  // rolls updatedAt forward at the same progress value.
-  const stage = async (name: Parameters<typeof diag.enterStage>[0], progress?: number): Promise<void> => {
+  // In-memory snapshot of the job row's `result` JSONB that we own
+  // during this run. Stage transitions merge new fields (progressStage,
+  // progressLabel) into this object and write the whole blob via
+  // prisma.update. Terminal writes (COMPLETED / FAILED) construct
+  // their own result objects and replace whatever's here. Initialized
+  // from the current row so retry-breadcrumbs (retryFromReason /
+  // previousAttempts) written by prepareRetry survive into this
+  // attempt's diagnostics.
+  let resultCtx: Record<string, unknown> = { inlineGenerated: true };
+  try {
+    const fresh = await prisma.job.findUnique({ where: { id: jobId }, select: { result: true } });
+    if (fresh?.result && typeof fresh.result === "object") {
+      resultCtx = { ...(fresh.result as Record<string, unknown>), inlineGenerated: true };
+    }
+  } catch { /* best effort — pipeline continues with the default ctx */ }
+
+  // Combined stage-transition + pulse + user-facing label helper.
+  // Every enterStage() call now:
+  //   (a) advances the diagnostic stage (ops telemetry)
+  //   (b) derives + writes the user-facing `progressStage` +
+  //       `progressLabel` to `job.result` so the UI can render e.g.
+  //       "Building layout" without guessing from the progress %
+  //   (c) pulses the row's updatedAt to keep the backend heartbeat
+  //       watchdog happy.
+  // The progress arg is optional — if provided it monotonically
+  // advances currentProgress; if omitted the write just rolls
+  // updatedAt forward at the same progress value.
+  const stage = async (name: JobFailStage, progress?: number): Promise<void> => {
     diag.enterStage(name);
-    await pulse(progress);
+    const userStage = userStageForDiagStage(name);
+    resultCtx = {
+      ...resultCtx,
+      progressStage: userStage,
+      progressLabel: USER_STAGE_LABEL[userStage],
+    };
+    if (typeof progress === "number" && progress > currentProgress) {
+      currentProgress = Math.min(100, progress);
+    }
+    try {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          progress: currentProgress,
+          result:   resultCtx as any,
+        },
+      });
+    } catch { /* best effort — never kill the pipeline over a DB hiccup */ }
   };
 
   // Yields the Node event loop so any pending pulse / setInterval
@@ -990,6 +1028,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           format,
           width:           lastResult?.width,
           height:          lastResult?.height,
+          // Persist the terminal user-facing stage alongside the
+          // diagnostics bundle so a job's last-seen progressStage is
+          // always queryable, regardless of whether it completed or
+          // failed.
+          progressStage:   "finalizing",
+          progressLabel:   USER_STAGE_LABEL.finalizing,
           diagnostics:     diag.snapshot(),
         } as any,
       },
@@ -1019,6 +1063,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // "terminal_write". That single field makes ops queries like
     // "which stage produces the most failures" possible.
     const diagSnapshot = diag.snapshot();
+    // Derive the user-facing stage from the diagnostic failStage so
+    // the UI can show "Generation failed during: Building layout"
+    // instead of a blank or technical label.
+    const failUserStage = userStageForDiagStage(diagSnapshot.failStage);
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -1031,6 +1079,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           elapsedMs:       diagSnapshot.elapsedMs,
           workerMode:      diagSnapshot.workerMode,
           inlineGenerated: true,
+          // Last-known user-facing stage when the error fired. Useful
+          // both in the dashboard's failure cards and on the
+          // user-visible retry prompt.
+          progressStage:   failUserStage,
+          progressLabel:   USER_STAGE_LABEL[failUserStage],
           diagnostics:     diagSnapshot,
         } as any,
       },

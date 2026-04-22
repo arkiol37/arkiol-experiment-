@@ -273,6 +273,16 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         })
       : null;
 
+    // Pull the current user-facing stage breadcrumbs off the job's
+    // result JSONB so RUNNING jobs expose the stage the inline
+    // pipeline last transitioned into. The inline pipeline writes
+    // progressStage / progressLabel on every stage() helper call —
+    // surfacing them here lets the UI render "Building layout" /
+    // "Applying assets" instead of guessing from progress %.
+    const rawResult = (job.result ?? {}) as Record<string, unknown>;
+    const progressStage = (rawResult.progressStage as string) ?? null;
+    const progressLabel = (rawResult.progressLabel as string) ?? null;
+
     return NextResponse.json({
       job: {
         id:          job.id,
@@ -281,6 +291,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         progress:    job.progress,
         attempts:    job.attempts,
         maxAttempts: job.maxAttempts,
+        // Top-level user-facing stage so the UI never has to unpack
+        // job.result to learn what the worker is doing right now.
+        progressStage,
+        progressLabel,
         result:      job.status === "COMPLETED" ? {
           assetCount:  assetsWithUrls.length,
           creditCost:  (job.result as any)?.creditCost ?? 0,
@@ -289,6 +303,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
           format:      (job.result as any)?.format      ?? null,
           fileSize:    (job.result as any)?.fileSize     ?? null,
           assets:      assetsWithUrls,
+          progressStage,
+          progressLabel,
         } : (failedDisplay ? {
           // Raw fields for clients that want to re-format themselves.
           error:      (job.result as any)?.error ?? failedDisplay.message,
@@ -298,6 +314,8 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
           title:      failedDisplay.title,
           message:    failedDisplay.message,
           retryable:  failedDisplay.retryable,
+          progressStage,
+          progressLabel,
         } : null),
         // Top-level `error` is kept for backward compatibility with
         // EditorShell + AnimationStudioView which read `job.error`.

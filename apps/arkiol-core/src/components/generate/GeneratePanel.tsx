@@ -9,6 +9,7 @@ import { GALLERY_DEFAULT_CANDIDATE_COUNT } from "../../lib/gallery-config";
 import { AIGenerationStage } from "./AIGenerationStage";
 import { useJobPolling } from "../../lib/useJobPolling";
 import { formatSilentDuration } from "../../lib/jobPollState";
+import { resolveUserStage } from "../../lib/generationStages";
 
 interface GeneratePanelProps {
   onClose:    () => void;
@@ -245,6 +246,21 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
                   progress={poll.state === "queued" ? 0 : Math.max(5, poll.progress)}
                   status={stageStatus as "queued" | "running" | "done" | "error"}
                 />
+                {/* User-facing stage label — server-persisted on every
+                    pipeline transition, so the text here is always in
+                    sync with what the worker is actually doing (rather
+                    than guessed from a progress %). Falls back to the
+                    progress-range heuristic while PENDING before the
+                    first transition write. */}
+                {(poll.state === "running" || poll.state === "stale") && (() => {
+                  const { label } = resolveUserStage(poll.progressStage, poll.progress);
+                  return (
+                    <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--accent)" }} />
+                      <span>{label}…</span>
+                    </div>
+                  );
+                })()}
                 {showRetryingBanner && (
                   <div style={{ marginTop: 12, fontSize: 12, color: "var(--accent-light)" }}>
                     ↻ Retrying — previous attempt recovered from a transient error.

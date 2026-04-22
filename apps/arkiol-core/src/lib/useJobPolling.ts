@@ -60,6 +60,8 @@ const EMPTY_VIEW: JobPollView = {
   failReason:        null,
   attempts:          0,
   maxAttempts:       3,
+  progressStage:     null,
+  progressLabel:     null,
   assetCount:        0,
 };
 

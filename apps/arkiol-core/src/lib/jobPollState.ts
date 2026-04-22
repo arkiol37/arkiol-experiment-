@@ -66,6 +66,11 @@ export interface JobLikeForPoll {
   attempts?:    number | null;
   maxAttempts?: number | null;
   startedAt?:   string | Date | null;
+  /** User-facing stage label from lib/generationStages.ts. Written
+   *  by the inline pipeline on every stage transition; null on old
+   *  rows or before the first transition. */
+  progressStage?: string | null;
+  progressLabel?: string | null;
   result?: {
     // Success
     assetCount?: number;
@@ -75,6 +80,11 @@ export interface JobLikeForPoll {
     error?:      string;
     failReason?: string;
     retryable?:  boolean;
+    // User-facing stage breadcrumb (also mirrored on the top-level
+    // job object — both paths are supported so clients don't have
+    // to care which one the server populated).
+    progressStage?: string;
+    progressLabel?: string;
     // Retry marker — written by prepareRetry on the FAILED→PENDING claim
     retried?:       boolean;
     retryFromReason?: string | null;
@@ -119,6 +129,13 @@ export interface JobPollView {
   attempts:     number;
   maxAttempts:  number;
 
+  // ── User-facing stage (written by the inline pipeline on every
+  //    transition; null while PENDING-pre-start). The UI renders the
+  //    label directly; the stage key can be used for conditional
+  //    styling ("building_layout" → show render animation). ───────
+  progressStage: string | null;
+  progressLabel: string | null;
+
   // ── Completion surface (populated on state === "completed") ───
   assetCount:   number;
 }
@@ -138,6 +155,18 @@ export function deriveJobView(
   const maxAttempts = Math.max(1, Number(job?.maxAttempts ?? 3));
   const result      = job?.result ?? null;
 
+  // Prefer the top-level progressStage/progressLabel written by
+  // /api/jobs, fall back to the result-nested copy (older responses
+  // or direct-DB reads).
+  const progressStage =
+    (typeof job?.progressStage === "string" && job.progressStage.length > 0)
+      ? job.progressStage
+      : (typeof result?.progressStage === "string" ? result.progressStage : null);
+  const progressLabel =
+    (typeof job?.progressLabel === "string" && job.progressLabel.length > 0)
+      ? job.progressLabel
+      : (typeof result?.progressLabel === "string" ? result.progressLabel : null);
+
   const base = {
     progress, silentForMs, hardAbandoned,
     errorTitle:   null as string | null,
@@ -145,6 +174,7 @@ export function deriveJobView(
     retryable:    false,
     failReason:   null as string | null,
     attempts, maxAttempts,
+    progressStage, progressLabel,
     assetCount:   Math.max(0, Number(result?.assetCount ?? 0)),
   };
 

@@ -2980,6 +2980,228 @@ async function run() {
     );
   });
 
+  section("generation-stages · user-facing stage labels");
+
+  // Defends the user-facing stage contract: every major pipeline
+  // transition writes a human-readable `progressLabel` (e.g.
+  // "Building layout") to the job row so the UI can render it
+  // directly instead of guessing from a progress %. Also covers the
+  // surface mapping (progress% → stage when no persisted label is
+  // available) used as a first-render fallback.
+  const genStages = await import("../apps/arkiol-core/src/lib/generationStages");
+  const inlineGenForStages = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+  const jobsRouteForStages = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/jobs/route.ts"),
+    "utf-8",
+  );
+  const pollStateForStages = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/jobPollState.ts"),
+    "utf-8",
+  );
+  const generatePanelForStages = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/components/generate/GeneratePanel.tsx"),
+    "utf-8",
+  );
+  const editorShellForStages = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/components/dashboard/EditorShell.tsx"),
+    "utf-8",
+  );
+
+  test("USER_STAGES lists exactly the five canonical stages in pipeline order", () => {
+    // The five stages called out in the product spec:
+    //   starting → generating content → building layout →
+    //   applying assets → finalizing.
+    const expected = ["starting", "generating_content", "building_layout", "applying_assets", "finalizing"];
+    assertEq(
+      genStages.USER_STAGES.length,
+      expected.length,
+      "USER_STAGES must list exactly five stages — adding or removing breaks the UI's progress mapping contract",
+    );
+    for (let i = 0; i < expected.length; i++) {
+      assertEq(genStages.USER_STAGES[i], expected[i], `USER_STAGES[${i}]`);
+    }
+  });
+
+  test("USER_STAGE_LABEL has a human-readable label for every stage", () => {
+    for (const s of genStages.USER_STAGES) {
+      const label = genStages.USER_STAGE_LABEL[s];
+      assert(
+        typeof label === "string" && label.length > 0 && /^[A-Z]/.test(label),
+        `USER_STAGE_LABEL["${s}"] must be a non-empty label starting with a capital letter, got ${JSON.stringify(label)}`,
+      );
+    }
+  });
+
+  test("userStageForDiagStage maps every diagnostic stage to one of the five buckets", () => {
+    // Exhaustive check: every JobFailStage must land in exactly one
+    // of the five user stages. A future addition to the diagnostic
+    // enum that isn't mapped here would silently fall through to
+    // "starting", hiding the real stage in the UI.
+    const diagStages = [
+      "init", "font_init", "mark_running", "brand_load", "brief_analyze",
+      "pipeline_render", "rank_select", "s3_upload", "credit_deduction",
+      "terminal_write", "stale_watchdog", "client_abandoned", "unknown",
+    ];
+    for (const d of diagStages) {
+      const u = genStages.userStageForDiagStage(d as any);
+      assert(
+        (genStages.USER_STAGES as readonly string[]).includes(u),
+        `userStageForDiagStage("${d}") must return one of USER_STAGES, got ${u}`,
+      );
+    }
+    // Key mappings per the product spec.
+    assertEq(genStages.userStageForDiagStage("font_init"),       "starting",           "font_init → starting");
+    assertEq(genStages.userStageForDiagStage("brief_analyze"),   "generating_content", "brief_analyze → generating_content");
+    assertEq(genStages.userStageForDiagStage("pipeline_render"), "building_layout",    "pipeline_render → building_layout");
+    assertEq(genStages.userStageForDiagStage("s3_upload"),       "applying_assets",    "s3_upload → applying_assets");
+    assertEq(genStages.userStageForDiagStage("terminal_write"),  "finalizing",         "terminal_write → finalizing");
+  });
+
+  test("userStageForProgress fallback is monotonic and covers the 0-100 range", () => {
+    // The fallback kicks in when the server hasn't written a stage
+    // label yet. Must be monotonic so the UI never flickers backward.
+    let last = genStages.userStageForProgress(0);
+    for (let p = 0; p <= 100; p += 5) {
+      const cur = genStages.userStageForProgress(p);
+      const lastIdx = (genStages.USER_STAGES as readonly string[]).indexOf(last);
+      const curIdx  = (genStages.USER_STAGES as readonly string[]).indexOf(cur);
+      assert(
+        curIdx >= lastIdx,
+        `userStageForProgress must be monotonic — p=${p} regressed from ${last} to ${cur}`,
+      );
+      last = cur;
+    }
+    // Spot checks at the critical boundaries.
+    assertEq(genStages.userStageForProgress(0),   "starting",           "0% → starting");
+    assertEq(genStages.userStageForProgress(15),  "generating_content", "15% → generating_content");
+    assertEq(genStages.userStageForProgress(50),  "building_layout",    "50% → building_layout");
+    assertEq(genStages.userStageForProgress(90),  "applying_assets",    "90% → applying_assets");
+    assertEq(genStages.userStageForProgress(100), "finalizing",         "100% → finalizing");
+  });
+
+  test("resolveUserStage prefers the server-persisted label over the progress heuristic", () => {
+    const r = genStages.resolveUserStage("applying_assets", 10);
+    assertEq(r.stage, "applying_assets", "persisted label must win even when progress would suggest otherwise");
+    assertEq(r.label, "Applying assets", "label matches USER_STAGE_LABEL");
+
+    // Garbage / unknown persisted value → fall through to progress.
+    const fallback = genStages.resolveUserStage("garbage", 50);
+    assertEq(fallback.stage, "building_layout", "unknown persisted label must fall back to progress mapping");
+  });
+
+  test("inlineGenerate stage() helper persists progressStage + progressLabel to job.result", () => {
+    // The helper must merge the user-stage into the row's result
+    // JSON so /api/jobs can expose it. Both field names are
+    // required — progressLabel is what the UI renders, progressStage
+    // is the machine-readable key used for conditional styling.
+    assert(
+      /progressStage:\s*userStage/.test(inlineGenForStages),
+      "stage() helper must set progressStage from the diagnostic-to-user-stage mapping",
+    );
+    assert(
+      /progressLabel:\s*USER_STAGE_LABEL\[userStage\]/.test(inlineGenForStages),
+      "stage() helper must set progressLabel from USER_STAGE_LABEL[...] so the UI gets a human-readable string",
+    );
+    assert(
+      /userStageForDiagStage\s*\(/.test(inlineGenForStages),
+      "inlineGenerate must import + call userStageForDiagStage() inside its stage() helper",
+    );
+  });
+
+  test("inlineGenerate preserves existing result fields when merging the stage label", () => {
+    // Without the read-modify-write, every stage transition would
+    // clobber retry breadcrumbs (retryFromReason, previousAttempts)
+    // or diagnostics left by prior attempts. The pipeline must seed
+    // resultCtx from the current row, then spread into new writes.
+    assert(
+      /let\s+resultCtx[\s\S]{0,200}inlineGenerated:\s*true/.test(inlineGenForStages),
+      "runInlineGeneration must declare resultCtx with an inlineGenerated marker",
+    );
+    assert(
+      /prisma\.job\.findUnique[\s\S]{0,200}select:\s*\{\s*result:\s*true\s*\}/.test(inlineGenForStages),
+      "runInlineGeneration must read the existing result row to seed resultCtx so retry breadcrumbs survive into the new attempt",
+    );
+    assert(
+      /resultCtx\s*=\s*\{\s*\.\.\.resultCtx/.test(inlineGenForStages),
+      "stage() must spread the previous resultCtx when merging in progressStage/progressLabel",
+    );
+  });
+
+  test("inlineGenerate terminal writes pin progressStage + progressLabel", () => {
+    // COMPLETED row must end at "finalizing" (the user just saw the
+    // finishing touches). FAILED row must reflect the LAST user
+    // stage the pipeline was in when the error fired, so ops &
+    // users can see e.g. "Generation failed during Building layout".
+    assert(
+      /status:\s*"COMPLETED"[\s\S]{0,1400}progressStage:\s*"finalizing"/.test(inlineGenForStages),
+      "COMPLETED terminal write must set progressStage to 'finalizing'",
+    );
+    assert(
+      /status:\s*"FAILED"[\s\S]{0,800}progressStage:\s*failUserStage/.test(inlineGenForStages),
+      "FAILED terminal write must set progressStage from the diagnostic failStage (via userStageForDiagStage)",
+    );
+  });
+
+  test("/api/jobs exposes progressStage + progressLabel on the top-level job object", () => {
+    // Top-level surfacing means the UI doesn't need to unpack
+    // job.result to learn what the worker is doing — critical
+    // because result is reshaped based on status.
+    assert(
+      /progressStage,?\s*$/m.test(jobsRouteForStages) || /progressStage:\s*progressStage/.test(jobsRouteForStages),
+      "/api/jobs single-job response must include progressStage at the top level",
+    );
+    assert(
+      /progressLabel,?\s*$/m.test(jobsRouteForStages) || /progressLabel:\s*progressLabel/.test(jobsRouteForStages),
+      "/api/jobs single-job response must include progressLabel at the top level",
+    );
+    assert(
+      /const\s+progressStage\s*=[\s\S]{0,200}rawResult\.progressStage/.test(jobsRouteForStages),
+      "/api/jobs must read progressStage out of the row's result JSON",
+    );
+  });
+
+  test("jobPollState JobPollView surfaces progressStage + progressLabel", () => {
+    assert(
+      /progressStage:\s*string\s*\|\s*null/.test(pollStateForStages),
+      "JobPollView must declare progressStage: string | null",
+    );
+    assert(
+      /progressLabel:\s*string\s*\|\s*null/.test(pollStateForStages),
+      "JobPollView must declare progressLabel: string | null",
+    );
+    assert(
+      /progressStage,\s*progressLabel/.test(pollStateForStages) || /progressStage,\s*?\n/.test(pollStateForStages),
+      "deriveJobView must include progressStage + progressLabel in its returned base object",
+    );
+  });
+
+  test("GeneratePanel renders the user-facing stage label during running/stale states", () => {
+    assert(
+      /resolveUserStage\s*\(\s*poll\.progressStage/.test(generatePanelForStages),
+      "GeneratePanel must route the stage label through resolveUserStage(poll.progressStage, poll.progress) so the server-persisted label is preferred over the fallback",
+    );
+    assert(
+      /poll\.state\s*===\s*"running"[\s\S]{0,200}poll\.state\s*===\s*"stale"/.test(generatePanelForStages) ||
+      /\(\s*poll\.state\s*===\s*"running"\s*\|\|\s*poll\.state\s*===\s*"stale"\s*\)/.test(generatePanelForStages),
+      "GeneratePanel must render the stage label during both running AND stale states — not just healthy running",
+    );
+  });
+
+  test("EditorShell passes progressStage through to GeneratingStep and uses resolveUserStage", () => {
+    assert(
+      /progressStage:\s*poll\.progressStage/.test(editorShellForStages) ||
+      /progressStage=\{poll\.progressStage\}/.test(editorShellForStages),
+      "EditorShell must pass poll.progressStage into GeneratingStep as a prop",
+    );
+    assert(
+      /resolveUserStage\s*\(/.test(editorShellForStages),
+      "EditorShell GeneratingStep must call resolveUserStage() so the server label wins over the progress heuristic",
+    );
+  });
+
   section("heartbeat-reliability · cpu-starvation guards");
 
   // Defends the production fix for "Generation stalled — no worker
@@ -3019,11 +3241,21 @@ async function run() {
     // The combined stage+pulse helper means enterStage boundaries
     // guarantee fresh updatedAt even if setInterval is starved. If
     // the helper is removed and callers go back to bare
-    // diag.enterStage(...) without an accompanying pulse, heartbeat
-    // drift returns.
+    // diag.enterStage(...) without an accompanying heartbeat write,
+    // drift returns. Accept either `pulse(...)` or a direct
+    // `prisma.job.update({ data: { progress ... } })` — both bump
+    // updatedAt.
+    //
+    // Look for the helper declaration, then within a wide window
+    // after it require both diag.enterStage() AND one of the
+    // heartbeat bumps.
     assert(
-      /const\s+stage\s*=\s*async[\s\S]{0,200}diag\.enterStage[\s\S]{0,100}pulse\s*\(/.test(inlineGenForHeartbeat),
-      "runInlineGeneration must declare a stage() helper that calls both diag.enterStage() and pulse()",
+      /const\s+stage\s*=\s*async[\s\S]{0,1500}diag\.enterStage\s*\(/.test(inlineGenForHeartbeat),
+      "stage() helper must call diag.enterStage() inside its body",
+    );
+    assert(
+      /const\s+stage\s*=\s*async[\s\S]{0,1500}(?:\bpulse\s*\(|prisma\.job\.update)/.test(inlineGenForHeartbeat),
+      "stage() helper must bump updatedAt via pulse() or prisma.job.update()",
     );
     // At least the longest stages must route through the helper.
     for (const s of ["brief_analyze", "pipeline_render", "rank_select", "s3_upload"]) {
@@ -4016,7 +4248,7 @@ async function run() {
     // Both success and failure paths must persist diagnostics so ops
     // can compute stage-timing percentiles over successful runs too.
     assert(
-      /status:\s*"COMPLETED"[\s\S]{0,800}diagnostics:\s*diag\.snapshot\(\)/.test(inlineGenForDiag),
+      /status:\s*"COMPLETED"[\s\S]{0,1400}diagnostics:\s*diag\.snapshot\(\)/.test(inlineGenForDiag),
       "COMPLETED write must attach diagnostics (for stage-timing analytics on healthy runs)",
     );
     assert(

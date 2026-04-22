@@ -19,6 +19,7 @@ import dynamic from "next/dynamic";
 import type { EditorElement } from "../editor/ArkiolEditor";
 import { useJobPolling } from "../../lib/useJobPolling";
 import { formatSilentDuration } from "../../lib/jobPollState";
+import { resolveUserStage } from "../../lib/generationStages";
 
 const ArkiolEditor = dynamic(
   () => import("../editor/ArkiolEditor").then(m => ({ default: m.default ?? m.ArkiolEditor })),
@@ -175,6 +176,7 @@ export function EditorShell() {
             silentForMs={poll.silentForMs}
             retryable={poll.retryable}
             isRetrying={poll.isRetrying}
+            progressStage={poll.progressStage}
             onRetry={() => { void poll.retry(); }}
           />
         )}
@@ -342,21 +344,27 @@ function BriefStep({ format, prompt, setPrompt, style, setStyle, vars, setVars, 
 }
 
 function GeneratingStep({
-  progress, format, pollState, silentForMs, retryable, isRetrying, onRetry,
+  progress, format, pollState, silentForMs, retryable, isRetrying, progressStage, onRetry,
 }: {
-  progress:    number;
-  format:      string;
-  pollState:   "queued" | "running" | "stale" | "retrying" | "failed" | "completed";
-  silentForMs: number;
-  retryable:   boolean;
-  isRetrying:  boolean;
-  onRetry:     () => void;
+  progress:       number;
+  format:         string;
+  pollState:      "queued" | "running" | "stale" | "retrying" | "failed" | "completed";
+  silentForMs:    number;
+  retryable:      boolean;
+  isRetrying:     boolean;
+  progressStage:  string | null;
+  onRetry:        () => void;
 }) {
+  // Prefer the server-persisted user stage label during active work
+  // — it's always in sync with what the worker is doing. Transient
+  // states (retrying / stale / queued) keep their explanatory
+  // sublines.
+  const { label: stageLabel } = resolveUserStage(progressStage, progress);
   const subline =
     pollState === "retrying" ? "Recovering from a transient error and retrying…" :
     pollState === "stale"    ? "This is taking longer than usual — we're still checking." :
     pollState === "queued"   ? "Waiting for a worker…" :
-    "AI is crafting your design";
+    `${stageLabel}…`;
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "60vh", gap: 20 }}>
       <div style={{ fontSize: 36, animation: "spin 2s linear infinite" }}>✦</div>
