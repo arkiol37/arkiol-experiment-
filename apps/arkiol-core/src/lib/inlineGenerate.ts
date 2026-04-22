@@ -109,7 +109,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
   // take down the generation itself.
   let currentProgress = 0;
   let heartbeatTimer: NodeJS.Timeout | null = null;
-  const PULSE_INTERVAL_MS = 10_000;
+  // 7s pulse cadence gives us ~13× margin against the 90s backend
+  // heartbeat-gap threshold — enough slack to survive a missed tick or
+  // two when sharp's libvips worker pool saturates the main thread
+  // during concurrent renders. Previously 10s, which left only ~9×
+  // margin and occasionally tripped the "no worker heartbeat for 91s"
+  // backend stale verdict under heavy render load.
+  const PULSE_INTERVAL_MS = 7_000;
   const pulse = async (progress?: number) => {
     if (typeof progress === "number" && progress > currentProgress) {
       currentProgress = Math.min(100, progress);
@@ -129,6 +135,24 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
   };
 
+  // Combined stage-transition + pulse helper. Every enterStage() call
+  // now also bumps the DB row's updatedAt so even if the periodic
+  // setInterval is starved (main thread pinned by sharp / libvips),
+  // stage boundaries alone keep the backend heartbeat watchdog
+  // satisfied. The progress arg is optional — if provided it
+  // monotonically advances currentProgress; if omitted the pulse just
+  // rolls updatedAt forward at the same progress value.
+  const stage = async (name: Parameters<typeof diag.enterStage>[0], progress?: number): Promise<void> => {
+    diag.enterStage(name);
+    await pulse(progress);
+  };
+
+  // Yields the Node event loop so any pending pulse / setInterval
+  // callbacks get a chance to run before the next CPU-bound burst.
+  // Called between render batches where the main thread has been
+  // loaded with sharp SVG parsing + libvips calls for 30-60s.
+  const yieldEventLoop = (): Promise<void> => new Promise<void>(r => setImmediate(r));
+
   try {
     // Start the periodic heartbeat BEFORE any blocking work. Even font
     // init can take several seconds on a cold serverless container, and
@@ -139,7 +163,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // Initialize fonts for Vercel/serverless — downloads Google Fonts TTFs
     // to /tmp so buildUltimateFontFaces() can base64-embed them in SVG.
     // Critical for sharp PNG rendering with custom typography.
-    diag.enterStage("font_init");
+    await stage("font_init");
     try {
       const { initUltimateFonts } = require("../engines/render/font-registry-ultimate");
       await initUltimateFonts();
@@ -159,7 +183,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // row; the second sees `count === 0` and bails cleanly instead of
     // double-rendering, double-charging credits, or racing the final
     // COMPLETED write.
-    diag.enterStage("mark_running");
+    await stage("mark_running");
     const claim = await prisma.job.updateMany({
       where: {
         id:        jobId,
@@ -184,12 +208,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     currentProgress = 2;
 
     // Load brand if specified
-    diag.enterStage("brand_load");
+    await stage("brand_load", 5);
     const brand = brandId
       ? await prisma.brand.findUnique({ where: { id: brandId } }).catch(() => null)
       : null;
-
-    await pulse(5);
 
     // Brief analysis (~2-5s). Skipped on retries that carry a cached
     // briefSnapshot from the original run — analyzeBrief is
@@ -197,7 +219,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // the slowest single operations in the pipeline, so reusing the
     // snapshot turns a retry into a "resume from render" instead of
     // "start from zero".
-    diag.enterStage("brief_analyze");
+    await stage("brief_analyze", 10);
     const { analyzeBrief } = require("../engines/ai/brief-analyzer");
     let brief: any;
     let briefFromCache = false;
@@ -245,7 +267,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await pulse(briefFromCache ? 18 : 15);
 
-    diag.enterStage("pipeline_render");
+    await stage("pipeline_render", 20);
     const format = formats[0];
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
     const { getCreditCost, getCategoryLabel } = require("./types");
@@ -281,12 +303,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const startedAt = Date.now();
     const deadlineAt = startedAt + GENERATION_BUDGET_MS;
     const timeLeft = () => Math.max(0, deadlineAt - Date.now());
-    // Fire all requested variations in parallel (plus a small spare-
-    // capacity headroom so the first wave of rejects can re-fill before
-    // the second batch launches). Each attempt is ~all-I/O-waiting on
-    // OpenAI, so we can fan out freely — the bottleneck is the remote
-    // model, not local CPU or the Node event loop.
-    const CONCURRENCY = Math.min(6, totalVariations + 2);
+    // Concurrency is deliberately conservative. The earlier CONCURRENCY
+    // = min(6, totalVariations+2) assumed each attempt was pure I/O on
+    // OpenAI, but sharp's SVG→PNG render is heavily CPU-bound via
+    // libvips — with 6 concurrent renders the worker-thread pool
+    // saturates and the Node main thread starves, delaying setInterval
+    // callbacks past the backend's 90s heartbeat threshold. At 3-4
+    // concurrent renders the main thread keeps capacity to fire
+    // pulse() on schedule. Lose ~20% throughput, gain reliability.
+    const CONCURRENCY = Math.min(4, totalVariations + 1);
 
     interface RenderedCandidate {
       vi:             number;
@@ -395,23 +420,36 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     // Single-attempt render. Pure async work — no shared mutation until
     // the caller appends the resolved candidate to `rendered`.
+    //
+    // Wraps runGenerationPipeline in a per-attempt 5s heartbeat so
+    // even single long attempts (a slow OpenAI call + heavy sharp
+    // render = 40-60s) keep touching updatedAt. Without this, a
+    // single stuck attempt inside a batch can go 60+ seconds between
+    // the global setInterval's last successful tick (if starved) and
+    // the next batch-boundary pulse — enough to trip the backend's
+    // 90s heartbeat watchdog.
     const runOneAttempt = async (vi: number) => {
-      const orchestrated = await runGenerationPipeline({
-        jobId,
-        orgId,
-        campaignId: campaignId ?? jobId,
-        format,
-        variationIdx: vi,
-        stylePreset,
-        archetypeOverride: archetypeOverride as any,
-        outputFormat: "png",
-        pngScale: 1,
-        brief,
-        brand: brandInput,
-        requestedVariations:  totalVariations,
-        maxAllowedVariations: totalVariations,
-      });
-      return { vi, orchestrated };
+      const attemptPulseTimer = setInterval(() => { void pulse(); }, 5_000);
+      try {
+        const orchestrated = await runGenerationPipeline({
+          jobId,
+          orgId,
+          campaignId: campaignId ?? jobId,
+          format,
+          variationIdx: vi,
+          stylePreset,
+          archetypeOverride: archetypeOverride as any,
+          outputFormat: "png",
+          pngScale: 1,
+          brief,
+          brand: brandInput,
+          requestedVariations:  totalVariations,
+          maxAllowedVariations: totalVariations,
+        });
+        return { vi, orchestrated };
+      } finally {
+        clearInterval(attemptPulseTimer);
+      }
     };
 
     // Batched parallel execution with an explicit time budget.
@@ -459,6 +497,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       for (let i = 0; i < batchSize; i++) batchVis.push(attemptedCount + i);
       attemptedCount += batchSize;
 
+      // Yield the event loop so any pulse / setInterval callbacks
+      // queued during the previous batch's sharp-heavy rendering get
+      // a chance to fire BEFORE we start the next batch and saturate
+      // libvips again. Without this, back-to-back batches can keep
+      // the main thread pinned for 90+ seconds.
+      await yieldEventLoop();
+
       // Per-batch start heartbeat so even a batch whose first attempt
       // won't settle for 40s still shows fresh updatedAt the moment the
       // batch is kicked off — catches cases where a single stuck OpenAI
@@ -471,6 +516,14 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const batchResults = await Promise.allSettled(
         batchVis.map(vi => runOneAttempt(vi).finally(() => heartbeatProgress())),
       );
+
+      // Post-batch yield + pulse. Sharp's PNG encode runs synchronously
+      // for the last few ms of each render, so all N attempts often
+      // settle within the same tick; yielding here gives pending
+      // timers a chance to run before we move to the verdict / admit
+      // loop, and the explicit pulse guarantees updatedAt moved.
+      await yieldEventLoop();
+      await pulse(lastProgress);
 
       for (let i = 0; i < batchResults.length; i++) {
         const vi = batchVis[i];
@@ -637,8 +690,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // pool so it's fast, but updating here means the UI bar tracks the
     // pipeline entering its "ranking" stage instead of sitting on the
     // last batch's attempt percentage.
-    diag.enterStage("rank_select");
-    await pulse(Math.max(lastProgress, 86));
+    await stage("rank_select", Math.max(lastProgress, 86));
 
     const seenTypes = new Set<string>();
     const admitted: Admission[] = greedyPickN(
@@ -686,8 +738,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     // Pre-upload heartbeat so the user sees the bar tick forward from
     // "ranking" into "uploading" immediately when the loop starts.
-    diag.enterStage("s3_upload");
-    await pulse(Math.max(lastProgress, 88));
+    await stage("s3_upload", Math.max(lastProgress, 88));
 
     for (let idx = 0; idx < admitted.length; idx++) {
       const adm    = admitted[idx];
@@ -900,7 +951,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     await pulse(96);
 
     // Deduct credits (creditBalance = canonical credit field)
-    diag.enterStage("credit_deduction");
+    await stage("credit_deduction", 96);
     try {
       await prisma.org.update({
         where: { id: orgId },
@@ -921,7 +972,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // runs carry the same breadcrumb bundle as failures — ops can pivot
     // "average pipeline_render duration" across all COMPLETED jobs, not
     // just failed ones.
-    diag.enterStage("terminal_write");
+    diag.enterStage("terminal_write"); // bare enter — the job.update below replaces pulse() as the final row write
     await prisma.job.update({
       where: { id: jobId },
       data: {

@@ -2980,6 +2980,131 @@ async function run() {
     );
   });
 
+  section("heartbeat-reliability · cpu-starvation guards");
+
+  // Defends the production fix for "Generation stalled — no worker
+  // heartbeat for 91s (gap threshold 90s)". Before this fix the
+  // pipeline fired up to 6 concurrent sharp renders, saturating
+  // libvips' worker-thread pool and starving Node's main thread;
+  // setInterval-driven pulses would miss enough ticks to exceed the
+  // backend's 90s heartbeat gap. The fix combines: (a) tighter pulse
+  // cadence, (b) lower render concurrency, (c) stage-transition
+  // pulses so enterStage boundaries keep updatedAt fresh even when
+  // setInterval misses, (d) per-attempt micro-heartbeat, and (e)
+  // setImmediate yields between batches so queued pulses actually
+  // fire.
+  const inlineGenForHeartbeat = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+
+  test("inlineGenerate pulse cadence stays well under the 90s backend heartbeat threshold", () => {
+    const m = inlineGenForHeartbeat.match(/PULSE_INTERVAL_MS\s*=\s*([\d_]+)/);
+    assert(m, "PULSE_INTERVAL_MS must remain defined");
+    const ms = Number(m![1].replace(/_/g, ""));
+    // 90s gap threshold / 13 factor ≈ 7s. Any value > 15s leaves
+    // fewer than 6× margin and risks tripping the watchdog on even
+    // moderate event-loop starvation.
+    assert(
+      ms <= 10_000,
+      `PULSE_INTERVAL_MS must be <= 10s so there's >= 9× margin below the 90s backend gap, got ${ms}`,
+    );
+    assert(
+      ms >= 3_000,
+      `PULSE_INTERVAL_MS must be >= 3s so pulses don't hammer the DB, got ${ms}`,
+    );
+  });
+
+  test("inlineGenerate exposes a stage() helper that pulses on every transition", () => {
+    // The combined stage+pulse helper means enterStage boundaries
+    // guarantee fresh updatedAt even if setInterval is starved. If
+    // the helper is removed and callers go back to bare
+    // diag.enterStage(...) without an accompanying pulse, heartbeat
+    // drift returns.
+    assert(
+      /const\s+stage\s*=\s*async[\s\S]{0,200}diag\.enterStage[\s\S]{0,100}pulse\s*\(/.test(inlineGenForHeartbeat),
+      "runInlineGeneration must declare a stage() helper that calls both diag.enterStage() and pulse()",
+    );
+    // At least the longest stages must route through the helper.
+    for (const s of ["brief_analyze", "pipeline_render", "rank_select", "s3_upload"]) {
+      assert(
+        new RegExp(`await\\s+stage\\s*\\(\\s*"${s}"`).test(inlineGenForHeartbeat),
+        `stage "${s}" must be entered via the pulsing stage() helper, not bare diag.enterStage()`,
+      );
+    }
+  });
+
+  test("inlineGenerate wraps each runOneAttempt in its own micro-heartbeat", () => {
+    // Without the per-attempt heartbeat a single slow OpenAI call
+    // inside a batch can go 60+ seconds with no pulse between the
+    // batch-start and batch-end pulses. Extract the body of
+    // runOneAttempt (up to its matching `};`) and assert the
+    // setInterval + pulse + clearInterval triad is present there.
+    const attemptBody = inlineGenForHeartbeat.match(/runOneAttempt\s*=\s*async[\s\S]*?^\s*\};/m);
+    assert(attemptBody, "runOneAttempt must exist");
+    const body = attemptBody![0];
+    assert(
+      /setInterval\s*\(/.test(body),
+      "runOneAttempt must install a setInterval heartbeat",
+    );
+    assert(
+      /\bpulse\s*\(/.test(body),
+      "runOneAttempt setInterval must call pulse()",
+    );
+    assert(
+      /clearInterval/.test(body),
+      "runOneAttempt must clearInterval the per-attempt timer",
+    );
+    // The micro-heartbeat interval must be <= 10s so at least one
+    // pulse happens per attempt even if the main setInterval misses.
+    const m = body.match(/setInterval\s*\([\s\S]*?,\s*([\d_]+)\s*\)/);
+    assert(m, "per-attempt setInterval must set an explicit numeric interval");
+    const ms = Number((m![1] ?? "0").replace(/_/g, ""));
+    assert(
+      ms > 0 && ms <= 10_000,
+      `per-attempt pulse interval must be 1..10s, got ${ms}`,
+    );
+  });
+
+  test("inlineGenerate yields the event loop between render batches", () => {
+    // setImmediate yields so pending pulse callbacks get to fire
+    // before the next batch saturates libvips again.
+    assert(
+      /yieldEventLoop|setImmediate/.test(inlineGenForHeartbeat),
+      "runInlineGeneration must yield the event loop (via yieldEventLoop or setImmediate) between render batches",
+    );
+    // The yield must occur alongside the batch-firing code, not just
+    // in a dead-code comment.
+    assert(
+      /await\s+yieldEventLoop\s*\(\s*\)|await\s+new\s+Promise\s*\([^)]*setImmediate/.test(inlineGenForHeartbeat),
+      "yield must be `await`ed — a sync setImmediate call doesn't give the event loop a chance to run",
+    );
+  });
+
+  test("inlineGenerate caps render concurrency at 4 or less", () => {
+    const m = inlineGenForHeartbeat.match(/CONCURRENCY\s*=\s*Math\.min\s*\(\s*(\d+)\s*,/);
+    assert(m, "CONCURRENCY must remain a Math.min(<cap>, ...) expression");
+    const cap = Number(m![1]);
+    assert(
+      cap <= 4,
+      `CONCURRENCY cap must be <= 4 — any higher saturates sharp's libvips worker pool and starves the main-thread pulse, got ${cap}`,
+    );
+    assert(
+      cap >= 2,
+      `CONCURRENCY cap must be >= 2 — lower than that and a single flaky variation serialises the whole run, got ${cap}`,
+    );
+  });
+
+  test("inlineGenerate clears the per-attempt heartbeat timer in finally", () => {
+    // Leaking the per-attempt setInterval would prevent the Node
+    // event loop from draining after the request completed on
+    // serverless.
+    assert(
+      /finally\s*\{[\s\S]{0,200}clearInterval\s*\(\s*attemptPulseTimer/.test(inlineGenForHeartbeat),
+      "runOneAttempt must clearInterval(attemptPulseTimer) in its finally so the interval doesn't leak past the attempt",
+    );
+  });
+
   section("background worker · hang-prevention invariants (30-min regression guard)");
 
   // Production failure these tests guard against: a job landed in the DB
@@ -3865,17 +3990,24 @@ async function run() {
     assertEq(v!.failStage, "brief_analyze", "failStage survived");
   });
 
-  test("inlineGenerate instantiates a DiagnosticsCollector and calls enterStage at every stage", () => {
+  test("inlineGenerate instantiates a DiagnosticsCollector and transitions through every stage", () => {
     // Regression guard — if anyone removes the stage annotations the
     // diagnostic breadcrumbs would revert to "init" for every failure.
+    // Accepts both the bare `diag.enterStage("X")` form AND the newer
+    // `await stage("X"[, progress])` helper form (which also pulses
+    // the heartbeat on every transition). Either way, the stage
+    // literal must appear in the source as an argument to one of
+    // these two functions — that's what drives diagnostics.
     assert(
       /new\s+DiagnosticsCollector\s*\(/.test(inlineGenForDiag),
       "runInlineGeneration must instantiate DiagnosticsCollector at the top",
     );
-    for (const stage of ["font_init", "mark_running", "brand_load", "brief_analyze", "pipeline_render", "rank_select", "s3_upload", "credit_deduction", "terminal_write"]) {
+    for (const s of ["font_init", "mark_running", "brand_load", "brief_analyze", "pipeline_render", "rank_select", "s3_upload", "credit_deduction", "terminal_write"]) {
+      const viaEnter = new RegExp(`diag\\.enterStage\\s*\\(\\s*"${s}"`).test(inlineGenForDiag);
+      const viaHelper = new RegExp(`\\bstage\\s*\\(\\s*"${s}"`).test(inlineGenForDiag);
       assert(
-        new RegExp(`diag\\.enterStage\\s*\\(\\s*"${stage}"`).test(inlineGenForDiag),
-        `inlineGenerate must call diag.enterStage("${stage}") — drift hides the true failStage in diagnostics`,
+        viaEnter || viaHelper,
+        `inlineGenerate must transition into stage "${s}" via either diag.enterStage() or the stage() pulse helper — drift hides the true failStage in diagnostics`,
       );
     }
   });
@@ -4092,14 +4224,22 @@ async function run() {
   });
 
   test("inline worker scales CONCURRENCY with totalVariations", () => {
-    // Hard-coded CONCURRENCY=3 limits a 6-variation request to two
-    // serial batches. The ceiling of 6 comes from the Pro-tier
-    // /api/generate maxDuration budget (300s) — beyond that, parallel
-    // calls start saturating OpenAI rate limits and offer diminishing
-    // returns.
+    // CONCURRENCY is capped conservatively (≤ 4) because sharp's
+    // SVG→PNG render is CPU-bound via libvips — too many concurrent
+    // renders saturate the worker-thread pool and starve Node's main
+    // thread, delaying the setInterval pulse past the backend's 90s
+    // heartbeat-gap threshold. The earlier ceiling of 6 tripped
+    // production with "no worker heartbeat for 91s" errors; see
+    // Step 2 of the worker-reliability hardening.
     assert(
-      /CONCURRENCY\s*=\s*Math\.min\s*\(\s*6\s*,\s*totalVariations\s*\+\s*\d+\s*\)/.test(inlineGenSrc),
-      "CONCURRENCY must be computed as Math.min(6, totalVariations + N) so small requests all fire in parallel",
+      /CONCURRENCY\s*=\s*Math\.min\s*\(\s*(\d+)\s*,\s*totalVariations\s*\+\s*\d+\s*\)/.test(inlineGenSrc),
+      "CONCURRENCY must remain a Math.min(<cap>, totalVariations + N) expression",
+    );
+    const capMatch = inlineGenSrc.match(/CONCURRENCY\s*=\s*Math\.min\s*\(\s*(\d+)\s*,/);
+    const cap = Number(capMatch?.[1] ?? 99);
+    assert(
+      cap >= 2 && cap <= 4,
+      `CONCURRENCY cap must be 2..4 so sharp's libvips pool doesn't starve the event loop — got ${cap}`,
     );
   });
 
