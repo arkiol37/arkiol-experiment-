@@ -1,0 +1,53 @@
+# render.yaml — Render deployment manifest for the ARKIOL generation
+# backend. Committing this file lets a Render operator point Render
+# at the repo and get the service provisioned with the correct build
+# + start commands automatically.
+#
+# Expected secrets (set these in the Render dashboard, NOT here):
+#   DATABASE_URL              — same Postgres Vercel uses
+#   OPENAI_API_KEY            — OpenAI key used by the pipeline
+#   RENDER_GENERATION_KEY     — shared secret, must match Vercel's
+#                               RENDER_GENERATION_KEY
+#   ALLOWED_ORIGINS           — comma-separated Vercel origins
+#   S3_BUCKET, S3_REGION,
+#   S3_ACCESS_KEY_ID,
+#   S3_SECRET_ACCESS_KEY      — optional; SVG data URLs fall back
+services:
+  - type: web
+    name: arkiol-render-backend
+    env: node
+    plan: starter
+    region: oregon
+    rootDir: .
+    # The build step must (1) install workspace deps from the repo
+    # root so `file:../..` workspace references resolve, (2) generate
+    # the Prisma client against the shared schema, and (3) type-check
+    # the backend. We run the server under tsx (no dist emit needed).
+    buildCommand: |
+      npm install --legacy-peer-deps
+      npx prisma generate --schema=packages/shared/prisma/schema.prisma
+      npm run type-check --workspace=apps/render-backend
+    startCommand: npm run start --workspace=apps/render-backend
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4100
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: RENDER_GENERATION_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false

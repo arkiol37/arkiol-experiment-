@@ -1,5 +1,23 @@
 # Arkiol — Deployment Guide
 
+## Service Split (Step 1)
+
+Arkiol runs as **two** independent services that share a Postgres DB:
+
+| Service               | Host   | Owns                                                    |
+|-----------------------|--------|---------------------------------------------------------|
+| `apps/arkiol-core`    | Vercel | UI (dashboard / editor / gallery), auth, plan + credit enforcement, lightweight `/api/generate` proxy, status polling (`/api/jobs`). |
+| `apps/render-backend` | Render | Heavy generation — OpenAI calls, template composition, asset selection + injection, layout, rendering, final output. |
+
+Frontend → Render wiring lives in
+`apps/arkiol-core/src/lib/renderDispatch.ts`. Setting
+`RENDER_GENERATION_URL` + `RENDER_GENERATION_KEY` on Vercel activates
+the split; if either is missing the legacy inline path is used
+(preview deploys, local dev).
+
+See `render.yaml` and `apps/render-backend/README.md` for the Render
+side.
+
 ## Prerequisites
 
 - Node.js >= 20, npm >= 10
@@ -74,9 +92,33 @@ curl https://your-app.vercel.app/api/health
 DATABASE_URL='postgresql://...' npx prisma migrate deploy --schema=packages/shared/prisma/schema.prisma
 ```
 
+## Render Backend Deployment (heavy generation)
+
+The dedicated generation service lives in `apps/render-backend`.
+Point Render at this repo and Render will pick up `render.yaml`.
+Required env vars in the Render dashboard:
+
+- `DATABASE_URL` — same Postgres as the Vercel deploy
+- `OPENAI_API_KEY`
+- `RENDER_GENERATION_KEY` — shared secret (must match Vercel)
+- `ALLOWED_ORIGINS` — comma-separated Vercel origins
+- `S3_*` — optional; falls back to inline SVG data URLs
+
+Once deployed, set on Vercel:
+
+- `RENDER_GENERATION_URL` — the Render service URL (no trailing slash)
+- `RENDER_GENERATION_KEY` — same shared secret as on Render
+
+After that, `/api/generate` on Vercel forwards heavy work to Render,
+responds 202 immediately with the `jobId`, and the existing frontend
+polling flow (`/api/jobs`) is unchanged.
+
 ## Worker Deployment (Railway / Fly.io)
 
 BullMQ workers require persistent processes — cannot run on Vercel.
+The Render backend above is the preferred way to host heavy
+generation; the BullMQ worker path remains for environments already
+running Redis + a dedicated worker container.
 
 ```bash
 # Docker

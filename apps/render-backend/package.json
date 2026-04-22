@@ -1,0 +1,37 @@
+{
+  "name": "@arkiol/render-backend",
+  "version": "25.0.0",
+  "private": true,
+  "description": "ARKIOL — Generation backend (heavy pipeline, runs on Render).",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "npx prisma generate --schema=../../packages/shared/prisma/schema.prisma && tsc --noEmit",
+    "type-check": "tsc --noEmit",
+    "test": "echo \"(no tests yet)\" && exit 0"
+  },
+  "dependencies": {
+    "@arkiol/shared": "file:../../packages/shared",
+    "@prisma/client": "^5.16.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "openai": "^4.52.7",
+    "pino": "^9.3.2",
+    "prisma": "^5.16.1",
+    "sharp": "^0.33.4",
+    "tsx": "^4.16.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

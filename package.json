@@ -8,6 +8,7 @@
     "apps/animation-studio",
     "apps/animation-studio/backend",
     "apps/animation-studio/frontend",
+    "apps/render-backend",
     "packages/shared"
   ],
   "scripts": {
@@ -26,6 +27,9 @@
     "build:studio": "npm run build --workspace=apps/animation-studio/backend",
     "worker:core": "npm run worker:prod --workspace=apps/arkiol-core",
     "worker:studio": "npm run worker --workspace=apps/animation-studio/backend",
+    "dev:render-backend": "npm run dev --workspace=apps/render-backend",
+    "start:render-backend": "npm run start --workspace=apps/render-backend",
+    "build:render-backend": "npm run build --workspace=apps/render-backend",
     "verify": "tsx scripts/verify.ts",
     "db:generate": "npx prisma generate --schema=packages/shared/prisma/schema.prisma",
     "db:studio": "npx prisma studio --schema=packages/shared/prisma/schema.prisma",

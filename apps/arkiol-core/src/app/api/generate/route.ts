@@ -19,6 +19,10 @@ import { isFounderEmail } from "../../../lib/ownerAccess";
 import { rateLimit, rateLimitHeaders }    from "../../../lib/rate-limit";
 import { generationQueue }  from "../../../lib/queue";
 import { durableRunInlineGeneration } from "../../../lib/durableRun";
+import {
+  dispatchToRenderBackend,
+  isRenderBackendConfigured,
+} from "../../../lib/renderDispatch";
 import { detectSafeMode } from "../../../lib/safeMode";
 import { withErrorHandling, dbUnavailable, aiUnavailable, authUnavailable } from "../../../lib/error-handling";
 import { ApiError, getCreditCost, GIF_ELIGIBLE_FORMATS } from "../../../lib/types";
@@ -327,6 +331,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // ── Execute generation ─────────────────────────────────────────────────────
   // Preferred durability tiers, in order:
   //
+  //   0. Render backend (RENDER_GENERATION_URL) — dedicated Node
+  //      service that runs the heavy pipeline outside Vercel. This
+  //      is the production architecture: Vercel handles UI + thin
+  //      API, Render handles generation. When configured and
+  //      reachable, we skip all fallbacks below.
+  //
   //   1. BullMQ queue — if REDIS_HOST is configured AND at least one
   //      worker is listening, the job runs in a long-lived worker
   //      process. Fully durable: worker picks up on restart, BullMQ
@@ -369,6 +379,57 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // queue path on a Vercel deploy by setting
   // ARKIOL_DISABLE_VERCEL_SAFE_MODE=1 (only do this when a real
   // dedicated worker service is running elsewhere).
+  // ── Render backend dispatch (preferred on production Vercel) ─────────────
+  // Goal of Step 1 split: Vercel is UI + thin API; Render runs the
+  // heavy generation pipeline. If RENDER_GENERATION_URL +
+  // RENDER_GENERATION_KEY are set, forward the job payload to the
+  // Render service and skip the inline durable path entirely —
+  // Vercel's serverless function returns fast with just the jobId.
+  const renderPayload = {
+    jobId:              job.id,
+    userId:             user.id,
+    orgId,
+    prompt:             input.prompt,
+    formats:            input.formats,
+    stylePreset:        input.stylePreset,
+    variations:         input.variations,
+    brandId:            input.brandId ?? null,
+    campaignId:         input.campaignId ?? null,
+    includeGif:         input.includeGif,
+    locale:             input.locale,
+    archetypeOverride:  input.archetypeOverride,
+    expectedCreditCost: creditCost,
+  };
+
+  if (isRenderBackendConfigured()) {
+    const renderResult = await dispatchToRenderBackend(renderPayload);
+    if (renderResult.ok) {
+      return NextResponse.json(
+        {
+          jobId:            job.id,
+          status:           "PENDING",
+          totalAssets,
+          creditCost,
+          estimatedCostUSD: +estimatedCostUSD.toFixed(4),
+          estimatedSeconds: Math.round(totalAssets * (input.hqUpgrade ? 14 : 8)),
+          formats:          input.formats,
+          creditsReserved:  creditCost,
+          hqUpgrade:        input.hqUpgrade,
+          inlineExecution:  false,
+          durability:       "render_backend",
+        },
+        { status: 202 }
+      );
+    }
+    // Fall through to inline durable path when Render is
+    // unreachable — generation must still work on preview deploys
+    // or during a Render incident. The incident is logged, the user
+    // never sees it.
+    console.warn(
+      `[generate] Render backend unavailable for job ${job.id}: ${renderResult.error}. Falling back to inline.`,
+    );
+  }
+
   const earlySafe = detectSafeMode(undefined).safeMode;
   let queued = false;
   if (!earlySafe) {
@@ -397,28 +458,15 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     }
   }
 
-  // Inline dispatch — ALWAYS runs. durableRunInlineGeneration uses the
-  // best available waitUntil primitive (Next 14.2+ `after`, then Vercel
+  // Inline dispatch — ALWAYS runs when Render isn't configured /
+  // reachable. durableRunInlineGeneration uses the best available
+  // waitUntil primitive (Next 14.2+ `after`, then Vercel
   // `waitUntil`, then raw fire-and-forget) and never blocks the
   // response. The atomic PENDING→RUNNING claim inside
   // runInlineGeneration makes this safe to fire alongside the queue
   // worker — double-processing is prevented at the DB level.
-  const dur = durableRunInlineGeneration({
-    jobId:              job.id,
-    userId:             user.id,
-    orgId,
-    prompt:             input.prompt,
-    formats:            input.formats,
-    stylePreset:        input.stylePreset,
-    variations:         input.variations,
-    brandId:            input.brandId ?? null,
-    campaignId:         input.campaignId ?? null,
-    includeGif:         input.includeGif,
-    locale:             input.locale,
-    archetypeOverride:  input.archetypeOverride,
-    expectedCreditCost: creditCost,
-  });
-  const durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" =
+  const dur = durableRunInlineGeneration(renderPayload);
+  const durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" | "render_backend" =
     queued ? "queue" : dur.strategy;
 
   // Always return immediately with jobId — the frontend polls
