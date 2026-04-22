@@ -347,8 +347,24 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // the background. Blocking here would blow past Vercel's proxy
   // timeout and surface as "Generation failed" in the UI even though
   // the job is still progressing in the DB.
+  // The queue path is a PERFORMANCE optimisation, not a correctness
+  // guarantee. If BullMQ is configured we enqueue the job so a
+  // dedicated long-lived worker can claim it first (faster cold-start,
+  // parallelism), but we also ALWAYS fire the inline durable dispatch
+  // — Vercel's `unstable_after` / `waitUntil` keeps the serverless
+  // container alive past response-flush, so the inline path can claim
+  // the job too. Whichever reaches runInlineGeneration first wins the
+  // atomic `startedAt=null → startedAt=new Date()` claim in
+  // inlineGenerate.ts; the loser sees `count === 0` and bails.
+  //
+  // Before this double-dispatch, production jobs would stall
+  // indefinitely when BullMQ reported workers as registered (via
+  // getWorkers()) but the worker process was actually not consuming
+  // jobs — common on Vercel where REDIS_HOST is set but no external
+  // worker service is running. The stale watchdog only flipped them
+  // to FAILED after ~4.5 minutes, producing the "Worker stalled:
+  // Generation never started" user-facing error.
   let queued = false;
-
   try {
     if (detectCapabilities().queue) {
       await generationQueue.add(
@@ -373,35 +389,29 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     queued = false;
   }
 
-  // Route through the durable runner when no worker picked the job up.
-  // durableRunInlineGeneration uses the best available waitUntil
-  // primitive (Next 14.2+ `after`, then Vercel `waitUntil`, then raw
-  // fire-and-forget) and never blocks the response.
-  //
-  // workerMode is omitted on this first dispatch — durableRun will
-  // choose the right label based on the strategy it actually picked
-  // (next_after / vercel_waitUntil / fire_and_forget). If the queue
-  // path took the job, the BullMQ worker's own inline runner gets the
-  // tag elsewhere (see lib/queueWorker if present).
-  let durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" = "queue";
-  if (!queued) {
-    const dur = durableRunInlineGeneration({
-      jobId:              job.id,
-      userId:             user.id,
-      orgId,
-      prompt:             input.prompt,
-      formats:            input.formats,
-      stylePreset:        input.stylePreset,
-      variations:         input.variations,
-      brandId:            input.brandId ?? null,
-      campaignId:         input.campaignId ?? null,
-      includeGif:         input.includeGif,
-      locale:             input.locale,
-      archetypeOverride:  input.archetypeOverride,
-      expectedCreditCost: creditCost,
-    });
-    durability = dur.strategy;
-  }
+  // Inline dispatch — ALWAYS runs. durableRunInlineGeneration uses the
+  // best available waitUntil primitive (Next 14.2+ `after`, then Vercel
+  // `waitUntil`, then raw fire-and-forget) and never blocks the
+  // response. The atomic PENDING→RUNNING claim inside
+  // runInlineGeneration makes this safe to fire alongside the queue
+  // worker — double-processing is prevented at the DB level.
+  const dur = durableRunInlineGeneration({
+    jobId:              job.id,
+    userId:             user.id,
+    orgId,
+    prompt:             input.prompt,
+    formats:            input.formats,
+    stylePreset:        input.stylePreset,
+    variations:         input.variations,
+    brandId:            input.brandId ?? null,
+    campaignId:         input.campaignId ?? null,
+    includeGif:         input.includeGif,
+    locale:             input.locale,
+    archetypeOverride:  input.archetypeOverride,
+    expectedCreditCost: creditCost,
+  });
+  const durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" =
+    queued ? "queue" : dur.strategy;
 
   // Always return immediately with jobId — the frontend polls
   // /api/jobs?id=<jobId> for status + result.

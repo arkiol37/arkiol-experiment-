@@ -149,16 +149,38 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     }
 
     // Mark job as RUNNING + initial 2% so the UI bar moves immediately.
+    //
+    // CRITICAL: this write must be ATOMIC. Two dispatch paths (the
+    // BullMQ worker and the inline fallback from durableRun) can both
+    // land here for the same job when the queue is configured but its
+    // worker pool is unreliable — we fire both to maximise the chance
+    // that SOMETHING picks the job up. `updateMany` with a
+    // `startedAt: null` guard means only the first caller flips the
+    // row; the second sees `count === 0` and bails cleanly instead of
+    // double-rendering, double-charging credits, or racing the final
+    // COMPLETED write.
     diag.enterStage("mark_running");
-    await prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status:   "RUNNING" as any,
-        startedAt: new Date(),
-        progress: 2,
-        attempts: { increment: 1 },
+    const claim = await prisma.job.updateMany({
+      where: {
+        id:        jobId,
+        status:    "PENDING" as any,
+        startedAt: null,
       },
-    }).catch(() => {});
+      data: {
+        status:    "RUNNING" as any,
+        startedAt: new Date(),
+        progress:  2,
+        attempts:  { increment: 1 },
+      },
+    }).catch(() => ({ count: 0 }));
+    if (claim.count === 0) {
+      // Another worker already owns this job. Drop out silently — our
+      // heartbeat is the only piece of mutable state we registered, so
+      // tearing it down is enough to release the container.
+      console.info(`[inline-generate] Job ${jobId} already claimed by another worker — bailing.`);
+      stopHeartbeat();
+      return;
+    }
     currentProgress = 2;
 
     // Load brand if specified

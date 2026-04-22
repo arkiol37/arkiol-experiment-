@@ -56,10 +56,20 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     // next poll will do the same claim-and-resume dance once the grace
     // period expires again. Effectively, polling itself becomes the
     // durability mechanism on serverless — no cron, no new infra.
-    const RESUME_AFTER_MS    = 30_000;  // 30s grace for original launch
+    //
+    // HISTORY: this branch was previously gated on
+    // `!detectCapabilities().queue`, on the assumption that BullMQ's
+    // own retry ladder would recover jobs when the queue was active.
+    // In practice, `getWorkers()` reports workers as registered even
+    // when the underlying process isn't actually consuming jobs, so
+    // queue-configured deploys with flaky / absent workers had ALL
+    // their jobs stall at PENDING. The atomic claim in
+    // runInlineGeneration prevents double-processing, so it's safe to
+    // always attempt resume — the queue worker and the inline
+    // fallback race on the same updateMany.
+    const RESUME_AFTER_MS     = 20_000;  // 20s grace (tightened from 30s)
     const MAX_RESUME_ATTEMPTS = 3;
     if (
-      !detectCapabilities().queue &&
       job.status === "PENDING" &&
       !job.startedAt &&
       Date.now() - new Date(job.createdAt).getTime() > RESUME_AFTER_MS &&

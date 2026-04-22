@@ -2804,13 +2804,179 @@ async function run() {
     );
   });
 
-  test("/api/jobs GET skips auto-resume when a BullMQ worker owns the queue", () => {
-    // When an external worker is running, BullMQ's own retry ladder is
-    // the durability mechanism — resuming inline from the poller would
-    // create a double-render race.
+  test("/api/jobs GET auto-resume runs regardless of queue capability", () => {
+    // Production regression: the resume branch USED to be gated on
+    // `!detectCapabilities().queue` so that BullMQ's own retry ladder
+    // owned recovery when a queue was configured. In practice
+    // `getWorkers()` reports workers as registered even when the
+    // underlying process has crashed or is otherwise not consuming,
+    // so queue-configured deploys with flaky workers left every job
+    // stalling at PENDING. Since the atomic PENDING→RUNNING claim in
+    // runInlineGeneration prevents double-processing, it's safe to
+    // always attempt resume. The gate must be ABSENT from the actual
+    // `if (...)` resume guard — comments that reference the old
+    // pattern are fine.
+    const routeSrc = jobsRouteSrcForDurable;
+    // Find the resume `if (` clause — it starts right after the
+    // RESUME_AFTER_MS / MAX_RESUME_ATTEMPTS declarations. Verify the
+    // literal `!detectCapabilities().queue &&` doesn't appear as a
+    // guard inside it.
+    const guardRegion = routeSrc.match(/MAX_RESUME_ATTEMPTS[\s\S]{0,800}updateMany/);
+    assert(guardRegion, "resume guard region must exist in /api/jobs GET");
     assert(
-      /!\s*detectCapabilities\(\)\.queue/.test(jobsRouteSrcForDurable),
-      "resume block must be gated on queue capability being absent",
+      !/!\s*detectCapabilities\(\)\.queue\s*&&/.test(guardRegion![0]),
+      "resume guard must NOT include `!detectCapabilities().queue &&` — that gate caused jobs to stall when the queue was configured but had no active workers",
+    );
+    // Core claim predicates still in place.
+    assert(
+      /status\s*===\s*"PENDING"/.test(guardRegion![0]),
+      "resume guard must still check status === 'PENDING'",
+    );
+    assert(
+      /!\s*job\.startedAt/.test(guardRegion![0]),
+      "resume guard must still skip rows whose startedAt is already set",
+    );
+  });
+
+  section("worker-pickup · reliable job-start invariants");
+
+  // Defends the production fix for the "Worker stalled: Generation
+  // never started" user-facing error. Before this fix, if BullMQ
+  // reported workers as registered but none were actually consuming
+  // jobs, the inline fallback was gated off (`if (!queued)`) and the
+  // job stalled at PENDING until the stale watchdog flipped it to
+  // FAILED ~4.5 minutes later. The fix is a three-layer defence:
+  // (a) always fire the inline dispatch; (b) make the PENDING→RUNNING
+  // write atomic so queue + inline can race safely; (c) remove the
+  // queue-presence gate from the poller auto-resume.
+  const generateRouteSrcForPickup = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/app/api/generate/route.ts"),
+    "utf-8",
+  );
+  const inlineGenForPickup = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+  // Separate import so these tests don't depend on the declaration
+  // order of the later "stale-detection" section (which also
+  // imports `stale` but further down the run() body).
+  const stalePickup = await import("../apps/arkiol-core/src/lib/staleDetection");
+
+  test("/api/generate always dispatches the inline runner, regardless of queued status", () => {
+    // The previous `if (!queued) { durableRunInlineGeneration(...) }`
+    // gate caused stalls when the queue reported workers that
+    // weren't actually processing. The inline dispatch must now run
+    // unconditionally; the queue is a perf optimisation, not a
+    // correctness guarantee.
+    assert(
+      !/if\s*\(\s*!\s*queued\s*\)\s*\{[\s\S]{0,200}durableRunInlineGeneration/.test(generateRouteSrcForPickup),
+      "/api/generate must NOT gate durableRunInlineGeneration behind `if (!queued)` — that gate caused the 'Worker stalled' regression",
+    );
+    // durableRunInlineGeneration must still be called exactly once
+    // per request so the atomic claim + inline fallback are both
+    // wired up.
+    const callCount = (generateRouteSrcForPickup.match(/durableRunInlineGeneration\s*\(/g) ?? []).length;
+    assertEq(callCount, 1, "durableRunInlineGeneration must be called exactly once — the inline fallback must always run");
+  });
+
+  test("/api/generate still tracks `queued` so the response carries the right durability label", () => {
+    // Dropping the gate is fine; dropping the signal means the UI
+    // can't distinguish queue-owned from inline-owned jobs.
+    assert(
+      /queued\s*\?\s*"queue"/.test(generateRouteSrcForPickup),
+      "response durability label must use `queued ? 'queue' : dur.strategy` so ops can still pivot by dispatch mode",
+    );
+  });
+
+  test("inlineGenerate claims PENDING→RUNNING atomically via updateMany", () => {
+    // The previous `prisma.job.update({...status: RUNNING...})` was
+    // NOT guarded by the current status, so a queue worker + inline
+    // fallback both running for the same jobId would both write
+    // RUNNING and then race the rest of the pipeline — double-
+    // rendering, double-charging credits, inconsistent result rows.
+    assert(
+      /prisma\.job\.updateMany\s*\(\s*\{[\s\S]{0,500}status:\s*"PENDING"[\s\S]{0,500}startedAt:\s*null[\s\S]{0,500}status:\s*"RUNNING"/.test(inlineGenForPickup),
+      "mark_running stage must use updateMany with where.status='PENDING' AND where.startedAt=null AND data.status='RUNNING' for the atomic claim",
+    );
+  });
+
+  test("inlineGenerate bails cleanly when the atomic claim loses the race", () => {
+    // The loser of the queue-vs-inline race must not proceed — it
+    // would corrupt the DB row mid-pipeline. The bail must also tear
+    // down the heartbeat so the Node event loop can drain.
+    assert(
+      /claim\.count\s*===\s*0[\s\S]{0,400}stopHeartbeat\s*\(\s*\)/.test(inlineGenForPickup),
+      "mark_running bail must call stopHeartbeat() before returning so the setInterval timer doesn't leak",
+    );
+    assert(
+      /claim\.count\s*===\s*0[\s\S]{0,400}return\s*;?/.test(inlineGenForPickup),
+      "mark_running bail must `return` so the rest of the pipeline doesn't run",
+    );
+  });
+
+  test("evaluateStale gives never-started jobs a 4× HEARTBEAT_GAP_MS cushion", () => {
+    // Production regression: the old `× 2` (~3-minute) cushion
+    // tripped on cold-start-heavy Vercel deploys before the poller's
+    // MAX_RESUME_ATTEMPTS ladder had time to run.
+    assert(
+      /NEVER_STARTED_CUSHION_MS/.test(
+        fs.readFileSync(path.resolve("apps/arkiol-core/src/lib/staleDetection.ts"), "utf-8")
+      ),
+      "staleDetection must export NEVER_STARTED_CUSHION_MS so the watchdog and tests can agree on the threshold",
+    );
+    assert(
+      stalePickup.NEVER_STARTED_CUSHION_MS >= stalePickup.HEARTBEAT_GAP_MS * 3,
+      `NEVER_STARTED_CUSHION_MS must be >= 3× HEARTBEAT_GAP_MS (~4.5 min) so Vercel cold-start recoveries get a fair shake, got ${stalePickup.NEVER_STARTED_CUSHION_MS}`,
+    );
+  });
+
+  test("evaluateStale does not flag a PENDING job as never-started during the cushion window", () => {
+    // evaluateStale reads Date.now() internally — use a real recent
+    // timestamp so heartbeatGapMs isn't astronomical. Age: MIN_EXPECTED_MS
+    // + 2× HEARTBEAT_GAP_MS = 270s, which is the OLD stale threshold
+    // but INSIDE the new 4× cushion (total threshold 450s).
+    const now = Date.now();
+    const createdMs = now - (stalePickup.MIN_EXPECTED_MS + stalePickup.HEARTBEAT_GAP_MS * 2);
+    const v = stalePickup.evaluateStale({
+      status:    "PENDING",
+      // Set updatedAt to now so the heartbeat-gap branch (item #3 in
+      // evaluateStale) doesn't short-circuit into a RUNNING-dead-
+      // container verdict. We specifically want to test the
+      // never-started branch.
+      createdAt: new Date(createdMs),
+      startedAt: null,
+      updatedAt: new Date(now),
+      payload:   { variations: 1, formats: ["instagram_post"] },
+    });
+    assertEq(v.stale, false, "PENDING job inside the new cushion must not be flagged stale");
+  });
+
+  test("evaluateStale still flags a PENDING job past expected + cushion", () => {
+    const now = Date.now();
+    const veryOldCreated = now - (stalePickup.MAX_EXPECTED_MS + stalePickup.NEVER_STARTED_CUSHION_MS + 60_000);
+    const v = stalePickup.evaluateStale({
+      status:    "PENDING",
+      createdAt: new Date(veryOldCreated),
+      startedAt: null,
+      updatedAt: new Date(veryOldCreated),
+      payload:   { variations: 6, formats: ["instagram_post", "instagram_story", "flyer"] },
+    });
+    assertEq(v.stale, true, "PENDING job past expected + NEVER_STARTED_CUSHION_MS must still be flagged");
+    assertEq(v.reason, "no_progress_total", "reason must pivot to no_progress_total");
+  });
+
+  test("/api/jobs resume uses a sub-30s RESUME_AFTER_MS so recovery kicks in before user patience wears out", () => {
+    const src = jobsRouteSrcForDurable;
+    const m = src.match(/RESUME_AFTER_MS\s*=\s*([\d_]+)/);
+    assert(m, "RESUME_AFTER_MS must remain defined");
+    const ms = Number(m![1].replace(/_/g, ""));
+    assert(
+      ms <= 30_000,
+      `RESUME_AFTER_MS must be <= 30s so the poller picks up stuck PENDING jobs quickly, got ${ms}`,
+    );
+    assert(
+      ms >= 10_000,
+      `RESUME_AFTER_MS must be >= 10s so the original handler gets a fair chance to start, got ${ms}`,
     );
   });
 

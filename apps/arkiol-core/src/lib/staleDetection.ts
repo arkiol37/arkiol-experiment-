@@ -38,6 +38,16 @@ export const PULSE_INTERVAL_MS  = 10_000;     // mirrors inlineGenerate.ts
 export const HEARTBEAT_GAP_MS   = 90_000;     // 9× pulse interval = dead worker
 export const RUNNING_GRACE_MS   = 60_000;     // cold-start headroom
 export const HARD_CEILING_MS    = 900_000;    // 15-min absolute runtime cap
+/** Extra grace for a PENDING job that hasn't hit its first `mark_running`
+ *  write yet. Covers: (a) initial Vercel cold-start + `unstable_after`
+ *  schedule, (b) MAX_RESUME_ATTEMPTS × RESUME_AFTER_MS worth of poller
+ *  recovery attempts, each with its own cold-start budget. Widened
+ *  from 2× HEARTBEAT_GAP_MS (180s) after production showed legit
+ *  cold-start-heavy deploys tripping the watchdog before resume had a
+ *  fair chance. 4× gives a ~6-minute window which matches the "Your
+ *  server is provisioning" expectation during a first-request cold
+ *  boot. */
+export const NEVER_STARTED_CUSHION_MS = HEARTBEAT_GAP_MS * 4;
 
 // Per-asset rough budget the inline pipeline needs. Assumed to be
 // sequential-ish: 12s per asset + 30s pipeline warmup. The concurrent
@@ -130,11 +140,15 @@ export function evaluateStale(job: JobLikeForStale): StaleVerdict {
   }
 
   // 4. Never-started job still silent past its expected duration.
-  //    The poller resume path handles most of these, but when resume
-  //    itself exhausts MAX_RESUME_ATTEMPTS we still want a terminal
-  //    FAILED so the UI can render the retry button.
+  //    The poller resume path (which fires every ~20s once a job is
+  //    older than RESUME_AFTER_MS) handles most of these, but when
+  //    resume itself exhausts MAX_RESUME_ATTEMPTS we still want a
+  //    terminal FAILED so the UI can render the retry button.
+  //    Empirically the old `× 2` cushion was tripping on legit
+  //    cold-start-heavy Vercel deploys before resume had a fair
+  //    chance — see NEVER_STARTED_CUSHION_MS above.
   const totalAgeMs = Math.max(0, now - createdMs);
-  if (!startedMs && totalAgeMs > expectedMs + HEARTBEAT_GAP_MS * 2) {
+  if (!startedMs && totalAgeMs > expectedMs + NEVER_STARTED_CUSHION_MS) {
     return {
       ...base,
       stale: true, reason: "no_progress_total",
