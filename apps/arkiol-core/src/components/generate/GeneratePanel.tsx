@@ -1,12 +1,14 @@
 "use client";
-// src/components/generate/GeneratePanel.tsx — v10
-// Floating generate panel with archetype intelligence, rich AI stage experience
+// src/components/generate/GeneratePanel.tsx — v11
+// Floating generate panel with archetype intelligence, rich AI stage experience,
+// and unified polling/stale/retry state from useJobPolling.
 
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { ARKIOL_CATEGORIES, CATEGORY_LABELS } from "../../lib/types";
 import { GALLERY_DEFAULT_CANDIDATE_COUNT } from "../../lib/gallery-config";
 import { AIGenerationStage } from "./AIGenerationStage";
-import { formatJobError } from "../../lib/jobErrorFormat";
+import { useJobPolling } from "../../lib/useJobPolling";
+import { formatSilentDuration } from "../../lib/jobPollState";
 
 interface GeneratePanelProps {
   onClose:    () => void;
@@ -51,21 +53,36 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
   const [preset,    setPreset]    = useState("auto");
   const [archetype, setArchetype] = useState("auto");
   const [gif,       setGif]       = useState(false);
-  const [loading,   setLoading]   = useState(false);
-  const [jobId,     setJobId]     = useState<string | null>(null);
-  const [progress,  setProgress]  = useState(0);
-  const [status,    setStatus]    = useState<"idle"|"queued"|"running"|"done"|"error">("idle");
-  const [error,     setError]     = useState<string | null>(null);
-  // Whether the LAST failure was classified retryable by the backend.
-  // Drives the inline Retry button in the error toast below.
-  const [retryable, setRetryable] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval>>();
+  // Local "we're dispatching the initial POST /api/generate" flag —
+  // distinct from the hook's polling states because before the server
+  // returns a jobId there's nothing to poll.
+  const [dispatching, setDispatching] = useState(false);
+  // Pre-poll error (hit when /api/generate itself returns non-2xx).
+  // Once the hook has a jobId it owns error surfacing through its view.
+  const [dispatchError, setDispatchError] = useState<string | null>(null);
+
+  // Unified polling hook owns: progress tracking, stale detection,
+  // hard-abandon timeout, terminal-state cleanup, retry dispatch.
+  const poll = useJobPolling();
 
   const gifEligible = ["instagram_post", "instagram_story"].includes(format);
+  // `loading` now covers: initial POST in flight OR hook is polling OR
+  // a retry is in flight. The AIGenerationStage component keys off
+  // this single flag.
+  const isBusy = dispatching || poll.isRetrying ||
+    (poll.jobId !== null && !poll.shouldStopPolling);
+
+  // Fire the success callback exactly once — when the hook's view
+  // transitions to COMPLETED. Done via effect so re-renders don't
+  // re-fire it.
+  useEffect(() => {
+    if (poll.state === "completed" && poll.jobId) onComplete?.(poll.jobId);
+  }, [poll.state, poll.jobId, onComplete]);
 
   async function handleGenerate() {
     if (!prompt.trim()) return;
-    setLoading(true); setError(null); setStatus("queued"); setProgress(0);
+    setDispatching(true); setDispatchError(null);
+    poll.stop();
 
     const res  = await fetch("/api/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -74,89 +91,60 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
         stylePreset: preset === "auto" ? undefined : preset,
         includeGif:  gif && gifEligible,
         archetypeOverride: { archetypeId: archetype, presetId: preset },
-        // Step 21: request a real gallery shortlist per prompt so the
-        // user sees multiple layouts / compositions / styling picks.
-        // Plan caps apply downstream (maxVariationsPerRun), so users on
-        // lower tiers still get the correct number for their plan.
         variations: GALLERY_DEFAULT_CANDIDATE_COUNT,
       }),
     });
     const data = await res.json().catch(() => ({}));
+    setDispatching(false);
     if (!res.ok) {
-      // Handle capability unavailable (503) with a helpful message
-      const errMsg = res.status === 503
-        ? (data.message ?? `${data.feature ?? 'Generation'} requires ${data.configure ?? 'additional configuration'}. Add the required environment variables.`)
-        : (data.error ?? "Generation failed");
-      setError(errMsg); setRetryable(false);
-      setStatus("error"); setLoading(false); return;
+      // Handle capability unavailable (503) with a helpful message.
+      setDispatchError(
+        res.status === 503
+          ? (data.message ?? `${data.feature ?? 'Generation'} requires ${data.configure ?? 'additional configuration'}. Add the required environment variables.`)
+          : (data.error ?? "Generation failed"),
+      );
+      return;
     }
 
     const jid = data.jobId;
-    setJobId(jid);
+    if (!jid) { setDispatchError("Server did not return a job id."); return; }
 
-    // If inline generation already completed (Vercel mode), skip polling
+    // Fast paths: the inline runner may finish before we even start
+    // polling when the worker already had warm state. Treat these like
+    // synthetic terminal ticks and skip interval setup.
     if (data.status === "COMPLETED" || data.status === "SUCCEEDED") {
-      setProgress(100);
-      setStatus("done"); setLoading(false);
       onComplete?.(jid);
       return;
     }
     if (data.status === "FAILED") {
-      const display = formatJobError(data);
-      setError(display.message); setRetryable(display.retryable);
-      setStatus("error"); setLoading(false);
+      // Surface through the hook so the retry button + stale rules
+      // still apply. The hook's first poll tick will pick up the real
+      // FAILED row from /api/jobs.
+      poll.start(jid);
       return;
     }
 
-    setStatus("running");
-    startPolling(jid);
-  }
-
-  function startPolling(jid: string) {
-    pollRef.current = setInterval(async () => {
-      const r   = await fetch(`/api/jobs?id=${jid}`).catch(() => null);
-      const d   = r ? await r.json().catch(() => ({})) : {};
-      const job = d.jobs?.[0] ?? d.job ?? null;
-      if (!job) return;
-      setProgress(job.progress ?? 0);
-      if (job.status === "COMPLETED" || job.status === "SUCCEEDED") {
-        clearInterval(pollRef.current);
-        setStatus("done"); setLoading(false);
-        onComplete?.(jid);
-      } else if (job.status === "FAILED") {
-        clearInterval(pollRef.current);
-        const display = formatJobError(job);
-        setError(display.message); setRetryable(display.retryable);
-        setStatus("error"); setLoading(false);
-      }
-    }, 1500);
-  }
-
-  // Explicit retry path. Hits the dedicated /retry endpoint so the
-  // backend can re-validate eligibility and (when supported) skip the
-  // analyzer stage by reusing the cached briefSnapshot.
-  async function handleRetry() {
-    if (!jobId) return;
-    clearInterval(pollRef.current);
-    setLoading(true); setError(null); setStatus("running"); setProgress(0);
-    const res  = await fetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      setError(data.error ?? "Retry failed"); setRetryable(false);
-      setStatus("error"); setLoading(false); return;
-    }
-    if (data.status === "COMPLETED" || data.status === "SUCCEEDED") {
-      setProgress(100); setStatus("done"); setLoading(false);
-      onComplete?.(jobId);
-      return;
-    }
-    startPolling(jobId);
+    poll.start(jid);
   }
 
   function handleClose() {
-    clearInterval(pollRef.current);
+    poll.stop();
     onClose();
   }
+
+  // Derived UI surface. The hook returns `state` with six cases; we
+  // fan out to the specific visuals + messaging.
+  const showSuccess = poll.state === "completed";
+  const showError   = poll.state === "failed" || dispatchError !== null;
+  const errorTitle  = dispatchError ? "Generation failed" : poll.errorTitle;
+  const errorMsg    = dispatchError ?? poll.errorMessage ?? null;
+  const canRetry    = !dispatchError && poll.retryable && poll.jobId !== null;
+  const showStaleBanner = poll.state === "stale";
+  const showRetryingBanner = poll.state === "retrying";
+  const stageStatus = showSuccess ? "done"
+    : showError ? "error"
+    : poll.state === "queued" ? "queued"
+    : "running";
 
   return (
     <div className="ak-modal-overlay" onClick={e => { if (e.target === e.currentTarget) handleClose(); }}>
@@ -173,14 +161,14 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
           </button>
         </div>
 
-        {status === "done" ? (
+        {showSuccess ? (
           <div style={{ textAlign: "center", padding: "32px 0" }}>
             <div style={{ fontSize: 52, marginBottom: 14 }}>✨</div>
             <h3 style={{ fontSize: 20, fontWeight: 800, margin: "0 0 8px", fontFamily: "var(--font-display)", letterSpacing: "-0.04em" }}>Assets Ready!</h3>
             <p style={{ color: "var(--text-muted)", fontSize: 13.5, marginBottom: 26 }}>Your designs have been saved to your Gallery.</p>
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               <a href="/gallery" className="ak-btn ak-btn-primary" style={{ padding: "10px 24px" }}>View in Gallery</a>
-              <button onClick={() => { setStatus("idle"); setJobId(null); setPrompt(""); }} className="ak-btn ak-btn-secondary">Generate More</button>
+              <button onClick={() => { poll.stop(); setPrompt(""); setDispatchError(null); }} className="ak-btn ak-btn-secondary">Generate More</button>
             </div>
           </div>
         ) : (
@@ -226,12 +214,12 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
 
             {/* GIF toggle */}
             {gifEligible && (
-              <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, cursor: loading ? "default" : "pointer" }}>
-                <div onClick={() => !loading && setGif(g => !g)} style={{
+              <label style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20, cursor: isBusy ? "default" : "pointer" }}>
+                <div onClick={() => !isBusy && setGif(g => !g)} style={{
                   width: 38, height: 21, borderRadius: 10, position: "relative",
                   background: gif ? "var(--accent)" : "var(--bg-overlay)",
                   border: `1px solid ${gif ? "var(--accent)" : "var(--border-strong)"}`,
-                  transition: "all var(--transition-fast)", cursor: loading ? "default" : "pointer", flexShrink: 0,
+                  transition: "all var(--transition-fast)", cursor: isBusy ? "default" : "pointer", flexShrink: 0,
                 }}>
                   <div style={{
                     position: "absolute", top: 2, left: gif ? 18 : 2, width: 15, height: 15,
@@ -246,7 +234,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
             )}
 
             {/* AI Generation Stage Experience */}
-            {loading && (
+            {isBusy && (
               <div style={{
                 marginBottom: 18, padding: "20px 16px",
                 background: "var(--bg-overlay)",
@@ -254,23 +242,36 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
                 border: "1px solid rgba(124,127,250,0.12)",
               }}>
                 <AIGenerationStage
-                  progress={status === "queued" ? 0 : Math.max(5, progress)}
-                  status={status as "queued" | "running" | "done" | "error"}
+                  progress={poll.state === "queued" ? 0 : Math.max(5, poll.progress)}
+                  status={stageStatus as "queued" | "running" | "done" | "error"}
                 />
+                {showRetryingBanner && (
+                  <div style={{ marginTop: 12, fontSize: 12, color: "var(--accent-light)" }}>
+                    ↻ Retrying — previous attempt recovered from a transient error.
+                  </div>
+                )}
+                {showStaleBanner && (
+                  <div style={{ marginTop: 12, fontSize: 12, color: "#fbbf24" }}>
+                    ⏳ Taking longer than usual — {formatSilentDuration(poll.silentForMs)} since the last update. We're still checking.
+                  </div>
+                )}
               </div>
             )}
 
-            {error && (
+            {showError && (
               <div className="ak-toast ak-toast-error" style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 10 }}>
                 <span>⚠</span>
-                <span style={{ flex: 1 }}>{error}</span>
-                {retryable && jobId && (
+                <span style={{ flex: 1 }}>
+                  {errorTitle && <strong style={{ marginRight: 4 }}>{errorTitle}:</strong>}
+                  {errorMsg}
+                </span>
+                {canRetry && (
                   <button
-                    onClick={handleRetry}
-                    disabled={loading}
+                    onClick={() => { void poll.retry(); }}
+                    disabled={poll.isRetrying}
                     className="ak-btn ak-btn-secondary"
                     style={{ padding: "4px 10px", fontSize: 12, flexShrink: 0 }}>
-                    ↻ Retry
+                    {poll.isRetrying ? "Retrying…" : "↻ Retry"}
                   </button>
                 )}
               </div>
@@ -278,11 +279,11 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
 
             <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
               <button onClick={handleClose} className="ak-btn ak-btn-ghost" style={{ flexShrink: 0 }}>Cancel</button>
-              <button onClick={handleGenerate} disabled={loading || !prompt.trim()} className="ak-btn ak-btn-primary" style={{ flex: 1, padding: "11px" }}>
-                {loading ? (
+              <button onClick={handleGenerate} disabled={isBusy || !prompt.trim()} className="ak-btn ak-btn-primary" style={{ flex: 1, padding: "11px" }}>
+                {isBusy ? (
                   <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span className="ak-spin" style={{ width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", display: "inline-block" }} />
-                    Generating…
+                    {poll.state === "retrying" ? "Retrying…" : poll.state === "stale" ? "Still working…" : "Generating…"}
                   </span>
                 ) : "✦ Generate Now"}
               </button>

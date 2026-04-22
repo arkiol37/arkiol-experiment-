@@ -3294,22 +3294,25 @@ async function run() {
     );
   });
 
-  test("GeneratePanel surfaces a Retry button on retryable failures and resumes polling", () => {
+  test("GeneratePanel surfaces a Retry button on retryable failures via useJobPolling", () => {
+    // GeneratePanel now delegates to useJobPolling — the retry button
+    // wires to poll.retry() and the hook itself POSTs to the endpoint.
     assert(
-      /setRetryable\s*\(/.test(generatePanelSrc),
-      "GeneratePanel must track retryable state so the inline Retry button only appears when meaningful",
+      /useJobPolling\s*\(/.test(generatePanelSrc),
+      "GeneratePanel must route polling + retry through the shared useJobPolling hook",
     );
     assert(
-      /handleRetry\s*\(/.test(generatePanelSrc),
-      "GeneratePanel must expose a handleRetry path that re-enters the polling loop",
+      /poll\.retry\s*\(/.test(generatePanelSrc),
+      "GeneratePanel must expose a Retry button that invokes poll.retry()",
     );
     assert(
-      /\/api\/jobs\/\$\{jobId\}\/retry/.test(generatePanelSrc),
-      "GeneratePanel handleRetry must POST to /api/jobs/<jobId>/retry",
+      /poll\.retryable/.test(generatePanelSrc),
+      "GeneratePanel must gate the Retry button on poll.retryable so non-retryable failures stay terminal",
     );
     assert(
-      /startPolling\s*\(\s*jobId\s*\)/.test(generatePanelSrc),
-      "GeneratePanel handleRetry must restart the poll loop after dispatching the retry",
+      /poll\.state\s*===\s*"stale"/.test(generatePanelSrc) ||
+      /showStaleBanner/.test(generatePanelSrc),
+      "GeneratePanel must surface the 'stale' state so a slow render shows a meaningful banner instead of a silent spinner",
     );
   });
 
@@ -3320,6 +3323,247 @@ async function run() {
     assert(
       /briefSnapshot:\s*payload\.briefSnapshot/.test(jobsRouteSrcForDurable),
       "poller resume must forward briefSnapshot from payload so a re-dispatched PENDING row skips the analyzer when possible",
+    );
+  });
+
+  section("job-poll-state · client state machine + timeouts");
+
+  // Defends the client-side polling state machine. Production failure
+  // this guards against: a slow 3-minute render produces no UI feedback
+  // between "Analyzing prompt 5%" and "Done 100%", so users assume the
+  // page hung and either reload (losing state) or give up. The six-
+  // state machine plus the stale / hard-abandon thresholds turn every
+  // long render into a legible sequence of banners.
+  const pollState = await import("../apps/arkiol-core/src/lib/jobPollState");
+  const useJobPollingSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/lib/useJobPolling.ts"),
+    "utf-8",
+  );
+  const editorShellSrc = fs.readFileSync(
+    path.resolve("apps/arkiol-core/src/components/dashboard/EditorShell.tsx"),
+    "utf-8",
+  );
+
+  test("jobPollState POLL_INTERVAL_MS stays under the backend heartbeat cadence", () => {
+    // Backend heartbeats every 10s. Client polling at <=2s keeps the
+    // progress bar fluid without hammering the DB.
+    assert(
+      pollState.POLL_INTERVAL_MS >= 500 && pollState.POLL_INTERVAL_MS <= 5_000,
+      `POLL_INTERVAL_MS must be 500ms..5s, got ${pollState.POLL_INTERVAL_MS}`,
+    );
+  });
+
+  test("jobPollState CLIENT_STALE_MS slightly exceeds backend HEARTBEAT_GAP_MS", () => {
+    // The client-side stale warning must appear just after the backend
+    // would flip the row to FAILED — otherwise users see "taking
+    // longer than usual" forever. staleDetection.HEARTBEAT_GAP_MS is
+    // 90_000.
+    assert(
+      pollState.CLIENT_STALE_MS >= stale.HEARTBEAT_GAP_MS,
+      `CLIENT_STALE_MS (${pollState.CLIENT_STALE_MS}) must be >= backend HEARTBEAT_GAP_MS (${stale.HEARTBEAT_GAP_MS}) so the client doesn't flag stale before the backend can`,
+    );
+    assert(
+      pollState.CLIENT_STALE_MS <= 180_000,
+      `CLIENT_STALE_MS must be <= 3m so users see a status change within a reasonable window, got ${pollState.CLIENT_STALE_MS}`,
+    );
+  });
+
+  test("jobPollState HARD_ABANDON_MS matches backend HARD_CEILING_MS", () => {
+    // Client giving up before the backend would leave legit slow jobs
+    // orphaned; client giving up much later means users wait forever.
+    // The two must sit close — backend runtime ceiling is 900_000.
+    assert(
+      pollState.HARD_ABANDON_MS >= stale.HARD_CEILING_MS,
+      `HARD_ABANDON_MS (${pollState.HARD_ABANDON_MS}) must be >= backend HARD_CEILING_MS (${stale.HARD_CEILING_MS}) so the client doesn't abandon before the backend would have written FAILED`,
+    );
+  });
+
+  test("deriveJobView returns completed + shouldStopPolling on COMPLETED status", () => {
+    const v = pollState.deriveJobView(
+      { status: "COMPLETED", progress: 100, result: { assetCount: 3 } },
+      { firstSeenAtMs: 0, lastProgressAtMs: 0, nowMs: 10_000 },
+    );
+    assertEq(v.state,             "completed", "state");
+    assertEq(v.shouldStopPolling, true,        "shouldStopPolling");
+    assertEq(v.progress,          100,         "progress clamped to 100");
+    assertEq(v.assetCount,        3,           "assetCount surfaced");
+  });
+
+  test("deriveJobView returns failed + retryable for a FAILED row with retryable reason", () => {
+    const v = pollState.deriveJobView(
+      {
+        status: "FAILED",
+        result: {
+          title:      "AI service error",
+          message:    "OpenAI 502",
+          failReason: "openai_failure",
+          retryable:  true,
+        },
+      },
+      { firstSeenAtMs: 0, lastProgressAtMs: 0, nowMs: 10_000 },
+    );
+    assertEq(v.state,             "failed", "state");
+    assertEq(v.shouldStopPolling, true,     "shouldStopPolling");
+    assertEq(v.retryable,         true,     "retryable");
+    assertEq(v.errorTitle,        "AI service error", "errorTitle");
+    assertEq(v.errorMessage,      "OpenAI 502",       "errorMessage");
+    assertEq(v.failReason,        "openai_failure",   "failReason");
+  });
+
+  test("deriveJobView flags a RUNNING row with no progress delta as stale after CLIENT_STALE_MS", () => {
+    const firstSeen = 0;
+    const lastProgress = 0;
+    const now = pollState.CLIENT_STALE_MS + 1_000;
+    const v = pollState.deriveJobView(
+      { status: "RUNNING", progress: 5 },
+      { firstSeenAtMs: firstSeen, lastProgressAtMs: lastProgress, nowMs: now },
+    );
+    assertEq(v.state,             "stale", "state");
+    assertEq(v.shouldStopPolling, false,   "stale state keeps polling — the backend watchdog will flip to FAILED");
+    assert(
+      v.silentForMs > pollState.CLIENT_STALE_MS,
+      "silentForMs must reflect the true gap so UI can render mm:ss",
+    );
+  });
+
+  test("deriveJobView returns running when progress is recent enough", () => {
+    const v = pollState.deriveJobView(
+      { status: "RUNNING", progress: 42 },
+      { firstSeenAtMs: 0, lastProgressAtMs: 1_000, nowMs: 5_000 },
+    );
+    assertEq(v.state, "running", "state");
+    assertEq(v.progress, 42, "progress surfaced");
+    assertEq(v.shouldStopPolling, false, "running keeps polling");
+  });
+
+  test("deriveJobView returns queued for PENDING with no progress and no retry marker", () => {
+    const v = pollState.deriveJobView(
+      { status: "PENDING", progress: 0 },
+      { firstSeenAtMs: 0, lastProgressAtMs: 0, nowMs: 1_000 },
+    );
+    assertEq(v.state, "queued", "state");
+  });
+
+  test("deriveJobView returns retrying when PENDING carries result.retried=true", () => {
+    // prepareRetry writes this flag on the FAILED→PENDING claim. The
+    // client state has to recognise the transitional window so the UI
+    // says "Retrying…" instead of flashing back to "Queued".
+    const v = pollState.deriveJobView(
+      { status: "PENDING", progress: 0, result: { retried: true } },
+      { firstSeenAtMs: 0, lastProgressAtMs: 0, nowMs: 1_000 },
+    );
+    assertEq(v.state, "retrying", "state");
+    assertEq(v.shouldStopPolling, false, "retrying keeps polling");
+  });
+
+  test("deriveJobView hard-abandons jobs that exceed HARD_ABANDON_MS", () => {
+    // The backend never wrote FAILED (e.g. a wedged container), but
+    // we've been polling for 15 minutes. The client must stop and
+    // surface a retry option instead of spinning forever.
+    const v = pollState.deriveJobView(
+      { status: "RUNNING", progress: 50 },
+      { firstSeenAtMs: 0, lastProgressAtMs: 0, nowMs: pollState.HARD_ABANDON_MS + 1_000 },
+    );
+    assertEq(v.state, "failed", "hard-abandon reports as failed");
+    assertEq(v.shouldStopPolling, true, "hard-abandon stops polling");
+    assertEq(v.retryable, true, "hard-abandon is always retryable");
+    assertEq(v.failReason, "client_abandoned", "marks the reason for diagnostics");
+  });
+
+  test("deriveJobView never keeps polling on any terminal state", () => {
+    // Regression guard — the entire point of the machine is that
+    // polling stops on terminal states. A bug that flipped this to
+    // false would burn serverless invocations on jobs that already
+    // finished.
+    for (const status of ["COMPLETED", "SUCCEEDED", "FAILED"]) {
+      const v = pollState.deriveJobView(
+        { status, result: { retryable: false } },
+        { firstSeenAtMs: 0, lastProgressAtMs: 0, nowMs: 10_000 },
+      );
+      assertEq(v.shouldStopPolling, true, `terminal ${status} must stop polling`);
+    }
+  });
+
+  test("formatSilentDuration renders mm:ss above 60s, raw seconds below", () => {
+    assertEq(pollState.formatSilentDuration(0),       "0s",      "zero");
+    assertEq(pollState.formatSilentDuration(45_000),  "45s",     "<1m");
+    assertEq(pollState.formatSilentDuration(65_000),  "1m 05s",  "1m 5s pads zero");
+    assertEq(pollState.formatSilentDuration(125_000), "2m 05s",  "2m 5s");
+    assertEq(pollState.formatSilentDuration(600_000), "10m 00s", "10m exact");
+  });
+
+  test("useJobPolling clears the interval on terminal states", () => {
+    // The hook's tick must short-circuit further fetches once
+    // shouldStopPolling is true — otherwise a completed job keeps
+    // hammering /api/jobs forever.
+    assert(
+      /if\s*\(\s*next\.shouldStopPolling\s*\)\s*clearLoop/.test(useJobPollingSrc),
+      "useJobPolling must call clearLoop() as soon as deriveJobView reports shouldStopPolling",
+    );
+  });
+
+  test("useJobPolling aborts in-flight fetches on unmount", () => {
+    // Without AbortController cleanup, a modal that closes mid-poll
+    // leaks a pending fetch + eventual setState on an unmounted
+    // component.
+    assert(
+      /AbortController/.test(useJobPollingSrc) && /abort\s*\(\s*\)/.test(useJobPollingSrc),
+      "useJobPolling must use AbortController so unmount cancels in-flight fetches",
+    );
+    assert(
+      /useEffect\s*\(\s*\(\s*\)\s*=>\s*\(\s*\)\s*=>\s*clearLoop/.test(useJobPollingSrc),
+      "useJobPolling must register an unmount cleanup that stops the interval",
+    );
+  });
+
+  test("useJobPolling dispatches retry through POST /api/jobs/<id>/retry", () => {
+    assert(
+      /\/api\/jobs\/\$\{[^}]+\}\/retry/.test(useJobPollingSrc),
+      "useJobPolling.retry must POST to /api/jobs/<id>/retry",
+    );
+    assert(
+      /method:\s*"POST"/.test(useJobPollingSrc),
+      "useJobPolling.retry must use HTTP POST",
+    );
+  });
+
+  test("useJobPolling only advances lastProgressAtMs on real progress deltas", () => {
+    // If the tick bumped lastProgressAtMs on every fetch, the stale
+    // warning would never fire. The ref must only advance when the
+    // server reported a higher progress value.
+    assert(
+      /lastProgressValueRef/.test(useJobPollingSrc),
+      "useJobPolling must track the last observed progress value in a ref so stale detection is based on real deltas",
+    );
+    assert(
+      /p\s*>\s*lastProgressValueRef\.current/.test(useJobPollingSrc),
+      "useJobPolling must only advance lastProgressAtMs when progress strictly increased",
+    );
+  });
+
+  test("EditorShell drives its generating step through useJobPolling", () => {
+    assert(
+      /useJobPolling\s*\(/.test(editorShellSrc),
+      "EditorShell must route generation through useJobPolling instead of its own setInterval — otherwise stale / retry / hard-abandon don't apply",
+    );
+    assert(
+      /poll\.state\s*===\s*"completed"/.test(editorShellSrc),
+      "EditorShell must react to the hook's completed state to transition into loading",
+    );
+    assert(
+      /poll\.state\s*===\s*"failed"/.test(editorShellSrc),
+      "EditorShell must react to the hook's failed state to return to the brief step with the real error",
+    );
+  });
+
+  test("EditorShell surfaces stale + retry UI in its GeneratingStep", () => {
+    assert(
+      /pollState\s*===\s*"stale"/.test(editorShellSrc),
+      "EditorShell GeneratingStep must render a distinct 'stale' branch so the user sees something during long silences",
+    );
+    assert(
+      /onRetry/.test(editorShellSrc),
+      "EditorShell GeneratingStep must wire a retry button — otherwise a stalled job gives the user no recovery option",
     );
   });
 
@@ -3586,15 +3830,22 @@ async function run() {
   ];
 
   for (const [label, relPath] of uiSurfaces) {
-    test(`${label} routes FAILED jobs through formatJobError()`, () => {
+    test(`${label} routes FAILED jobs through the shared error surface`, () => {
       const src = fs.readFileSync(path.resolve(relPath), "utf-8");
+      // Two shapes are acceptable:
+      //   (a) Legacy direct path — import formatJobError and call it.
+      //   (b) Hook path — import useJobPolling, which internally
+      //       consumes the server-side formatJobError output from
+      //       /api/jobs. deriveJobView reads result.title /
+      //       result.message / result.failReason / result.retryable,
+      //       which are written exclusively by the shared formatter.
+      const viaFormatter = /formatJobError\s*\(/.test(src) &&
+                           /from\s+["'][^"']*jobErrorFormat["']/.test(src);
+      const viaHook      = /useJobPolling\s*\(/.test(src) &&
+                           /from\s+["'][^"']*useJobPolling["']/.test(src);
       assert(
-        /from\s+["'][^"']*jobErrorFormat["']/.test(src),
-        `${label} must import from jobErrorFormat — otherwise it can't render the real reason`,
-      );
-      assert(
-        /formatJobError\s*\(/.test(src),
-        `${label} must call formatJobError() somewhere in its FAILED branch`,
+        viaFormatter || viaHook,
+        `${label} must route FAILED rendering through formatJobError() or useJobPolling()`,
       );
       // The old field-name bugs: result.message (never written) and bare
       // fallback strings. These must be gone.

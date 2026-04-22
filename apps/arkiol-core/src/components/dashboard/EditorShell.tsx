@@ -17,7 +17,8 @@ import {
 } from "../../lib/types";
 import dynamic from "next/dynamic";
 import type { EditorElement } from "../editor/ArkiolEditor";
-import { formatJobError } from "../../lib/jobErrorFormat";
+import { useJobPolling } from "../../lib/useJobPolling";
+import { formatSilentDuration } from "../../lib/jobPollState";
 
 const ArkiolEditor = dynamic(
   () => import("../editor/ArkiolEditor").then(m => ({ default: m.default ?? m.ArkiolEditor })),
@@ -41,10 +42,13 @@ export function EditorShell() {
   const [style,      setStyle]      = useState("modern_minimal");
   const [vars,       setVars]       = useState(1);
   const [ytMode,     setYtMode]     = useState<"auto"|"face"|"product">("auto");
-  const [jobId,      setJobId]      = useState<string | null>(null);
-  const [progress,   setProgress]   = useState(0);
   const [error,      setError]      = useState<string | null>(null);
   const [editorInit, setEditorInit] = useState<EditorInit | null>(null);
+
+  // Unified polling state (progress, stale, retrying, failed,
+  // completed, hard-abandon) — same hook the GeneratePanel uses so
+  // UX stays consistent across every generation entry point.
+  const poll = useJobPolling();
 
   // On mount: if ?assetId=... is in the URL, skip generation and load directly into editor
   useEffect(() => {
@@ -58,32 +62,35 @@ export function EditorShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount only
 
-  // Poll until COMPLETED, then hand off to loadEditorElements
+  // React to terminal transitions from the polling hook. deriveJobView
+  // drives `state` — we just fan out to the step transitions + load
+  // the first generated asset on completion. The hook itself stops
+  // polling and exposes an error message; we surface both via `error`
+  // and the stale/retrying banners rendered by GeneratingStep.
   useEffect(() => {
-    if (!jobId || step !== "generating") return;
-    const iv = setInterval(async () => {
-      try {
-        const res  = await fetch(`/api/jobs?id=${jobId}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!data?.job) return;
-        setProgress(data.job.progress ?? 0);
-        if (data.job.status === "COMPLETED") {
-          clearInterval(iv);
-          const assetId = (data.job?.result?.assets?.[0]?.id ?? data.job?.result?.assetIds?.[0]) as string | undefined;
+    if (step !== "generating") return;
+    if (poll.state === "completed") {
+      // The polling loop doesn't re-fetch /api/jobs?id=... with asset
+      // details, so re-fetch once to pull the assetId list.
+      (async () => {
+        try {
+          const res = await fetch(`/api/jobs?id=${poll.jobId}`);
+          const data = await res.json();
+          const assetId = (data?.job?.result?.assets?.[0]?.id ?? data?.job?.result?.assetIds?.[0]) as string | undefined;
           if (!assetId) { setError("Generation completed but no asset was returned."); setStep("brief"); return; }
           setStep("loading");
           loadEditorElements(assetId);
-        } else if (data.job.status === "FAILED") {
-          clearInterval(iv);
-          setError(formatJobError(data.job).message);
+        } catch {
+          setError("Couldn't load the generated asset. Please retry.");
           setStep("brief");
         }
-      } catch { /* network hiccup — keep polling */ }
-    }, 2000);
-    return () => clearInterval(iv);
+      })();
+    } else if (poll.state === "failed") {
+      setError(poll.errorMessage ?? "Generation failed.");
+      setStep("brief");
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, step]);
+  }, [poll.state, poll.jobId, step]);
 
   const loadEditorElements = useCallback(async (assetId: string) => {
     const fallbackDims = FORMAT_DIMS[format] ?? { width: 1080, height: 1080 };
@@ -119,7 +126,8 @@ export function EditorShell() {
   }, [format]);
 
   const generate = useCallback(async () => {
-    setError(null); setStep("generating"); setProgress(0);
+    setError(null); setStep("generating");
+    poll.stop();
     try {
       const res = await fetch("/api/generate", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -130,8 +138,9 @@ export function EditorShell() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Generation failed");
-      setJobId(data.jobId);
+      poll.start(data.jobId);
     } catch (e: any) { setError(e.message); setStep("brief"); }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [format, prompt, style, vars, ytMode]);
 
   return (
@@ -158,7 +167,17 @@ export function EditorShell() {
           />
         )}
 
-        {step === "generating" && <GeneratingStep progress={progress} format={format} />}
+        {step === "generating" && (
+          <GeneratingStep
+            progress={poll.progress}
+            format={format}
+            pollState={poll.state}
+            silentForMs={poll.silentForMs}
+            retryable={poll.retryable}
+            isRetrying={poll.isRetrying}
+            onRetry={() => { void poll.retry(); }}
+          />
+        )}
         {step === "loading"    && <LoadingEditorStep />}
 
         {step === "edit" && editorInit && (
@@ -322,19 +341,48 @@ function BriefStep({ format, prompt, setPrompt, style, setStyle, vars, setVars, 
   );
 }
 
-function GeneratingStep({ progress, format }: { progress: number; format: string }) {
+function GeneratingStep({
+  progress, format, pollState, silentForMs, retryable, isRetrying, onRetry,
+}: {
+  progress:    number;
+  format:      string;
+  pollState:   "queued" | "running" | "stale" | "retrying" | "failed" | "completed";
+  silentForMs: number;
+  retryable:   boolean;
+  isRetrying:  boolean;
+  onRetry:     () => void;
+}) {
+  const subline =
+    pollState === "retrying" ? "Recovering from a transient error and retrying…" :
+    pollState === "stale"    ? "This is taking longer than usual — we're still checking." :
+    pollState === "queued"   ? "Waiting for a worker…" :
+    "AI is crafting your design";
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "60vh", gap: 20 }}>
       <div style={{ fontSize: 36, animation: "spin 2s linear infinite" }}>✦</div>
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
       <div style={{ textAlign: "center" }}>
         <div style={{ fontSize: 18, fontWeight: 600, color: "#fff", marginBottom: 6 }}>Generating {CATEGORY_LABELS[format as ArkiolCategory]}…</div>
-        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>AI is crafting your design</div>
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{subline}</div>
       </div>
       <div style={{ width: 280, height: 4, borderRadius: 2, background: "var(--border-strong)", overflow: "hidden" }}>
         <div style={{ height: "100%", width: `${Math.max(5, progress)}%`, background: "linear-gradient(90deg, var(--accent), var(--tertiary))", borderRadius: 2, transition: "width 0.5s ease" }} />
       </div>
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{progress}%</div>
+
+      {pollState === "stale" && (
+        <div style={{ marginTop: 4, fontSize: 12, color: "#fbbf24", textAlign: "center", maxWidth: 360 }}>
+          ⏳ No update for {formatSilentDuration(silentForMs)}. The worker might be slow or unresponsive.
+          {retryable && (
+            <button
+              onClick={onRetry}
+              disabled={isRetrying}
+              style={{ display: "inline-block", marginLeft: 10, padding: "2px 10px", fontSize: 11, borderRadius: 8, border: "1px solid rgba(251,191,36,0.4)", background: "rgba(251,191,36,0.12)", color: "#fbbf24", cursor: isRetrying ? "default" : "pointer" }}>
+              {isRetrying ? "Retrying…" : "↻ Retry now"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
