@@ -28,7 +28,14 @@
 //   demoted. Floor-fills are ordered by rank score too so the strongest
 //   rescues win.
 // ─────────────────────────────────────────────────────────────────────────────
-import "server-only";
+// ─────────────────────────────────────────────────────────────────────────────
+// FRAMEWORK-NEUTRAL: this module runs in plain Node (apps/render-backend)
+// AND in Next.js (apps/arkiol-core). Do NOT add `import "server-only"` or
+// any `next/server` import — the Render backend re-imports this file via
+// a relative path and crashes at startup if the chain pulls in Next-only
+// modules. Next/Vercel-specific wrappers (durableRun, renderDispatch, the
+// API routes) live elsewhere.
+// ─────────────────────────────────────────────────────────────────────────────
 import { prisma } from "./prisma";
 import { detectCapabilities } from "@arkiol/shared";
 import { tagError, extractReason } from "./jobErrorFormat";

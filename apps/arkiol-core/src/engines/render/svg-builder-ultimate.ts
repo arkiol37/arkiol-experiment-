@@ -10,9 +10,10 @@
 //  • All decorations placed in <g class="decor"> below text for clean z-order
 //  • extractBg bug fixed (was called extractBg, defined as extractBgForPipeline)
 
-import "server-only";
+// Framework-neutral: imported by both Next (apps/arkiol-core) and plain
+// Node (apps/render-backend). Do not add `import "server-only"`.
 import { chatJSON }                from "../../lib/openai";
-import { withRetry }               from "../../lib/error-handling";
+import { withRetry }               from "../../lib/retry";
 import { Zone, ZoneId }            from "../layout/families";
 import { BriefAnalysis }           from "../ai/brief-analyzer";
 import { FORMAT_DIMS }             from "../../lib/types";

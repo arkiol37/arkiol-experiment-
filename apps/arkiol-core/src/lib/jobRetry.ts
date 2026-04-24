@@ -45,7 +45,8 @@
 // outer catch both go through prepareRetry() so the safety rules can't
 // drift between the two paths.
 
-import "server-only";
+// Framework-neutral: dynamically required from inlineGenerate's retry path,
+// which runs both on Vercel and on apps/render-backend.
 import { prisma } from "./prisma";
 import { formatJobError } from "./jobErrorFormat";
 import type { InlineGenerateParams } from "./inlineGenerate";

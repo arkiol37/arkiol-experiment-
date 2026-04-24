@@ -1,6 +1,6 @@
 // src/lib/s3.ts
 // Safe S3 client — only operates when AWS credentials are configured.
-import 'server-only';
+// Framework-neutral: also imported by apps/render-backend at runtime.
 import { detectCapabilities } from '@arkiol/shared';
 
 function getS3Client() {

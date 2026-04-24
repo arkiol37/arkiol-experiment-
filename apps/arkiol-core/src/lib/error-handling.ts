@@ -1,8 +1,18 @@
 // src/lib/error-handling.ts
+//
+// Next.js-specific error helpers (withErrorHandling, capability
+// guards that return NextResponse). Engines that need the
+// framework-neutral retry helper should import from `./retry`
+// directly so they don't pull `next/server` into the chain when
+// loaded by apps/render-backend.
 import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { ApiError } from './types';
+
+// Re-export the neutral helpers so existing call sites that imported
+// `withRetry` / `extractErrorCode` from error-handling keep working.
+export { withRetry, extractErrorCode } from './retry';
 
 type Handler = (req: NextRequest, ctx?: any) => Promise<NextResponse>;
 
@@ -30,42 +40,6 @@ export function withErrorHandling(handler: Handler): Handler {
       return NextResponse.json({ error: 'An unexpected error occurred', errorId }, { status: 500 });
     }
   };
-}
-
-export async function withRetry<T>(
-  fn: () => Promise<T>,
-  options: { maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number; onRetry?: (attempt: number, err: unknown) => void } = {}
-): Promise<T> {
-  const { maxAttempts = 3, baseDelayMs = 1000, maxDelayMs = 30_000, onRetry } = options;
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try { return await fn(); }
-    catch (err: any) {
-      lastErr = err;
-      const status = err?.status ?? err?.response?.status;
-      if (status && status >= 400 && status < 500 && status !== 429) throw err;
-      if (attempt < maxAttempts) {
-        const delay = Math.min(baseDelayMs * Math.pow(2, attempt - 1) + Math.random() * 500, maxDelayMs);
-        onRetry?.(attempt, err);
-        await new Promise(r => setTimeout(r, delay));
-      }
-    }
-  }
-  throw lastErr;
-}
-
-// ── Error introspection helpers ───────────────────────────────────────────────
-
-/**
- * Safely extract a string `code` property from an Error
- * (e.g. NodeJS.ErrnoException or custom error subclasses).
- */
-export function extractErrorCode(err: Error, fallback: string): string {
-  if ("code" in err) {
-    const code = (err as Error & { code: unknown }).code;
-    if (typeof code === "string") return code;
-  }
-  return fallback;
 }
 
 // ── Capability guard helpers ──────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 // src/lib/openai.ts
 // Safe OpenAI client — returns clear errors when API key not configured.
-import 'server-only';
+// Framework-neutral: also imported by apps/render-backend at runtime.
 import { detectCapabilities } from '@arkiol/shared';
 
 let _openai: any = null;

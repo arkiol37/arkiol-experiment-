@@ -29,11 +29,12 @@
 // repeating these" block. Combined with a variation-seeded temperature
 // jitter this reliably produces varied output across a gallery batch.
 
-import "server-only";
+// Framework-neutral: imported by both Next (apps/arkiol-core) and plain
+// Node (apps/render-backend). Do not add `import "server-only"`.
 import { z } from "zod";
 import { detectCapabilities } from "@arkiol/shared";
 import { chatJSON } from "../../lib/openai";
-import { withRetry } from "../../lib/error-handling";
+import { withRetry } from "../../lib/retry";
 import type { BriefAnalysis } from "./brief-analyzer";
 import type { TemplateType } from "../templates/template-types";
 

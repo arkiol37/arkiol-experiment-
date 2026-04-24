@@ -21,7 +21,8 @@
 // NO renderer may bypass this pipeline. randomUUID() is replaced with
 // deterministic ID derivation from the input seed.
 
-import "server-only";
+// Framework-neutral: imported by both Next (apps/arkiol-core) and plain
+// Node (apps/render-backend). Do not add `import "server-only"`.
 import { createHash }              from "crypto";
 import { randomUUID }              from "crypto";
 import sharp                       from "sharp";

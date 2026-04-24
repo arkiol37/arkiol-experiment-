@@ -1,7 +1,8 @@
 // src/engines/ai/brief-analyzer.ts
-import "server-only";
+// Framework-neutral: imported by both Next (apps/arkiol-core) and plain
+// Node (apps/render-backend). Do not add `import "server-only"`.
 import { chatJSON } from "../../lib/openai";
-import { withRetry } from "../../lib/error-handling";
+import { withRetry } from "../../lib/retry";
 import { z }         from "zod";
 
 // Extended schema supports all 9 category zone types

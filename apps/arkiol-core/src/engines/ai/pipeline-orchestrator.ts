@@ -25,7 +25,8 @@
 //   ✓ Benchmark record is built and returned for external persistence
 //   ✓ A/B variant assignments are captured at execution time
 
-import "server-only";
+// Framework-neutral: imported by both Next (apps/arkiol-core) and plain
+// Node (apps/render-backend). Do not add `import "server-only"`.
 import {
   // Intelligence layers (Stages 1–6)
   Intent, IntentSchema,

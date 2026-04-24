@@ -1,19 +1,24 @@
 // apps/render-backend/src/lib/runGeneration.ts
 //
-// Thin wrapper around the core generation pipeline.
+// Thin wrapper around the framework-neutral generation pipeline.
 //
-// The heavy generation logic (OpenAI calls, template composition,
-// asset injection, layout building, rendering) lives in
-// apps/arkiol-core/src/lib/inlineGenerate.ts. We import it directly
-// rather than copy it, so the Vercel frontend and this Render backend
-// stay on a single code path that is tested in one place.
+// The pipeline implementation lives in
+// `apps/arkiol-core/src/lib/inlineGenerate.ts` (and its sibling
+// modules in `lib/` and `engines/`). Those files are
+// **framework-neutral** — none of them import `server-only`,
+// `next/server`, or any other Next.js-only module at the top
+// level. That's enforced by the comments at the top of each file
+// and verified before pushing.
 //
-// On Vercel, runInlineGeneration is scheduled under Next's `after`
-// primitive (apps/arkiol-core/src/lib/durableRun.ts). On Render it
-// runs inside a long-lived Node process, so `after`/`waitUntil` are
-// not needed — we just await the function directly on a detached
-// promise (fire-and-forget relative to the inbound HTTP request; the
-// Express handler returns 202 immediately and the frontend polls).
+// Next.js / Vercel-specific wrappers (durableRun, renderDispatch,
+// the `/api/generate` route, NextRequest/NextResponse helpers)
+// live in `apps/arkiol-core` only and are NOT imported here.
+//
+// On Render the heavy pipeline runs inside this long-lived Node
+// process, so we don't need `next/after` or `@vercel/functions
+// waitUntil` — we just await `runInlineGeneration` on a detached
+// promise. The Express handler returns 202 immediately and the
+// frontend polls /api/jobs (still served by Vercel) for status.
 import {
   runInlineGeneration,
   type InlineGenerateParams,
@@ -29,8 +34,8 @@ export type RenderGenerationParams = InlineGenerateParams;
  * status, so the frontend sees failures via polling.
  */
 export function scheduleRenderGeneration(params: RenderGenerationParams): void {
-  // Force-tag workerMode so diagnostics make it clear the job ran on
-  // the dedicated Render backend rather than a Vercel serverless
+  // Tag workerMode so diagnostics make it clear the job ran on the
+  // dedicated Render backend rather than a Vercel serverless
   // container or the inline fallback.
   const tagged: RenderGenerationParams = {
     ...params,

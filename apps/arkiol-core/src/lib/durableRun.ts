@@ -32,7 +32,11 @@
 // This module ALWAYS returns which strategy it used, so the route
 // handler can include `durability` in the response for observability.
 
-import "server-only";
+// NOTE: this module is dynamically `require()`d from inlineGenerate.ts at
+// runtime for the auto-retry path. It must not crash on import outside
+// of Next.js — the `next/server` and `@vercel/functions` lookups below
+// are wrapped in try/catch so this file is safe to require under plain
+// Node (apps/render-backend). Do not add `import "server-only"` here.
 import { runInlineGeneration, type InlineGenerateParams } from "./inlineGenerate";
 
 export type DurableStrategy =
