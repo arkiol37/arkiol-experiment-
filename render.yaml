@@ -3,6 +3,15 @@
 # at the repo and get the service provisioned with the correct build
 # + start commands automatically.
 #
+# IMPORTANT — cold starts:
+#   The `starter` plan hibernates after ~15 min idle and takes
+#   30-60s to wake on the next request. The Vercel forwarder
+#   (apps/arkiol-core/src/lib/renderDispatch.ts) waits up to 50s
+#   total (2× 25s with retry) and falls back to "still queued"
+#   when even that isn't enough. For production traffic, upgrade
+#   to a non-hibernating plan (`standard` or above) so the
+#   service stays warm.
+#
 # Expected secrets (set these in the Render dashboard, NOT here):
 #   DATABASE_URL              — same Postgres Vercel uses
 #   OPENAI_API_KEY            — OpenAI key used by the pipeline

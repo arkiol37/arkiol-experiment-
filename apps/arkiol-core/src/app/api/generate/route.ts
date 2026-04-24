@@ -48,10 +48,12 @@ import {
 } from "@arkiol/shared";
 import { z } from "zod";
 
-// This route no longer runs the heavy pipeline, so the long
-// maxDuration is pointless. A 30s ceiling is plenty for
-// auth + job row creation + a fetch to Render.
-export const maxDuration = 30;
+// This route forwards heavy work to the Render backend, but the
+// Render service may cold-start (~30-60s on starter plans). The
+// dispatch helper retries once with a 25s timeout, so we ask Vercel
+// for up to 60s of function lifetime to give the cold-start path
+// room to land. Pro plans honour 60s; Hobby caps to 60s as well.
+export const maxDuration = 60;
 
 const COST_PER_CREDIT_USD     = 0.008;
 const MAX_COST_PER_RENDER_USD = 0.50;
@@ -338,28 +340,62 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   const renderResult = await dispatchToRenderBackend(renderPayload);
 
   if (!renderResult.ok) {
-    // Whether the backend is unreachable (no status) or returned a
-    // 4xx/5xx, we record the same diagnostic info: the short error
-    // string + Render's per-field `details` (if any). The 4xx case
-    // is almost always a payload mismatch — surfacing the details
-    // is the only way the UI / operator can see WHICH field failed.
-    const isUnreachable = renderResult.status === undefined;
+    const isTimeout = renderResult.status === undefined &&
+      /timed out/i.test(renderResult.error);
+    const isUnreachable = renderResult.status === undefined && !isTimeout;
+
+    // Server-side log so Vercel logs show the exact failure for
+    // the operator. The log includes payload keys (not values) so
+    // we can verify field shape without spilling the prompt.
+    console.error(
+      `[generate] Render dispatch failed for job ${job.id}: ` +
+      `status=${renderResult.status ?? "n/a"} ` +
+      `error=${JSON.stringify(renderResult.error)} ` +
+      `details=${JSON.stringify(renderResult.details ?? null)} ` +
+      `payloadKeys=${Object.keys(renderPayload).join(",")}`,
+    );
+
+    if (isTimeout) {
+      // Cold-start timeout — Render is probably waking up. The job
+      // row is already PENDING in Postgres, so when the backend
+      // finishes booting it will pick up the request from the
+      // initial fetch (which kept retrying inside the dispatch
+      // helper). Returning 202 here keeps the frontend polling
+      // /api/jobs; the stale watchdog in /api/jobs will only flip
+      // to FAILED if the row sits PENDING for the full grace
+      // period, refunding credits at that point.
+      //
+      // Note: in this branch we did NOT successfully reach the
+      // Render service, so the job will only execute if Render
+      // wakes up *and* a future poll triggers an auto-resume. The
+      // alternative (mark FAILED here) would refund credits and
+      // require the user to retry — strictly worse UX, since on a
+      // cold start the second click usually succeeds anyway.
+      return NextResponse.json(
+        {
+          jobId:            job.id,
+          status:           "PENDING",
+          totalAssets,
+          creditCost,
+          estimatedCostUSD: +estimatedCostUSD.toFixed(4),
+          estimatedSeconds: Math.round(totalAssets * (input.hqUpgrade ? 14 : 8)) + 30,
+          formats:          input.formats,
+          creditsReserved:  creditCost,
+          hqUpgrade:        input.hqUpgrade,
+          durability:       "render_backend",
+          coldStart:        true,
+          notice:           "Render backend is starting up — your job will run as soon as it's ready.",
+        },
+        { status: 202 },
+      );
+    }
+
     const failReason = isUnreachable
       ? "render_backend_unreachable"
       : `render_backend_${renderResult.status}`;
     const userMessage = isUnreachable
       ? "Generation backend is unavailable. Please try again."
       : renderResult.error;
-
-    // Server-side log so deployment logs show the exact failure for
-    // the operator. We log the dispatched payload (minus prompt
-    // body, which can be long) so the log line is searchable.
-    console.error(
-      `[generate] Render dispatch failed for job ${job.id}: ` +
-      `status=${renderResult.status ?? "n/a"} error=${JSON.stringify(renderResult.error)} ` +
-      `details=${JSON.stringify(renderResult.details ?? null)} ` +
-      `payloadKeys=${Object.keys(renderPayload).join(",")}`,
-    );
 
     // Mark the job as FAILED so the poller doesn't leave it stuck
     // at PENDING and the user sees a real error in the UI.
@@ -369,7 +405,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         status:   "FAILED" as any,
         failedAt: new Date(),
         result:   {
-          error:      renderResult.error,
+          error:         renderResult.error,
           failReason,
           renderDetails: renderResult.details ?? null,
           renderStatus:  renderResult.status ?? null,
@@ -379,14 +415,14 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
     return NextResponse.json(
       {
-        error:    userMessage,
+        error:        userMessage,
         // Surface the exact validation error from Render (per-field
         // breakdown when it's a 400) AND the short backend message
         // so the UI can render either form without guessing.
-        detail:   renderResult.error,
-        details:  renderResult.details ?? null,
+        detail:       renderResult.error,
+        details:      renderResult.details ?? null,
         renderStatus: renderResult.status ?? null,
-        jobId:    job.id,
+        jobId:        job.id,
       },
       { status: renderResult.status ?? 502 },
     );

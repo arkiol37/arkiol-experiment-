@@ -142,8 +142,18 @@ export function buildRenderPayload(args: {
  * POST to the Render backend's /generate endpoint.
  *
  * Returns the backend's JSON response on success so the caller can
- * forward it to the frontend verbatim. Short timeout (10s) — the
- * backend schedules work in the background and should respond fast.
+ * forward it to the frontend verbatim.
+ *
+ * Cold-start handling:
+ *   - Render free / starter plans hibernate after ~15 min idle. The
+ *     first request after sleep takes 30-60s to wake the container.
+ *   - We use a 25s timeout (leaves headroom under Vercel's 30-60s
+ *     maxDuration) and a single retry on AbortError so that a
+ *     wake-up-then-respond cycle has time to complete.
+ *   - The caller (Vercel /api/generate) treats a final timeout as
+ *     "still queued" rather than "failed" so the job row stays at
+ *     PENDING and the frontend polling can discover the result
+ *     once Render finishes booting.
  */
 export async function dispatchToRenderBackend(
   payload: RenderDispatchPayload,
@@ -154,53 +164,72 @@ export async function dispatchToRenderBackend(
     return { ok: false, error: "RENDER_BACKEND_URL / RENDER_GENERATION_KEY not configured" };
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const COLD_START_TIMEOUT_MS = 25_000;
+  const MAX_ATTEMPTS = 2;
 
-  try {
-    const resp = await fetch(`${url.replace(/\/$/, "")}/generate`, {
-      method:  "POST",
-      signal:  controller.signal,
-      headers: {
-        "Authorization": `Bearer ${key}`,
-        "Content-Type":  "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+  const target = `${url.replace(/\/$/, "")}/generate`;
+  const body = JSON.stringify(payload);
 
-    let parsed: unknown = null;
+  let lastErr: RenderDispatchErr | null = null;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), COLD_START_TIMEOUT_MS);
+
     try {
-      parsed = await resp.json();
-    } catch {
-      const text = await resp.text().catch(() => "");
-      parsed = text ? { raw: text } : null;
-    }
+      const resp = await fetch(target, {
+        method:  "POST",
+        signal:  controller.signal,
+        headers: {
+          "Authorization": `Bearer ${key}`,
+          "Content-Type":  "application/json",
+        },
+        body,
+      });
 
-    if (!resp.ok) {
-      const obj = parsed && typeof parsed === "object"
-        ? (parsed as Record<string, unknown>)
-        : null;
-      const message =
-        (obj && typeof obj.error === "string" ? obj.error : undefined) ??
-        `Render backend returned ${resp.status}`;
-      const details = obj?.details ?? obj?.raw ?? undefined;
-      return {
-        ok:      false,
-        status:  resp.status,
-        error:   message,
-        details,
+      let parsed: unknown = null;
+      try {
+        parsed = await resp.json();
+      } catch {
+        const text = await resp.text().catch(() => "");
+        parsed = text ? { raw: text } : null;
+      }
+
+      if (!resp.ok) {
+        const obj = parsed && typeof parsed === "object"
+          ? (parsed as Record<string, unknown>)
+          : null;
+        const message =
+          (obj && typeof obj.error === "string" ? obj.error : undefined) ??
+          `Render backend returned ${resp.status}`;
+        const details = obj?.details ?? obj?.raw ?? undefined;
+        // 4xx/5xx with a response body — don't retry, surface
+        // immediately so the caller sees the real validation /
+        // server error.
+        return {
+          ok:      false,
+          status:  resp.status,
+          error:   message,
+          details,
+        };
+      }
+
+      return { ok: true, status: resp.status, data: parsed };
+    } catch (err: any) {
+      const isAbort = err?.name === "AbortError";
+      lastErr = {
+        ok:    false,
+        error: isAbort
+          ? "Render backend timed out"
+          : (err?.message ?? String(err)),
       };
+      // Retry only on AbortError (cold start). Network errors that
+      // surface synchronously aren't going to clear with a retry.
+      if (!isAbort || attempt === MAX_ATTEMPTS) break;
+    } finally {
+      clearTimeout(timeout);
     }
-
-    return { ok: true, status: resp.status, data: parsed };
-  } catch (err: any) {
-    return {
-      ok:    false,
-      error: err?.name === "AbortError"
-        ? "Render backend timed out"
-        : (err?.message ?? String(err)),
-    };
-  } finally {
-    clearTimeout(timeout);
   }
+
+  return lastErr ?? { ok: false, error: "Render dispatch failed" };
 }
