@@ -35,18 +35,17 @@ executed and updated by Render, polled by Vercel).
 
 ## Endpoints
 
-| Method | Path             | Notes                                              |
-|--------|------------------|----------------------------------------------------|
-| GET    | `/`              | Health check (also `/health`).                     |
-| POST   | `/generate`      | Starts a job. Requires `X-Arkiol-Render-Key`.      |
-| GET    | `/status/:jobId` | Current status + progress.                         |
-| GET    | `/result/:jobId` | Final assets (COMPLETED) or error (FAILED).        |
+| Method | Path             | Notes                                                  |
+|--------|------------------|--------------------------------------------------------|
+| GET    | `/`              | Health check (also `/health`).                         |
+| POST   | `/generate`      | Starts a job. Requires `Authorization: Bearer <key>`.  |
+| GET    | `/status/:jobId` | Current status + progress.                             |
+| GET    | `/result/:jobId` | Final assets (COMPLETED) or error (FAILED).            |
 
 ### POST /generate
 
 Only callable by the Vercel frontend — auth is a shared secret in
-the `X-Arkiol-Render-Key` header (must match `RENDER_GENERATION_KEY`
-on this service).
+the `Authorization: Bearer <RENDER_GENERATION_KEY>` header.
 
 The Vercel side has already created the job row in Postgres; the
 backend receives the `jobId` plus generation inputs and runs the
@@ -86,12 +85,12 @@ npm run dev --workspace=apps/render-backend
 
 Then, in your Vercel dev environment (`apps/arkiol-core/.env.local`):
 ```
-RENDER_GENERATION_URL=http://localhost:4100
+RENDER_BACKEND_URL=http://localhost:4100
 RENDER_GENERATION_KEY=<same as render backend>
 ```
 
-and `/api/generate` on the Vercel side will forward heavy work to
-this service instead of running it inline.
+and `/api/generate` on the Vercel side will forward every request
+to this service — Vercel no longer runs the heavy pipeline inline.
 
 ## Deploying to Render
 
@@ -121,12 +120,12 @@ npm run start --workspace=apps/render-backend
 
 Health check path: `/health`.
 
-## Why the Vercel side still has a fallback path
+## Vercel route is a thin forwarder
 
-`apps/arkiol-core/src/app/api/generate/route.ts` dispatches to
-Render only when `RENDER_GENERATION_URL` + `RENDER_GENERATION_KEY`
-are both set **and** the POST succeeds. If either is missing or the
-Render service is unreachable the route falls back to the existing
-inline durable path (`durableRunInlineGeneration`). This keeps
-preview deploys, local development, and Render incidents from
-breaking end-user generation while the split rolls out.
+`apps/arkiol-core/src/app/api/generate/route.ts` no longer runs the
+heavy pipeline. If `RENDER_BACKEND_URL` + `RENDER_GENERATION_KEY`
+are unset, or the Render service rejects the request, `/api/generate`
+returns a 5xx and the created job row is flipped to FAILED so the
+UI shows a real error instead of hanging on PENDING. This also
+means the Vercel serverless function can no longer hit a timeout on
+the generation path.

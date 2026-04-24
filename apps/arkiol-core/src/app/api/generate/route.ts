@@ -1,30 +1,35 @@
 // src/app/api/generate/route.ts
-// Generation endpoint — plan enforcement via @arkiol/shared planEnforcer.
-// All checks happen before job creation: subscription status, feature flags,
-// concurrency caps, format/variation limits, credit sufficiency.
+// Generation endpoint — THIN FORWARDER to the Render backend.
 //
-// FIX: Removed the hard queueUnavailable() guard that blocked ALL generation
-// when REDIS_HOST was not set. The inline generation path (runInlineGeneration)
-// works correctly without Redis — jobs run synchronously within the serverless
-// function. The queue check is now soft: we attempt to enqueue when possible,
-// but fall through to inline execution when the queue is unavailable or empty.
-import {
-  detectCapabilities,
-  runIntelligencePipeline,
-} from '@arkiol/shared';
+// Vercel responsibilities (kept here):
+//   - authenticate the user (NextAuth + founder bypass)
+//   - validate + rate-limit the request
+//   - enforce plan / concurrency / credit rules
+//   - create the Job row in Postgres
+//   - POST to the Render backend's /generate endpoint
+//   - return the jobId so the frontend can poll /api/jobs
+//
+// What's NOT here anymore (moved to apps/render-backend):
+//   - OpenAI intelligence / analyzer calls
+//   - BullMQ queue dispatch
+//   - durableRunInlineGeneration (the inline heavy path)
+//   - runIntelligencePipeline
+//
+// If RENDER_BACKEND_URL / RENDER_GENERATION_KEY are unset or the
+// Render service is unreachable, this route returns 503 — Vercel
+// no longer has a heavy-generation fallback path, so generation
+// will not time out serverless functions.
+import { detectCapabilities } from '@arkiol/shared';
 import { NextRequest, NextResponse } from "next/server";
 import { prisma, safeTransaction } from "../../../lib/prisma";
 import { getRequestUser, requirePermission } from "../../../lib/auth";
 import { isFounderEmail } from "../../../lib/ownerAccess";
 import { rateLimit, rateLimitHeaders }    from "../../../lib/rate-limit";
-import { generationQueue }  from "../../../lib/queue";
-import { durableRunInlineGeneration } from "../../../lib/durableRun";
 import {
   dispatchToRenderBackend,
   isRenderBackendConfigured,
 } from "../../../lib/renderDispatch";
-import { detectSafeMode } from "../../../lib/safeMode";
-import { withErrorHandling, dbUnavailable, aiUnavailable, authUnavailable } from "../../../lib/error-handling";
+import { withErrorHandling, dbUnavailable, authUnavailable } from "../../../lib/error-handling";
 import { ApiError, getCreditCost, GIF_ELIGIBLE_FORMATS } from "../../../lib/types";
 import {
   GALLERY_DEFAULT_CANDIDATE_COUNT,
@@ -38,16 +43,14 @@ import {
 import {
   createConcurrencyEnforcer,
   checkHqUpgrade,
-  getPlanConfig,
   CREDIT_COSTS,
 } from "@arkiol/shared";
 import { z } from "zod";
 
-// Vercel route config — keep the background inline generation alive up
-// to Pro-tier maximum. We DO NOT block the HTTP response on generation
-// (see fire-and-forget below); the function just needs to stay warm
-// while the unawaited promise finishes updating the DB job record.
-export const maxDuration = 300;
+// This route no longer runs the heavy pipeline, so the long
+// maxDuration is pointless. A 30s ceiling is plenty for
+// auth + job row creation + a fetch to Render.
+export const maxDuration = 30;
 
 const COST_PER_CREDIT_USD     = 0.008;
 const MAX_COST_PER_RENDER_USD = 0.50;
@@ -91,12 +94,23 @@ const GenerateSchema = z.object({
 });
 
 export const POST = withErrorHandling(async (req: NextRequest) => {
-  // Capability checks — queue is intentionally NOT a hard blocker here.
-  // When queue is unavailable, we fall through to inline execution below.
+  // Capability checks. The `ai` cap lived here because the Vercel
+  // function used to call OpenAI directly — that work is now on
+  // Render, so we don't block here on the OpenAI key. We DO still
+  // require database + auth (used to create the job row and
+  // authenticate the user).
   const caps = detectCapabilities();
   if (!caps.database) return dbUnavailable();
-  if (!caps.ai)       return aiUnavailable();
   if (!caps.auth)     return authUnavailable();
+
+  // Render backend is the only path to generation. Fail fast with a
+  // clear message if the operator hasn't configured it yet.
+  if (!isRenderBackendConfigured()) {
+    return NextResponse.json(
+      { error: "Generation backend is not configured (RENDER_BACKEND_URL / RENDER_GENERATION_KEY missing)." },
+      { status: 503 },
+    );
+  }
 
   const user = await getRequestUser(req);
 
@@ -250,42 +264,12 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     );
   }
 
-  // Intelligence pipeline (non-blocking)
-  let intelligenceMeta: Record<string, unknown> = {};
-  try {
-    const brandKit = input.brandId
-      ? await prisma.brand.findFirst({ where: { id: input.brandId, orgId } })
-      : null;
+  // Intelligence pipeline (non-blocking) used to run here and call
+  // OpenAI. That work now lives on the Render backend — the Vercel
+  // route stays lightweight so it never approaches a serverless
+  // timeout.
 
-    const pipeline = await runIntelligencePipeline(
-      {
-        prompt:      input.prompt,
-        format:      input.formats[0] ?? 'instagram_post',
-        stylePreset: input.stylePreset,
-        brandId:     input.brandId,
-        campaignId:  input.campaignId,
-      },
-      {
-        requestedVariations:  input.variations,
-        maxAllowedVariations: dbUser.org.maxVariationsPerRun ?? 1,
-        brandKit: brandKit as Record<string, unknown> | null,
-      }
-    );
-
-    intelligenceMeta = {
-      v16_layout:    pipeline.layout.data,
-      v16_variation: pipeline.variation.data,
-      v16_audience:  pipeline.audience.data,
-      v16_density:   pipeline.density.data,
-      v16_brand:     pipeline.brand.data,
-      v16_pipeline_ms: pipeline.totalMs,
-      v16_any_fallback: pipeline.anyFallback,
-    };
-  } catch (pipelineErr: any) {
-    console.warn('[generate] Intelligence pipeline non-fatal error:', pipelineErr.message);
-  }
-
-  // Create job record with DB-level concurrency enforcement
+  // Create job record with DB-level concurrency enforcement.
   const concurrencyEnforcer = createConcurrencyEnforcer(prisma as any);
   const orgLimit = await concurrencyEnforcer.loadOrgConcurrencyLimit(orgId);
 
@@ -322,74 +306,21 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
           hqUpgrade:            input.hqUpgrade,
           archetypeOverride:    input.archetypeOverride ?? undefined,
           locale:               input.locale,
-          ...intelligenceMeta,
         },
       },
     });
   });
 
-  // ── Execute generation ─────────────────────────────────────────────────────
-  // Preferred durability tiers, in order:
-  //
-  //   0. Render backend (RENDER_GENERATION_URL) — dedicated Node
-  //      service that runs the heavy pipeline outside Vercel. This
-  //      is the production architecture: Vercel handles UI + thin
-  //      API, Render handles generation. When configured and
-  //      reachable, we skip all fallbacks below.
-  //
-  //   1. BullMQ queue — if REDIS_HOST is configured AND at least one
-  //      worker is listening, the job runs in a long-lived worker
-  //      process. Fully durable: worker picks up on restart, BullMQ
-  //      retries on failure.
-  //
-  //   2. Vercel waitUntil (`next_after` / `vercel_waitUntil`) — no
-  //      worker available, but the platform exposes a primitive that
-  //      keeps the serverless container alive past response flush.
-  //      durableRunInlineGeneration picks the best one.
-  //
-  //   3. Fire-and-forget — last resort. Safety net: /api/jobs
-  //      auto-resumes PENDING jobs whose original handler died before
-  //      marking RUNNING, and flips long-dead RUNNING jobs to FAILED
-  //      via the 5-min stale watchdog.
-  //
-  // CRITICAL: the HTTP response MUST NOT block on generation. The
-  // frontend already polls /api/jobs?id=<jobId> every 2s, so we return
-  // {jobId, status: PENDING} immediately and let the generation run in
-  // the background. Blocking here would blow past Vercel's proxy
-  // timeout and surface as "Generation failed" in the UI even though
-  // the job is still progressing in the DB.
-  // ── Queue dispatch (skipped in safe mode) ─────────────────────────────────
-  // The queue path is a PERFORMANCE optimisation, not a correctness
-  // guarantee. If BullMQ is configured AND we're not in safe mode, we
-  // enqueue the job so a dedicated long-lived worker can claim it
-  // first (faster cold-start, parallelism). We also ALWAYS fire the
-  // inline durable dispatch below — Vercel's `unstable_after` /
-  // `waitUntil` keeps the serverless container alive past
-  // response-flush, so the inline path can claim the job too.
-  // Whichever reaches runInlineGeneration first wins the atomic
-  // `startedAt=null → startedAt=new Date()` claim in
-  // inlineGenerate.ts; the loser sees `count === 0` and bails.
-  //
-  // SAFE MODE: skip the queue.add() call entirely. On Vercel-only
-  // deploys (or any deploy where ARKIOL_SAFE_MODE=1 or the queue is
-  // unavailable), `getWorkers()` reporting registered-but-dead workers
-  // would just confuse the durability story. Going inline-only
-  // collapses the dispatch surface to one path that we know works
-  // under serverless constraints. The user can opt back into the
-  // queue path on a Vercel deploy by setting
-  // ARKIOL_DISABLE_VERCEL_SAFE_MODE=1 (only do this when a real
-  // dedicated worker service is running elsewhere).
-  // ── Render backend dispatch (preferred on production Vercel) ─────────────
-  // Goal of Step 1 split: Vercel is UI + thin API; Render runs the
-  // heavy generation pipeline. If RENDER_GENERATION_URL +
-  // RENDER_GENERATION_KEY are set, forward the job payload to the
-  // Render service and skip the inline durable path entirely —
-  // Vercel's serverless function returns fast with just the jobId.
-  const renderPayload = {
+  // ── Dispatch to the Render backend ────────────────────────────────────────
+  // The Render service runs the heavy pipeline (OpenAI calls,
+  // template composition, asset selection + injection, layout,
+  // rendering). It responds fast after scheduling the job in the
+  // background; the frontend polls /api/jobs?id=<jobId> for status.
+  const renderResult = await dispatchToRenderBackend({
+    prompt:             input.prompt,
     jobId:              job.id,
     userId:             user.id,
     orgId,
-    prompt:             input.prompt,
     formats:            input.formats,
     stylePreset:        input.stylePreset,
     variations:         input.variations,
@@ -399,78 +330,36 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     locale:             input.locale,
     archetypeOverride:  input.archetypeOverride,
     expectedCreditCost: creditCost,
-  };
+  });
 
-  if (isRenderBackendConfigured()) {
-    const renderResult = await dispatchToRenderBackend(renderPayload);
-    if (renderResult.ok) {
-      return NextResponse.json(
-        {
-          jobId:            job.id,
-          status:           "PENDING",
-          totalAssets,
-          creditCost,
-          estimatedCostUSD: +estimatedCostUSD.toFixed(4),
-          estimatedSeconds: Math.round(totalAssets * (input.hqUpgrade ? 14 : 8)),
-          formats:          input.formats,
-          creditsReserved:  creditCost,
-          hqUpgrade:        input.hqUpgrade,
-          inlineExecution:  false,
-          durability:       "render_backend",
-        },
-        { status: 202 }
-      );
-    }
-    // Fall through to inline durable path when Render is
-    // unreachable — generation must still work on preview deploys
-    // or during a Render incident. The incident is logged, the user
-    // never sees it.
-    console.warn(
-      `[generate] Render backend unavailable for job ${job.id}: ${renderResult.error}. Falling back to inline.`,
+  if (!renderResult.ok) {
+    // Mark the job as FAILED so the poller doesn't leave it stuck
+    // at PENDING and the user sees a real error in the UI.
+    await prisma.job.update({
+      where: { id: job.id },
+      data:  {
+        status:   "FAILED" as any,
+        failedAt: new Date(),
+        result:   {
+          error:      renderResult.error,
+          failReason: "render_backend_unreachable",
+        } as any,
+      },
+    }).catch(() => {});
+
+    return NextResponse.json(
+      {
+        error:  "Generation backend is unavailable. Please try again.",
+        detail: renderResult.error,
+        jobId:  job.id,
+      },
+      { status: renderResult.status ?? 502 },
     );
   }
 
-  const earlySafe = detectSafeMode(undefined).safeMode;
-  let queued = false;
-  if (!earlySafe) {
-    try {
-      if (detectCapabilities().queue) {
-        await generationQueue.add(
-          "generate",
-          { ...(job.payload as object), jobId: job.id },
-          {
-            jobId:    job.id,
-            attempts: 3,
-            backoff:  { type: "exponential", delay: 3000 },
-            removeOnComplete: { count: 100 },
-            removeOnFail:     false,
-          }
-        );
-        try {
-          const workers = await generationQueue.getWorkers?.() ?? [];
-          queued = workers.length > 0;
-        } catch {
-          queued = false;
-        }
-      }
-    } catch {
-      queued = false;
-    }
-  }
-
-  // Inline dispatch — ALWAYS runs when Render isn't configured /
-  // reachable. durableRunInlineGeneration uses the best available
-  // waitUntil primitive (Next 14.2+ `after`, then Vercel
-  // `waitUntil`, then raw fire-and-forget) and never blocks the
-  // response. The atomic PENDING→RUNNING claim inside
-  // runInlineGeneration makes this safe to fire alongside the queue
-  // worker — double-processing is prevented at the DB level.
-  const dur = durableRunInlineGeneration(renderPayload);
-  const durability: "queue" | "next_after" | "vercel_waitUntil" | "fire_and_forget" | "render_backend" =
-    queued ? "queue" : dur.strategy;
-
-  // Always return immediately with jobId — the frontend polls
-  // /api/jobs?id=<jobId> for status + result.
+  // Pass through the backend's response alongside the frontend
+  // contract fields (jobId / estimates / credit reservation) so the
+  // existing UI doesn't need to change.
   return NextResponse.json(
     {
       jobId:            job.id,
@@ -482,8 +371,8 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       formats:          input.formats,
       creditsReserved:  creditCost,
       hqUpgrade:        input.hqUpgrade,
-      inlineExecution:  !queued,
-      durability,
+      durability:       "render_backend",
+      render:           renderResult.data,
     },
     { status: 202 }
   );

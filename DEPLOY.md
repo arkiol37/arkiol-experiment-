@@ -10,10 +10,11 @@ Arkiol runs as **two** independent services that share a Postgres DB:
 | `apps/render-backend` | Render | Heavy generation — OpenAI calls, template composition, asset selection + injection, layout, rendering, final output. |
 
 Frontend → Render wiring lives in
-`apps/arkiol-core/src/lib/renderDispatch.ts`. Setting
-`RENDER_GENERATION_URL` + `RENDER_GENERATION_KEY` on Vercel activates
-the split; if either is missing the legacy inline path is used
-(preview deploys, local dev).
+`apps/arkiol-core/src/lib/renderDispatch.ts`. `RENDER_BACKEND_URL`
+and `RENDER_GENERATION_KEY` on Vercel are **required** — the
+serverless `/api/generate` function no longer has a heavy-pipeline
+fallback, so without them the route returns 503 (the tradeoff that
+kills Vercel timeouts for good).
 
 See `render.yaml` and `apps/render-backend/README.md` for the Render
 side.
@@ -106,7 +107,7 @@ Required env vars in the Render dashboard:
 
 Once deployed, set on Vercel:
 
-- `RENDER_GENERATION_URL` — the Render service URL (no trailing slash)
+- `RENDER_BACKEND_URL` — the Render service URL (no trailing slash)
 - `RENDER_GENERATION_KEY` — same shared secret as on Render
 
 After that, `/api/generate` on Vercel forwards heavy work to Render,

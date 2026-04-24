@@ -51,7 +51,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'X-Arkiol-Render-Key'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 app.use(express.json({ limit: '2mb' }));

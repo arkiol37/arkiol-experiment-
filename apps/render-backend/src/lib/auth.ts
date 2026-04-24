@@ -2,13 +2,15 @@
 //
 // The generation backend is invoked exclusively by the Vercel
 // frontend's /api/generate route. Requests must carry a shared
-// secret (RENDER_GENERATION_KEY) in the X-Arkiol-Render-Key header
-// — we intentionally do NOT re-implement NextAuth here because the
-// frontend has already authenticated the user and enforced plan /
-// rate limit / credit rules before forwarding.
+// secret — expected form is:
 //
-// This guard closes the obvious hole: stopping randoms on the
-// internet from POSTing /generate and burning OpenAI credits.
+//   Authorization: Bearer <RENDER_GENERATION_KEY>
+//
+// We intentionally do NOT re-implement NextAuth here: the frontend
+// has already authenticated the user and enforced plan / rate
+// limit / credit rules before forwarding. This middleware only
+// closes the obvious hole — stopping randoms on the internet from
+// POSTing /generate and burning OpenAI credits.
 import type { Request, Response, NextFunction } from 'express';
 
 export function requireSharedSecret(
@@ -27,8 +29,11 @@ export function requireSharedSecret(
     return;
   }
 
-  const provided = String(req.header('x-arkiol-render-key') ?? '').trim();
-  if (provided !== expected) {
+  const auth = String(req.header('authorization') ?? '').trim();
+  const match = /^Bearer\s+(.+)$/i.exec(auth);
+  const provided = match?.[1]?.trim() ?? '';
+
+  if (!provided || provided !== expected) {
     res.status(401).json({ error: 'Invalid render key' });
     return;
   }
