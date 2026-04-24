@@ -26,6 +26,7 @@ import { getRequestUser, requirePermission } from "../../../lib/auth";
 import { isFounderEmail } from "../../../lib/ownerAccess";
 import { rateLimit, rateLimitHeaders }    from "../../../lib/rate-limit";
 import {
+  buildRenderPayload,
   dispatchToRenderBackend,
   isRenderBackendConfigured,
 } from "../../../lib/renderDispatch";
@@ -316,23 +317,50 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   // template composition, asset selection + injection, layout,
   // rendering). It responds fast after scheduling the job in the
   // background; the frontend polls /api/jobs?id=<jobId> for status.
-  const renderResult = await dispatchToRenderBackend({
-    prompt:             input.prompt,
-    jobId:              job.id,
-    userId:             user.id,
+  const renderPayload = buildRenderPayload({
+    prompt:               input.prompt,
+    jobId:                job.id,
+    userId:               user.id,
     orgId,
-    formats:            input.formats,
-    stylePreset:        input.stylePreset,
-    variations:         input.variations,
-    brandId:            input.brandId ?? null,
-    campaignId:         input.campaignId ?? null,
-    includeGif:         input.includeGif,
-    locale:             input.locale,
-    archetypeOverride:  input.archetypeOverride,
-    expectedCreditCost: creditCost,
+    formats:              input.formats,
+    stylePreset:          input.stylePreset,
+    variations:           input.variations,
+    brandId:              input.brandId ?? null,
+    campaignId:           input.campaignId ?? null,
+    includeGif:           input.includeGif,
+    locale:               input.locale,
+    archetypeOverride:    input.archetypeOverride,
+    expectedCreditCost:   creditCost,
+    hqUpgrade:            input.hqUpgrade,
+    youtubeThumbnailMode: input.youtubeThumbnailMode,
   });
 
+  const renderResult = await dispatchToRenderBackend(renderPayload);
+
   if (!renderResult.ok) {
+    // Whether the backend is unreachable (no status) or returned a
+    // 4xx/5xx, we record the same diagnostic info: the short error
+    // string + Render's per-field `details` (if any). The 4xx case
+    // is almost always a payload mismatch — surfacing the details
+    // is the only way the UI / operator can see WHICH field failed.
+    const isUnreachable = renderResult.status === undefined;
+    const failReason = isUnreachable
+      ? "render_backend_unreachable"
+      : `render_backend_${renderResult.status}`;
+    const userMessage = isUnreachable
+      ? "Generation backend is unavailable. Please try again."
+      : renderResult.error;
+
+    // Server-side log so deployment logs show the exact failure for
+    // the operator. We log the dispatched payload (minus prompt
+    // body, which can be long) so the log line is searchable.
+    console.error(
+      `[generate] Render dispatch failed for job ${job.id}: ` +
+      `status=${renderResult.status ?? "n/a"} error=${JSON.stringify(renderResult.error)} ` +
+      `details=${JSON.stringify(renderResult.details ?? null)} ` +
+      `payloadKeys=${Object.keys(renderPayload).join(",")}`,
+    );
+
     // Mark the job as FAILED so the poller doesn't leave it stuck
     // at PENDING and the user sees a real error in the UI.
     await prisma.job.update({
@@ -342,16 +370,23 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
         failedAt: new Date(),
         result:   {
           error:      renderResult.error,
-          failReason: "render_backend_unreachable",
+          failReason,
+          renderDetails: renderResult.details ?? null,
+          renderStatus:  renderResult.status ?? null,
         } as any,
       },
     }).catch(() => {});
 
     return NextResponse.json(
       {
-        error:  "Generation backend is unavailable. Please try again.",
-        detail: renderResult.error,
-        jobId:  job.id,
+        error:    userMessage,
+        // Surface the exact validation error from Render (per-field
+        // breakdown when it's a 400) AND the short backend message
+        // so the UI can render either form without guessing.
+        detail:   renderResult.error,
+        details:  renderResult.details ?? null,
+        renderStatus: renderResult.status ?? null,
+        jobId:    job.id,
       },
       { status: renderResult.status ?? 502 },
     );

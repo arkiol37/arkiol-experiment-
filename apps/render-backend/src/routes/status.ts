@@ -12,7 +12,8 @@ import { prisma } from '../lib/prisma';
 
 export const statusRouter = Router();
 
-statusRouter.get('/:jobId', async (req: Request, res: Response) => {
+statusRouter.get('/:jobId', async (req: Request, res: Response, next) => {
+  try {
   const jobId = req.params.jobId;
   if (!jobId) {
     res.status(400).json({ error: 'Missing jobId' });
@@ -60,4 +61,7 @@ statusRouter.get('/:jobId', async (req: Request, res: Response) => {
     failedAt:      job.failedAt,
     error:         job.status === 'FAILED' ? (rawResult.error ?? null) : null,
   });
+  } catch (err) {
+    next(err);
+  }
 });

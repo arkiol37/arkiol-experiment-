@@ -10,7 +10,8 @@ import { prisma } from '../lib/prisma';
 
 export const resultRouter = Router();
 
-resultRouter.get('/:jobId', async (req: Request, res: Response) => {
+resultRouter.get('/:jobId', async (req: Request, res: Response, next) => {
+  try {
   const jobId = req.params.jobId;
   if (!jobId) {
     res.status(400).json({ error: 'Missing jobId' });
@@ -116,4 +117,7 @@ resultRouter.get('/:jobId', async (req: Request, res: Response) => {
     assetCount:  assetsWithThumbnails.length,
     assets:      assetsWithThumbnails,
   });
+  } catch (err) {
+    next(err);
+  }
 });

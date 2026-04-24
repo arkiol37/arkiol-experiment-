@@ -16,6 +16,33 @@ interface GeneratePanelProps {
   onComplete?: (jobId: string) => void;
 }
 
+/** Best-effort renderer for the `details` payload that
+ *  /api/generate forwards from the Render backend on validation
+ *  failures. Render uses Zod's `flatten()` shape:
+ *    { formErrors: string[], fieldErrors: { [field]: string[] } }
+ *  We turn that into a single human-readable line so the UI shows
+ *  "stylePreset: Required, prompt: String must contain..." instead
+ *  of just "Invalid request". Returns null when the input is
+ *  missing or unrecognisable. */
+function formatFieldErrors(details: unknown): string | null {
+  if (!details || typeof details !== "object") return null;
+  const d = details as { formErrors?: unknown; fieldErrors?: unknown; raw?: unknown };
+  const parts: string[] = [];
+  if (Array.isArray(d.formErrors)) {
+    for (const m of d.formErrors) if (typeof m === "string") parts.push(m);
+  }
+  if (d.fieldErrors && typeof d.fieldErrors === "object") {
+    for (const [field, msgs] of Object.entries(d.fieldErrors as Record<string, unknown>)) {
+      if (Array.isArray(msgs)) {
+        const flat = msgs.filter((m): m is string => typeof m === "string").join(", ");
+        if (flat) parts.push(`${field}: ${flat}`);
+      }
+    }
+  }
+  if (parts.length === 0 && typeof d.raw === "string") return d.raw.slice(0, 200);
+  return parts.length ? parts.join("; ") : null;
+}
+
 const STYLE_PRESETS = [
   { id: "auto",         label: "✦ Auto (AI selects)" },
   { id: "clean",        label: "Clean" },
@@ -99,11 +126,21 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
     setDispatching(false);
     if (!res.ok) {
       // Handle capability unavailable (503) with a helpful message.
-      setDispatchError(
-        res.status === 503
-          ? (data.message ?? `${data.feature ?? 'Generation'} requires ${data.configure ?? 'additional configuration'}. Add the required environment variables.`)
-          : (data.error ?? "Generation failed"),
-      );
+      // For all other errors, prefer the most specific message
+      // available: Render's per-field `details` (Zod flattened) >
+      // the backend's short `detail` string > top-level `error`.
+      // Without this the UI used to show a vague "Invalid request"
+      // when the real failure was a single field name mismatch.
+      let message: string;
+      if (res.status === 503) {
+        message = data.message ?? `${data.feature ?? 'Generation'} requires ${data.configure ?? 'additional configuration'}. Add the required environment variables.`;
+      } else {
+        const top = data.error ?? "Generation failed";
+        const detail = typeof data.detail === "string" && data.detail !== top ? data.detail : null;
+        const fieldErrors = formatFieldErrors(data.details);
+        message = [top, detail, fieldErrors].filter(Boolean).join(" — ");
+      }
+      setDispatchError(message);
       return;
     }
 

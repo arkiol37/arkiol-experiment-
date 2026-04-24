@@ -7,7 +7,8 @@ import { prisma } from '../lib/prisma';
 
 export const healthRouter = Router();
 
-healthRouter.get('/', async (_req: Request, res: Response) => {
+healthRouter.get('/', async (_req: Request, res: Response, next) => {
+  try {
   const checks: Record<string, unknown> = {
     service: 'arkiol-render-backend',
     status:  'ok',
@@ -28,4 +29,7 @@ healthRouter.get('/', async (_req: Request, res: Response) => {
   }
 
   res.json(checks);
+  } catch (err) {
+    next(err);
+  }
 });
