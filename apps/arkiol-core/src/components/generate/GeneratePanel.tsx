@@ -112,6 +112,24 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
     setDispatching(true); setDispatchError(null);
     poll.stop();
 
+    // Idempotency key — ensures a fast double-click (or a stale UI
+    // refresh while the previous POST is still in-flight) reuses
+    // the existing job instead of starting a second one. Without
+    // this, the second POST went through pre-generation cost
+    // checks against the (already-deducted) credit balance and
+    // sometimes returned a misleading 402 even though the FIRST
+    // job was completing successfully. The /api/generate route
+    // already supports idempotency — it short-circuits with the
+    // existing job's status when the same key arrives within 24h.
+    // The key includes the prompt + format + variations + a
+    // 60-second window so DIFFERENT prompts in the same minute
+    // each get their own key, but a duplicate of the SAME prompt
+    // is dedupd.
+    const idempotencyWindow = Math.floor(Date.now() / 60_000);
+    const idempotencyKey =
+      `gen:${prompt.slice(0, 80)}:${format}:${preset}:${archetype}:` +
+      `${gif && gifEligible ? "gif" : "static"}:${idempotencyWindow}`;
+
     const res  = await fetch("/api/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -120,6 +138,7 @@ export function GeneratePanel({ onClose, onComplete }: GeneratePanelProps) {
         includeGif:  gif && gifEligible,
         archetypeOverride: { archetypeId: archetype, presetId: preset },
         variations: GALLERY_DEFAULT_CANDIDATE_COUNT,
+        idempotencyKey,
       }),
     });
     const data = await res.json().catch(() => ({}));

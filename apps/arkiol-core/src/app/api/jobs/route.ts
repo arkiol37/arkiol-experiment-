@@ -342,6 +342,30 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       ? ((job.result as any)?.stack ?? null)
       : null;
 
+    // Log the response we're about to return for terminal-state
+    // jobs only. This is the "response_return" breadcrumb the user
+    // asked for — when the bar is at 98% and the row IS COMPLETED
+    // in the DB, we want a log line proving the polling endpoint
+    // SAW it as COMPLETED and surfaced it to the client. If this
+    // line is present but the UI still shows 98%, the bug is
+    // client-side (cache, hook state). If it's absent, the COMPLETED
+    // write didn't reach the DB.
+    if (job.status === "COMPLETED" || job.status === "FAILED") {
+      const assetCount = job.status === "COMPLETED"
+        ? assetsWithUrls.length
+        : 0;
+      logger.info(
+        {
+          jobId:      job.id,
+          status:     job.status,
+          assetCount,
+          progress:   job.progress,
+          failReason: failedDisplay?.reason ?? null,
+        },
+        "[/api/jobs] response_return terminal job",
+      );
+    }
+
     return NextResponse.json({
       job: {
         id:          job.id,

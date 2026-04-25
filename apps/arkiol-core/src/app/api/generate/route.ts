@@ -250,13 +250,26 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
 
   const estimatedCostUSD = creditCost * COST_PER_CREDIT_USD;
   if (!isFounder && estimatedCostUSD > MAX_COST_PER_RENDER_USD) {
-    throw new ApiError(402,
+    // This is a "your request would cost too much in one shot"
+    // safety cap, NOT an out-of-credits / unpaid-bill condition.
+    // Returning 402 Payment Required here was the source of
+    // misleading "Payment Required" toasts in the UI even when
+    // generation had already completed successfully on a
+    // previous click. Use 400 with a structured code so the UI
+    // can render a clear "request too large" message.
+    throw new ApiError(
+      400,
       `Estimated render cost $${estimatedCostUSD.toFixed(4)} exceeds the per-render safety limit ` +
-      `$${MAX_COST_PER_RENDER_USD.toFixed(2)}. Reduce formats or variations.`
+      `$${MAX_COST_PER_RENDER_USD.toFixed(2)}. Reduce formats or variations.`,
+      "REQUEST_TOO_EXPENSIVE",
     );
   }
 
-  // Budget cap check
+  // Budget cap check. Only fires when the org has explicitly set a
+  // monthly budget AND its remaining balance is below this run's
+  // cost. Both flagged as a real "you're out of credits / cap
+  // reached" condition (402 is appropriate here — it's literally
+  // what the HTTP code is for).
   const budgetCapCredits = dbUser.org.budgetCapCredits ?? null;
   if (
     budgetCapCredits !== null &&
