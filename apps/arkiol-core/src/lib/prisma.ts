@@ -30,6 +30,41 @@ const nodeEnv = bootstrapEnv('NODE_ENV');
 
 let _prisma: any = null;
 
+/**
+ * Normalise DATABASE_URL for Prisma → PgBouncer compatibility.
+ *
+ * PgBouncer transaction pooling rejects named prepared statements,
+ * which is what Prisma's default engine emits. Two URL flags fix
+ * this AND should be set even when @prisma/adapter-pg is in use
+ * (defensive — they're free and only matter if the adapter fails
+ * to load):
+ *
+ *   pgbouncer=true       — Prisma drops its statement cache and
+ *                          uses unnamed prepared statements.
+ *   connection_limit=1   — Prisma keeps one socket open per client
+ *                          instead of fanning out, which avoids
+ *                          inflating the PgBouncer pool.
+ *
+ * If the operator already set them (or another flag from the same
+ * family like statement_cache_size=0), we leave the URL alone.
+ */
+function normaliseDatabaseUrl(raw: string): { url: string; appended: string[] } {
+  const appended: string[] = [];
+  if (!raw) return { url: raw, appended };
+  let url = raw;
+  const has = (k: string) => new RegExp(`[?&]${k}=`).test(url);
+  const sep = () => (url.includes('?') ? '&' : '?');
+  if (!has('pgbouncer') && !has('statement_cache_size')) {
+    url += `${sep()}pgbouncer=true`;
+    appended.push('pgbouncer=true');
+  }
+  if (!has('connection_limit')) {
+    url += `${sep()}connection_limit=1`;
+    appended.push('connection_limit=1');
+  }
+  return { url, appended };
+}
+
 function createPrismaClient() {
   const { PrismaClient } = require('@prisma/client');
 
@@ -38,9 +73,16 @@ function createPrismaClient() {
     const { PrismaPg } = require('@prisma/adapter-pg');
     const { Pool } = require('pg');
 
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
+    const rawConnectionString = process.env.DATABASE_URL;
+    if (!rawConnectionString) {
       throw new Error('DATABASE_URL is not set');
+    }
+    const { url: connectionString, appended } = normaliseDatabaseUrl(rawConnectionString);
+    if (appended.length > 0) {
+      console.info(
+        `[prisma] DATABASE_URL normalised — appended ${appended.join(', ')} ` +
+        `for PgBouncer safety. (Set these directly in your env var to silence this notice.)`,
+      );
     }
 
     const pool = new Pool({
@@ -75,20 +117,19 @@ function createPrismaClient() {
       'Error:', adapterErr?.message
     );
 
-    // Last resort: modify DATABASE_URL to include pgbouncer=true
-    // This tells Prisma's built-in engine to disable prepared statements
-    let url = process.env.DATABASE_URL ?? '';
-    if (url && !url.includes('pgbouncer=true')) {
-      const separator = url.includes('?') ? '&' : '?';
-      url = `${url}${separator}pgbouncer=true&statement_cache_size=0`;
-    }
+    // Last resort: append pgbouncer flags so the built-in engine
+    // disables its statement cache.
+    const { url, appended } = normaliseDatabaseUrl(process.env.DATABASE_URL ?? '');
 
     const client = new PrismaClient({
       datasourceUrl: url,
       log: ['error', 'warn'],
     });
 
-    console.warn('[prisma] Falling back to standard PrismaClient with pgbouncer=true param');
+    console.warn(
+      `[prisma] Falling back to standard PrismaClient ` +
+      `(adapter unavailable). Applied URL params: ${appended.join(', ') || 'none'}.`,
+    );
     return client;
   }
 }
