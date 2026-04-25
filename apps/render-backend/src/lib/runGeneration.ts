@@ -84,26 +84,54 @@ interface HeartbeatHandle {
   stop: () => Promise<void>;
 }
 
+/** Hard wall-clock timeout for any single DB call inside the
+ *  wrapper. Mirrors the approach in inlineGenerate.ts: a hung
+ *  PgBouncer must never leave the row stuck — every write either
+ *  succeeds inside the budget or surfaces as a logged failure
+ *  while we move on. */
+const WRAPPER_DB_TIMEOUT_MS = 30_000;
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+    timer.unref?.();
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
   const { jobId } = params;
 
   // ── 1. Atomic PENDING → RUNNING claim ───────────────────────────────────
-  const claim = await prisma.job.updateMany({
-    where: {
-      id:        jobId,
-      status:    JobStatus.PENDING,
-      startedAt: null,
-    },
-    data: {
-      status:    JobStatus.RUNNING,
-      startedAt: new Date(),
-      progress:  1,
-      attempts:  { increment: 1 },
-    },
-  }).catch((err) => {
+  // Wrapped in withTimeout so a hung PgBouncer at the very start
+  // doesn't leave the wrapper waiting forever — we'd rather
+  // surface a "claim_error" log and let the inner pipeline's own
+  // claim path handle it.
+  const claim = await withTimeout(
+    prisma.job.updateMany({
+      where: {
+        id:        jobId,
+        status:    JobStatus.PENDING,
+        startedAt: null,
+      },
+      data: {
+        status:    JobStatus.RUNNING,
+        startedAt: new Date(),
+        progress:  1,
+        attempts:  { increment: 1 },
+      },
+    }),
+    WRAPPER_DB_TIMEOUT_MS,
+    "wrapper PENDING→RUNNING claim",
+  ).catch((err) => {
     log('claim_error', jobId, { message: err?.message ?? String(err) });
     return { count: 0 };
-  });
+  }) as { count: number };
 
   if (claim.count === 1) {
     log('claimed', jobId, { from: 'PENDING', to: 'RUNNING' });
@@ -116,10 +144,14 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
     // genuinely-alive other worker we DON'T want to run the
     // pipeline a second time (would race the COMPLETED write
     // and double-charge credits).
-    const existing = await prisma.job.findUnique({
-      where:  { id: jobId },
-      select: { status: true, updatedAt: true },
-    }).catch(() => null);
+    const existing = await withTimeout(
+      prisma.job.findUnique({
+        where:  { id: jobId },
+        select: { status: true, updatedAt: true },
+      }),
+      WRAPPER_DB_TIMEOUT_MS,
+      "wrapper claim_skipped existing-row read",
+    ).catch(() => null) as { status: string | null; updatedAt: Date | null } | null;
     log('claim_skipped', jobId, {
       count:  claim.count,
       status: existing?.status ?? null,
@@ -251,10 +283,14 @@ async function readVerify(jobId: string): Promise<
     }
 > {
   try {
-    const row = await prisma.job.findUnique({
-      where:  { id: jobId },
-      select: { status: true, result: true },
-    });
+    const row = await withTimeout(
+      prisma.job.findUnique({
+        where:  { id: jobId },
+        select: { status: true, result: true },
+      }),
+      WRAPPER_DB_TIMEOUT_MS,
+      "verify job.findUnique",
+    ) as { status: string | null; result: unknown } | null;
     if (!row) return null;
     const assetIds = (row.result as any)?.assetIds;
     const idsArray: string[] = Array.isArray(assetIds) ? assetIds.filter((x: unknown) => typeof x === 'string') : [];
@@ -264,7 +300,11 @@ async function readVerify(jobId: string): Promise<
       // case where the inner pipeline wrote assetIds but the asset
       // INSERT was rolled back or never executed.
       try {
-        assetCount = await prisma.asset.count({ where: { id: { in: idsArray } } });
+        assetCount = await withTimeout(
+          prisma.asset.count({ where: { id: { in: idsArray } } }),
+          WRAPPER_DB_TIMEOUT_MS,
+          "verify asset.count",
+        );
       } catch (err: any) {
         // If the asset.count itself fails (DB hiccup), we still
         // have the assetIds array — fall back to its length so we
@@ -293,10 +333,14 @@ async function writeFailedTerminal(
   fields: { message: string; stack: string | null; reason: string; diagnostics: Record<string, unknown> },
 ): Promise<boolean> {
   try {
-    const final = await prisma.job.findUnique({
-      where:  { id: jobId },
-      select: { status: true, result: true },
-    });
+    const final = await withTimeout(
+      prisma.job.findUnique({
+        where:  { id: jobId },
+        select: { status: true, result: true },
+      }),
+      WRAPPER_DB_TIMEOUT_MS,
+      "writeFailedTerminal pre-read",
+    ) as { status: string | null; result: unknown } | null;
     if (!final) {
       log('failed_write_skipped', jobId, { reason: 'row_missing' });
       return false;
@@ -308,7 +352,7 @@ async function writeFailedTerminal(
       });
       return false;
     }
-    await prisma.job.update({
+    await withTimeout(prisma.job.update({
       where: { id: jobId },
       data: {
         status:   JobStatus.FAILED,
@@ -321,7 +365,7 @@ async function writeFailedTerminal(
           renderDiagnostics: fields.diagnostics,
         } as any,
       },
-    });
+    }), WRAPPER_DB_TIMEOUT_MS, "writeFailedTerminal job.update");
     log('failed_written', jobId, { reason: fields.reason });
     return true;
   } catch (writeErr: any) {

@@ -88,15 +88,20 @@ export interface InlineGenerateParams {
   skipClaim?: boolean;
 }
 
-/** Hard timeout cap for any single DB write in the finalization
- *  stretch. Picked to be larger than any plausible PgBouncer
- *  round-trip (typical: <500ms; 99th percentile under sustained
- *  load: <5s) but far below the stale-watchdog threshold so we
- *  always surface a real "Couldn't save asset" / "Couldn't
- *  finalize" error instead of letting the row sit at RUNNING
- *  while the watchdog ticks toward 360s. */
+/** Hard timeout caps for every DB write that COULD freeze the
+ *  finalization stretch. The 98% stuck-bar bug came from
+ *  unbounded prisma calls (pulse, credit deduction, the COMPLETED
+ *  write) sitting forever when PgBouncer's pool was saturated.
+ *  Each call site below wraps its prisma operation with
+ *  withTimeout — on timeout the caller's existing try/catch turns
+ *  it into either a tagged FAILED row or a swallowed best-effort
+ *  no-op (depending on whether the call was load-bearing). */
+const PULSE_TIMEOUT_MS           = 5_000;   // best-effort heartbeat write
+const CREDIT_DEDUCTION_TIMEOUT_MS = 10_000; // org.update during credit_deduction
 const ASSET_CREATE_TIMEOUT_MS    = 30_000;
 const FINAL_DB_WRITE_TIMEOUT_MS  = 60_000;
+const FAIL_WRITE_TIMEOUT_MS      = 30_000;  // catch-path FAILED write
+const CLAIM_TIMEOUT_MS           = 15_000;  // PENDING→RUNNING claim
 
 /** Wrap a promise with a hard timeout. On expiry the returned
  *  promise rejects with a labelled error — the surrounding
@@ -191,10 +196,17 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       currentProgress = Math.min(100, progress);
     }
     try {
-      await prisma.job.update({
+      // Bounded by PULSE_TIMEOUT_MS so a hung PgBouncer doesn't
+      // freeze the whole pipeline — pulse is best-effort, the
+      // wrapper's worker-thread heartbeat is the authoritative
+      // updatedAt-bumper. Without this timeout, any caller that
+      // does `await pulse(...)` (e.g. the `await pulse(98)` right
+      // before the COMPLETED write) would block indefinitely on a
+      // stalled connection. That was the 98% freeze.
+      await withTimeout(prisma.job.update({
         where: { id: jobId },
         data: { progress: currentProgress },
-      });
+      }), PULSE_TIMEOUT_MS, "pulse");
     } catch { /* best effort — never kill the pipeline over a DB hiccup */ }
   };
   const runHeartbeat = () => {
@@ -244,13 +256,18 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       currentProgress = Math.min(100, progress);
     }
     try {
-      await prisma.job.update({
+      // Same timeout reasoning as pulse(): a stage transition is
+      // best-effort breadcrumb data, the wrapper's worker-thread
+      // heartbeat is what keeps updatedAt fresh. Without the
+      // timeout a hung PgBouncer freezes the next stage's
+      // `await stage(...)` call indefinitely.
+      await withTimeout(prisma.job.update({
         where: { id: jobId },
         data: {
           progress: currentProgress,
           result:   resultCtx as any,
         },
-      });
+      }), PULSE_TIMEOUT_MS, `stage(${name})`);
     } catch { /* best effort — never kill the pipeline over a DB hiccup */ }
   };
 
@@ -301,7 +318,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       console.info(`[inline-generate] Job ${jobId} skipping claim (skipClaim=true, owned by ${params.workerMode ?? "unknown"})`);
       currentProgress = 2;
     } else {
-      const claim = await prisma.job.updateMany({
+      const claim = await withTimeout(prisma.job.updateMany({
         where: {
           id:        jobId,
           status:    JobStatus.PENDING,
@@ -313,7 +330,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           progress:  2,
           attempts:  { increment: 1 },
         },
-      }).catch(() => ({ count: 0 }));
+      }), CLAIM_TIMEOUT_MS, "PENDING→RUNNING claim").catch(() => ({ count: 0 })) as { count: number };
       if (claim.count === 0) {
         // Another worker already owns this job. Drop out silently — our
         // heartbeat is the only piece of mutable state we registered, so
@@ -1158,13 +1175,19 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await pulse(96);
 
-    // Deduct credits (creditBalance = canonical credit field)
+    // Deduct credits (creditBalance = canonical credit field).
+    // Bounded by CREDIT_DEDUCTION_TIMEOUT_MS — credit deduction
+    // is non-fatal (we log + continue if it fails or times out)
+    // but it must not freeze the pipeline indefinitely. Without
+    // this timeout, a hung org.update at this point would leave
+    // the bar stuck at 96% (or 98% after the next pulse), which
+    // was a contributor to the 98% freeze.
     await stage("credit_deduction", 96);
     try {
-      await prisma.org.update({
+      await withTimeout(prisma.org.update({
         where: { id: orgId },
         data:  { creditBalance: { decrement: totalCreditCost } },
-      });
+      }), CREDIT_DEDUCTION_TIMEOUT_MS, "credit deduction org.update");
     } catch (creditErr: any) {
       console.warn("[inline-generate] Credit deduction failed:", creditErr.message);
     }
@@ -1291,7 +1314,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // the UI can show "Generation failed during: Building layout"
     // instead of a blank or technical label.
     const failUserStage = userStageForDiagStage(diagSnapshot.failStage);
-    await prisma.job.update({
+    // Bounded by FAIL_WRITE_TIMEOUT_MS — without this timeout, a
+    // hung PgBouncer at this point would leave the row at RUNNING
+    // forever (the heartbeat worker keeps updatedAt fresh, so the
+    // stale watchdog never fires). The wrapper's verify path
+    // would then mark FAILED via writeFailedTerminal, which is
+    // also bounded.
+    await withTimeout(prisma.job.update({
       where: { id: jobId },
       data: {
         status:   JobStatus.FAILED,
@@ -1311,7 +1340,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           diagnostics:     diagSnapshot,
         } as any,
       },
-    }).catch(() => {});
+    }), FAIL_WRITE_TIMEOUT_MS, "outer-catch FAILED write").catch((failWriteErr) => {
+      console.error(`[inline-generate] Job ${jobId} fail_write_failed: ${failWriteErr?.message ?? failWriteErr}`);
+    });
 
     // ── Auto-retry on transient failures ─────────────────────────────────
     // OpenAI 5xx, network blips, S3 hiccups, render-engine crashes —
