@@ -3,6 +3,8 @@
 // Node (apps/render-backend). Do not add `import "server-only"`.
 import { chatJSON } from "../../lib/openai";
 import { withRetry } from "../../lib/retry";
+import { inferCategoryFromText } from "../../lib/asset-library/category-recipes";
+import type { AssetCategory } from "../../lib/asset-library/types";
 import { z }         from "zod";
 
 // Extended schema supports all 9 category zone types
@@ -29,6 +31,19 @@ export const BriefAnalysisSchema = z.object({
   // Colors
   primaryColor:  z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   secondaryColor:z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  /** First-class business-domain category, e.g. "fitness",
+   *  "food", "fashion", "wellness", "education", "business",
+   *  "beauty", "travel", "marketing", "motivation".
+   *
+   *  Set deterministically from the prompt by inferCategoryFromText
+   *  (see lib/asset-library/category-recipes.ts) AFTER the GPT
+   *  brief returns, so even when the model omits / hallucinates
+   *  the category we still get a consistent signal that downstream
+   *  asset selection + the marketplace gate can audit.
+   *
+   *  Null when no category keyword matched — pipeline falls back
+   *  to format-driven asset selection. */
+  category:      z.string().nullable().optional(),
 });
 
 export type BriefAnalysis = z.infer<typeof BriefAnalysisSchema>;
@@ -115,8 +130,32 @@ Rules:
       headline:   (partial.headline  ?? prompt.slice(0, 79)) as string,
       ...partial,
     });
-    if (recovered.success) return recovered.data;
+    if (recovered.success) return stampCategory(recovered.data, prompt);
     throw new Error(`Brief analysis failed schema validation: ${parsed.error.message}`);
   }
-  return parsed.data;
+  return stampCategory(parsed.data, prompt);
+}
+
+/** Stamp a deterministic business-domain category onto the brief.
+ *  The GPT output isn't authoritative for category — it sometimes
+ *  omits the field and sometimes hallucinates (e.g. labels a
+ *  fitness ad as "marketing"). We override with
+ *  inferCategoryFromText() against the original prompt, which is
+ *  a fast keyword match against the same CATEGORY_KEYWORDS table
+ *  that drives downstream asset selection. That guarantees the
+ *  brief.category here ALWAYS matches the category-recipes the
+ *  asset selector will use later — no domain drift between brief
+ *  and assets. */
+function stampCategory(brief: BriefAnalysis, prompt: string): BriefAnalysis {
+  const inferred: AssetCategory | null = inferCategoryFromText(
+    `${prompt} ${brief.intent ?? ""} ${(brief.keywords ?? []).join(" ")}`,
+  );
+  if (inferred) {
+    // eslint-disable-next-line no-console
+    console.info(`[brief-analyzer] domain=${inferred} prompt="${prompt.slice(0, 60).replace(/\n/g, " ")}"`);
+    return { ...brief, category: inferred };
+  }
+  // eslint-disable-next-line no-console
+  console.info(`[brief-analyzer] domain=null (no keyword match) prompt="${prompt.slice(0, 60).replace(/\n/g, " ")}"`);
+  return { ...brief, category: null };
 }

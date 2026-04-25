@@ -48,7 +48,7 @@
 // Framework-neutral: dynamically required from inlineGenerate's retry path,
 // which runs both on Vercel and on apps/render-backend.
 import { prisma } from "./prisma";
-import { formatJobError } from "./jobErrorFormat";
+import { formatJobError, isAutoRetryable } from "./jobErrorFormat";
 import type { InlineGenerateParams } from "./inlineGenerate";
 import { JobStatus } from "@prisma/client";
 
@@ -145,10 +145,20 @@ export async function prepareRetry(
     result: job.result as any,
     error:  (job.result as any)?.error ?? undefined,
   });
-  if (!display.retryable) {
+  // Auto-retry uses the AUTO_RETRYABLE table, not display.retryable.
+  // display.retryable drives the UI's manual-retry button (we want
+  // that visible for slow-path failures so users can re-attempt
+  // with the same prompt). isAutoRetryable() is server-side: would
+  // running this exact failure again on the same hardware right now
+  // realistically change the outcome? For "timeout" /
+  // "empty_gallery" / "unknown" the answer is no — auto-retrying
+  // those just burns 18 more minutes of the 27-min triple-attempt
+  // ladder for no gain.
+  if (!isAutoRetryable(display.reason)) {
     throw new RetryNotAllowedError(
       "not_retryable",
-      `Job ${jobId} failed with reason "${display.reason}", which is not retryable`,
+      `Job ${jobId} failed with reason "${display.reason}" — not auto-retryable. ` +
+      `(UI manual retry remains available.)`,
     );
   }
 

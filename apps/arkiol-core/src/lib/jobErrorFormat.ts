@@ -99,6 +99,10 @@ const DEFAULT_MESSAGES: Record<JobFailReason, string> = {
   unknown:             "Something went wrong. Please retry.",
 };
 
+/** USER-FACING retryable flag — drives the UI "Retry" button.
+ *  True for everything except hard terminal states. The user can
+ *  always click retry, even on slow-path failures; the
+ *  auto-retry policy is separate (see AUTO_RETRYABLE). */
 const RETRYABLE: Record<JobFailReason, boolean> = {
   timeout:             true,
   empty_gallery:       true,
@@ -113,6 +117,48 @@ const RETRYABLE: Record<JobFailReason, boolean> = {
   finalization_failed: true,
   unknown:             true,
 };
+
+/** SERVER-SIDE auto-retry policy — drives prepareRetry().
+ *
+ *  Auto-retry fires from the inline pipeline's outer catch
+ *  (lib/jobRetry.ts). Each attempt re-runs the FULL 5-10 minute
+ *  pipeline on the same hardware. So "is this reason retryable"
+ *  has to be answered as: "does running it again, RIGHT NOW, on
+ *  the SAME container, have a meaningful chance of changing the
+ *  outcome?"
+ *
+ *  Yes (transient infra hiccups):
+ *    openai_failure, render_failure, storage_failure,
+ *    stale_worker, asset_save_failed, finalization_failed
+ *
+ *  No (re-running won't help; user can manually retry later):
+ *    timeout         — pipeline just doesn't fit the budget on
+ *                       this hardware; another run will time out
+ *                       too and burn 9 more minutes of the 27-min
+ *                       max-attempts ladder.
+ *    empty_gallery   — every candidate failed the quality gate;
+ *                       same prompt + seed regime = same failure.
+ *    unknown         — by definition we don't know the cause;
+ *                       safer to surface immediately.
+ *    no_assets, missing_asset, cancelled — terminal by design. */
+const AUTO_RETRYABLE: Record<JobFailReason, boolean> = {
+  timeout:             false,
+  empty_gallery:       false,
+  openai_failure:      true,
+  render_failure:      true,
+  storage_failure:     true,
+  missing_asset:       false,
+  stale_worker:        true,
+  cancelled:           false,
+  asset_save_failed:   true,
+  no_assets:           false,
+  finalization_failed: true,
+  unknown:             false,
+};
+
+export function isAutoRetryable(reason: JobFailReason): boolean {
+  return AUTO_RETRYABLE[reason] ?? false;
+}
 
 const KNOWN_REASONS: ReadonlySet<JobFailReason> = new Set<JobFailReason>([
   "timeout", "empty_gallery", "openai_failure", "render_failure",

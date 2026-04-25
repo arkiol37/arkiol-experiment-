@@ -1173,6 +1173,46 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `fontFamilies=[${[...uniqueFontFamilies].join(",")}] styleFlags={${styleFlagsLabel}}`,
     );
 
+    // ── Domain-match audit ─────────────────────────────────────────────────
+    // Every accepted candidate's asset usage is logged against the
+    // brief's inferred category so the next time someone reports
+    // "fitness clubs has no fitness visuals" we have a structured
+    // log line to diagnose. This is observability only — we do NOT
+    // reject mismatched candidates here (that's a quality-gate
+    // concern, owned by marketplace-gate.ts).
+    const briefCategory: string | null = (brief as any)?.category ?? null;
+    if (briefCategory && admitted.length > 0) {
+      const slugMatchCount = admitted.filter(a => {
+        // Heuristic: an asset slug is a "match" if the brief
+        // category appears anywhere in the slug or the slug's
+        // recorded subject category. e.g. brief=fitness +
+        // slug=dumbbell-3d → no string match, but for a richer
+        // check we'd cross-reference selectAssetsForCategory's
+        // output. Keep this simple for now — the OBSERVABILITY
+        // signal is what matters; a false-negative just under-
+        // counts matches.
+        const slug = (a.subjectSlug ?? "").toLowerCase();
+        return slug.includes(briefCategory) ||
+               (a.compositionPattern ?? "").toLowerCase().includes(briefCategory);
+      }).length;
+      const matchPct = admitted.length > 0
+        ? Math.round((slugMatchCount / admitted.length) * 100)
+        : 0;
+      console.info(
+        `[inline-generate] Job ${jobId} domain_audit category=${briefCategory} ` +
+        `admitted=${admitted.length} slugMatches=${slugMatchCount}/${admitted.length} (${matchPct}%) ` +
+        `slugs=[${subjectSlugs.join(",")}]`,
+      );
+      if (matchPct === 0) {
+        console.warn(
+          `[inline-generate] Job ${jobId} domain_audit_warning: shipping ${admitted.length} candidates ` +
+          `with ZERO ${briefCategory}-tagged assets. Asset selection or category recipes may need review.`,
+        );
+      }
+    } else if (!briefCategory) {
+      console.info(`[inline-generate] Job ${jobId} domain_audit category=null (skipping match check)`);
+    }
+
     await pulse(96);
 
     // Deduct credits (creditBalance = canonical credit field).
