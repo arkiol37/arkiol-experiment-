@@ -14,6 +14,7 @@ import { logger }            from "../../../lib/logger";
 import { formatJobError }    from "../../../lib/jobErrorFormat";
 import { durableRunInlineGeneration } from "../../../lib/durableRun";
 import { evaluateStale }     from "../../../lib/staleDetection";
+import { JobStatus } from "@prisma/client";
 
 // GET /api/jobs — list user's jobs
 export const GET = withErrorHandling(async (req: NextRequest) => {
@@ -80,7 +81,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       const claim = await prisma.job.updateMany({
         where: {
           id:         job.id,
-          status:     "PENDING" as any,
+          status:     JobStatus.PENDING,
           startedAt:  null,
         },
         data: {
@@ -171,7 +172,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         await prisma.job.update({
           where: { id: job.id },
           data: {
-            status:   "FAILED" as any,
+            status:   JobStatus.FAILED,
             failedAt: new Date(),
             result:   {
               error:      staleVerdict.message ?? "Generation stalled. Please retry.",
@@ -401,7 +402,7 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
   await prisma.job.update({
     where: { id: jobId },
     data:  {
-      status:   "FAILED" as any,
+      status:   JobStatus.FAILED,
       failedAt: new Date(),
       result:   { error: "Cancelled by user", failReason: "cancelled" } as any,
     },

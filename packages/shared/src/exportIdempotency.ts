@@ -69,7 +69,7 @@ export function createExportIdempotencyGuard(prisma: PrismaClient) {
         idempotencyKey,
         userId,
         orgId,
-        status: { notIn: ['FAILED', 'CANCELED', 'CANCELLED', 'REFUNDED'] },
+        status: { notIn: ['FAILED'] },
       },
       select: { id: true, status: true, createdAt: true, idempotencyKey: true },
     }).catch(() => null);
@@ -90,7 +90,7 @@ export function createExportIdempotencyGuard(prisma: PrismaClient) {
         userId,
         orgId,
         type: 'EXPORT_BUNDLE',
-        status: { notIn: ['FAILED', 'CANCELED', 'CANCELLED', 'REFUNDED'] },
+        status: { notIn: ['FAILED'] },
         createdAt: { gte: windowStart },
         payload: {
           // JSON contains check — works with Prisma's Json filter

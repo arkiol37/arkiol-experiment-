@@ -110,12 +110,14 @@ export async function assertStudioAccessAllowed(orgId: string, userRole?: string
   assertEnforcement(checkStudioAccess(snap));
 }
 
-// Count currently running+queued jobs for an org
+// Count currently running + pending jobs for an org. The DB enum
+// is {PENDING,RUNNING,COMPLETED,FAILED} — the older "QUEUED" value
+// no longer exists post-enum-narrowing.
 export async function countOrgRunningJobs(orgId: string): Promise<number> {
   return prisma.job.count({
     where: {
       orgId,
-      status: { in: ["QUEUED" as any, "RUNNING" as any, "PENDING" as any] },
+      status: { in: ["RUNNING" as any, "PENDING" as any] },
     },
   });
 }

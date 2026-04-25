@@ -271,10 +271,15 @@ export async function refundCredits(
         logger?.warn?.({ orgId, jobId, holdAmount }, '[atomic-credits] Refund: creditsHeld underflow guard triggered (hold was already released)');
       }
 
-      // Mark job as refunded
+      // Mark job as refunded. The Job.status enum is
+      // {PENDING,RUNNING,COMPLETED,FAILED} — the dedicated
+      // `creditRefunded` boolean is the source of truth for
+      // refund state, and we don't transition status here (the
+      // job is typically already FAILED at this point; if it
+      // isn't, we leave the lifecycle alone).
       await tx.job?.update?.({
         where: { id: jobId },
-        data:  { creditRefunded: true, status: 'REFUNDED' },
+        data:  { creditRefunded: true },
       });
     });
 

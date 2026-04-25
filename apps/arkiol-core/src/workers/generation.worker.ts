@@ -48,6 +48,7 @@ import { withRetry, extractErrorCode } from "../lib/error-handling";
 import { logJobEvent, logError, logger } from "../lib/logger";
 import { dlqQueue } from "../lib/queue";
 import { deliverWebhooks, deliverDirectWebhook } from "./webhook.worker";
+import { JobStatus } from "@prisma/client";
 import {
   createFeedbackLogger,
   summarizeJobBenchmarks,
@@ -229,7 +230,7 @@ const worker = new Worker<GenerationPayload>(
       await prisma.job.update({
         where: { id: jobId },
         data:  {
-          status:   "FAILED" as any,
+          status:   JobStatus.FAILED,
           failedAt: new Date(),
           result:   { error: err.userMessage, code: err.code, httpStatus: err.httpStatus, stage: 'pre_brief' } as any,
         },
@@ -264,7 +265,7 @@ const worker = new Worker<GenerationPayload>(
       logError(err, { jobId, stage: "brief_analysis" });
       await prisma.job.update({
         where: { id: jobId },
-        data:  { status: "FAILED", result: { error: "Brief analysis failed", detail: err.message } },
+        data:  { status: JobStatus.FAILED, result: { error: "Brief analysis failed", detail: err.message } },
       });
       throw new Error(`Brief analysis failed: ${err.message}`);
     }
@@ -639,7 +640,7 @@ const worker = new Worker<GenerationPayload>(
           await prisma.job.update({
             where: { id: jobId },
             data: {
-              status:      "FAILED" as any,
+              status:      JobStatus.FAILED,
               failedAt:    new Date(),
               result: {
                 error:       taskErr.userMessage,
@@ -667,7 +668,7 @@ const worker = new Worker<GenerationPayload>(
           await prisma.job.update({
             where: { id: jobId },
             data: {
-              status:      "FAILED" as any,
+              status:      JobStatus.FAILED,
               failedAt:    new Date(),
               result: {
                 error:       userMessage,
@@ -691,7 +692,7 @@ const worker = new Worker<GenerationPayload>(
           await prisma.job.update({
             where: { id: jobId },
             data: {
-              status:      "FAILED" as any,
+              status:      JobStatus.FAILED,
               failedAt:    new Date(),
               result: {
                 error:      taskErr.userMessage,
@@ -797,7 +798,7 @@ const worker = new Worker<GenerationPayload>(
     if (campaignId) {
       await prisma.campaign.update({
         where: { id: campaignId },
-        data:  { status: "COMPLETED", completedAt: new Date(), creditCost: totalCreditCost },
+        data:  { status: JobStatus.COMPLETED, completedAt: new Date(), creditCost: totalCreditCost },
       });
     }
 
@@ -871,7 +872,7 @@ const worker = new Worker<GenerationPayload>(
             } else if (!batchRow.startedAt) {
               await (prisma as any).batchJob.update({
                 where: { id: batchId },
-                data:  { status: "RUNNING", startedAt: new Date() },
+                data:  { status: JobStatus.RUNNING, startedAt: new Date() },
               });
             }
           }
@@ -1013,7 +1014,7 @@ worker.on("failed", async (job: Job<GenerationPayload> | undefined, err: Error) 
     await prisma.job.update({
       where: { id: job.data.jobId },
       data:  {
-        status:      "FAILED",
+        status:      JobStatus.FAILED,
         completedAt: new Date(),
         result: {
           error:      err.message,

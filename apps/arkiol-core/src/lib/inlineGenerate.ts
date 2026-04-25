@@ -42,6 +42,7 @@ import { tagError, extractReason } from "./jobErrorFormat";
 import { DiagnosticsCollector, type JobFailStage, type WorkerMode } from "./jobDiagnostics";
 import { userStageForDiagStage, USER_STAGE_LABEL } from "./generationStages";
 import { detectSafeMode, resolveRuntimeLimits, resolveTimeBudgetMs } from "./safeMode";
+import { JobStatus } from "@prisma/client";
 
 export interface InlineGenerateParams {
   jobId: string;
@@ -247,11 +248,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const claim = await prisma.job.updateMany({
       where: {
         id:        jobId,
-        status:    "PENDING" as any,
+        status:    JobStatus.PENDING,
         startedAt: null,
       },
       data: {
-        status:    "RUNNING" as any,
+        status:    JobStatus.RUNNING,
         startedAt: new Date(),
         progress:  2,
         attempts:  { increment: 1 },
@@ -1074,7 +1075,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     await prisma.job.update({
       where: { id: jobId },
       data: {
-        status:      "COMPLETED" as any,
+        status:      JobStatus.COMPLETED,
         progress:    100,
         completedAt: new Date(),
         result: {
@@ -1130,7 +1131,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     await prisma.job.update({
       where: { id: jobId },
       data: {
-        status:   "FAILED" as any,
+        status:   JobStatus.FAILED,
         failedAt: new Date(),
         result: {
           error:           err.message ?? "Generation failed",

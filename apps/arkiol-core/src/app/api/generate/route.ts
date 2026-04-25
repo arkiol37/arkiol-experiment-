@@ -46,6 +46,7 @@ import {
   checkHqUpgrade,
   CREDIT_COSTS,
 } from "@arkiol/shared";
+import { JobStatus } from "@prisma/client";
 import { z } from "zod";
 
 // This route forwards heavy work to the Render backend, but the
@@ -286,7 +287,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     return tx.job.create({
       data: {
         type:        "GENERATE_ASSETS",
-        status:      "PENDING",
+        status:      JobStatus.PENDING,
         userId:      user.id,
         orgId,
         campaignId:  input.campaignId ?? null,
@@ -374,7 +375,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
       return NextResponse.json(
         {
           jobId:            job.id,
-          status:           "PENDING",
+          status:      JobStatus.PENDING,
           totalAssets,
           creditCost,
           estimatedCostUSD: +estimatedCostUSD.toFixed(4),
@@ -402,7 +403,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     await prisma.job.update({
       where: { id: job.id },
       data:  {
-        status:   "FAILED" as any,
+        status:      JobStatus.FAILED,
         failedAt: new Date(),
         result:   {
           error:         renderResult.error,
@@ -434,7 +435,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
   return NextResponse.json(
     {
       jobId:            job.id,
-      status:           "PENDING",
+      status:      JobStatus.PENDING,
       totalAssets,
       creditCost,
       estimatedCostUSD: +estimatedCostUSD.toFixed(4),

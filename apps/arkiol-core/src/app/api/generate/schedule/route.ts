@@ -143,7 +143,7 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
     where: {
       orgId,
       type:   "GENERATE_ASSETS",
-      status: { in: ["PENDING", "QUEUED"] as any },
+      status: { in: ["PENDING"] as any },
     },
   });
   const maxScheduled = orgPlan === "STUDIO" ? MAX_SCHEDULED_STUDIO : MAX_SCHEDULED_BASIC;
@@ -258,7 +258,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       orgId,
       userId: user.id,
       type:   "GENERATE_ASSETS",
-      status: { in: ["PENDING", "QUEUED"] as any },
+      status: { in: ["PENDING"] as any },
     },
     orderBy: { createdAt: "asc" },
     take:    100,
@@ -295,7 +295,7 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
   if (!jobId) throw new ApiError(400, "jobId query parameter required");
 
   const job = await prisma.job.findFirst({
-    where: { id: jobId, userId: user.id, status: { in: ["PENDING", "QUEUED"] as any } },
+    where: { id: jobId, userId: user.id, status: { in: ["PENDING"] as any } },
   });
   if (!job) throw new ApiError(404, "Scheduled job not found or already started");
 
@@ -308,10 +308,17 @@ export const DELETE = withErrorHandling(async (req: NextRequest) => {
     }
   }
 
-  // Mark cancelled in DB
+  // Mark cancelled in DB. The DB enum is {PENDING,RUNNING,COMPLETED,
+  // FAILED} — cancellation collapses to FAILED with a failReason
+  // discriminator so the UI / refund path can still tell it apart.
   await prisma.job.update({
     where: { id: jobId },
-    data:  { status: "CANCELLED" as any, canceledAt: new Date() },
+    data:  {
+      status:   "FAILED" as any,
+      canceledAt: new Date(),
+      failedAt:   new Date(),
+      result:   { error: "Cancelled by user", failReason: "cancelled" } as any,
+    },
   });
 
   return NextResponse.json({ jobId, cancelled: true });

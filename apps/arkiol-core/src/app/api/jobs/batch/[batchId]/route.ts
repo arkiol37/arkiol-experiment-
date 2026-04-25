@@ -164,13 +164,23 @@ export const DELETE = withErrorHandling(async (
   });
   const jobIds = items.map((it: any) => it.jobId);
 
-  // Mark PENDING jobs as CANCELLED
+  // Mark PENDING jobs as cancelled. The Job.status enum is
+  // {PENDING,RUNNING,COMPLETED,FAILED} — cancellation collapses to
+  // FAILED with a failReason discriminator. BatchJob is a separate
+  // model whose status column is still a free-form string, so we
+  // keep "CANCELLED" there for backward compatibility with the
+  // batch UI surface.
   const { count } = await prisma.job.updateMany({
-    where:  { id: { in: jobIds }, status: { in: ["PENDING", "QUEUED"] } },
-    data:   { status: "CANCELLED" as any, canceledAt: new Date() },
+    where:  { id: { in: jobIds }, status: { in: ["PENDING"] } },
+    data:   {
+      status:     "FAILED" as any,
+      canceledAt: new Date(),
+      failedAt:   new Date(),
+      result:     { error: "Cancelled by user", failReason: "cancelled" } as any,
+    },
   });
 
-  // Update BatchJob status
+  // Update BatchJob status (separate model, free-form string).
   await (prisma as any).batchJob.update({
     where: { id: batchId },
     data:  { status: "CANCELLED", completedAt: new Date() },

@@ -37,9 +37,11 @@ export function createJobLifecycleService(prisma: PrismaClient) {
   const auditLog     = createAuditLogger(prisma);
 
   // ── Count running jobs for an org ──────────────────────────────────────────
+  // The Job.status enum is {PENDING,RUNNING,COMPLETED,FAILED};
+  // legacy "QUEUED" / "SUCCEEDED" / "CANCELED" / "REFUNDED" no longer exist.
   async function countRunning(orgId: string): Promise<number> {
     return prisma.job.count({
-      where: { orgId, status: { in: ['QUEUED', 'RUNNING', 'PENDING'] } },
+      where: { orgId, status: { in: ['RUNNING', 'PENDING'] } },
     });
   }
 
@@ -85,7 +87,7 @@ export function createJobLifecycleService(prisma: PrismaClient) {
       const existing = await prisma.job.findUnique({
         where: { idempotencyKey },
       }).catch(() => null);
-      if (existing && !['FAILED', 'CANCELED', 'CANCELLED'].includes(existing.status)) {
+      if (existing && !['FAILED'].includes(existing.status)) {
         return existing as JobRecord;
       }
     }
@@ -158,7 +160,7 @@ export function createJobLifecycleService(prisma: PrismaClient) {
         const raw = await tx.job.create({
           data: {
             orgId, userId, type: type,
-            status: 'QUEUED',
+            status: 'PENDING',
             payload:        toJsonValue(payload),
             campaignId:     campaignId ?? null,
             studioProjectId: studioProjectId ?? null,
@@ -196,7 +198,7 @@ export function createJobLifecycleService(prisma: PrismaClient) {
     const job = await prisma.job.update({
       where: { id: jobId },
       data: {
-        status: 'SUCCEEDED',
+        status: 'COMPLETED',
         result: toJsonValueNullable(result),
         completedAt: new Date(),
         actualProviderCostUsd,
@@ -215,7 +217,7 @@ export function createJobLifecycleService(prisma: PrismaClient) {
   // checklist §6.3: automatic full refund on failure.
   async function markFailed(jobId: string, errorMessage: string) {
     const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
-    if (!['QUEUED', 'RUNNING', 'PENDING'].includes(job.status)) return job; // already terminal
+    if (!['RUNNING', 'PENDING'].includes(job.status)) return job; // already terminal
 
     await prisma.job.update({
       where: { id: jobId },
@@ -233,7 +235,11 @@ export function createJobLifecycleService(prisma: PrismaClient) {
         await creditSvc.refundCredits({ orgId: job.orgId, jobId: refundKey, reason }).catch(err => {
           console.error(`[jobLifecycle] refund failed for job ${jobId}:`, err);
         });
-        await prisma.job.update({ where: { id: jobId }, data: { creditRefunded: true, status: 'REFUNDED' } });
+        // Job is already FAILED above; we only flip the
+        // creditRefunded boolean. No status transition (the enum
+        // is {PENDING,RUNNING,COMPLETED,FAILED} — there's no
+        // dedicated REFUNDED state).
+        await prisma.job.update({ where: { id: jobId }, data: { creditRefunded: true } });
         // Audit: credit refund on job failure (Task #9)
         await auditLog.logCreditEvent({
           orgId: job.orgId, actorId: job.userId,
@@ -258,11 +264,21 @@ export function createJobLifecycleService(prisma: PrismaClient) {
   // Queued → full refund. Running → no refund (compute already consumed).
   async function cancelJob(jobId: string): Promise<void> {
     const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
-    if (!['QUEUED', 'RUNNING', 'PENDING'].includes(job.status)) return;
+    if (!['RUNNING', 'PENDING'].includes(job.status)) return;
 
-    await prisma.job.update({ where: { id: jobId }, data: { status: 'CANCELED', canceledAt: new Date() } });
+    // Cancellation collapses to FAILED with a failReason marker —
+    // there is no dedicated CANCELED state in the enum.
+    await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status:     'FAILED',
+        canceledAt: new Date(),
+        failedAt:   new Date(),
+        result:     toJsonValueNullable({ error: 'Cancelled by user', failReason: 'cancelled' }),
+      },
+    });
 
-    if (job.status === 'QUEUED' || job.status === 'PENDING') {
+    if (job.status === 'PENDING') {
       if (job.creditDeducted && !job.creditRefunded && job.creditCost > 0) {
         const reason = _reasonFromJobType(job.type);
         if (reason) {
@@ -277,7 +293,7 @@ export function createJobLifecycleService(prisma: PrismaClient) {
       orgId: job.orgId, actorId: job.userId,
       action: 'job.canceled', jobId,
       jobType: job.type,
-      reason: job.status === 'QUEUED' || job.status === 'PENDING' ? 'queued_cancel_with_refund' : 'running_cancel_no_refund',
+      reason: job.status === 'PENDING' ? 'queued_cancel_with_refund' : 'running_cancel_no_refund',
     }).catch(() => {});
   }
 

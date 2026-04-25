@@ -23,6 +23,7 @@ import { ApiError }          from "../../../../../lib/types";
 import { logger }            from "../../../../../lib/logger";
 import { prepareRetry, RetryNotAllowedError } from "../../../../../lib/jobRetry";
 import { durableRunInlineGeneration } from "../../../../../lib/durableRun";
+import { JobStatus } from "@prisma/client";
 
 // Retry runs the same inline pipeline the original generate path runs,
 // so we need the same serverless runtime headroom.
@@ -77,7 +78,7 @@ export const POST = withErrorHandling(async (
   return NextResponse.json(
     {
       jobId:        prep.jobId,
-      status:       "PENDING",
+      status:       JobStatus.PENDING,
       retried:      true,
       attemptsUsed: prep.attemptsUsed,
       maxAttempts:  prep.maxAttempts,

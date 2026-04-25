@@ -310,7 +310,7 @@ export function createCrashSafetyService(deps: CrashSafetyDeps) {
       await prisma.job?.update?.({
         where: { id: jobId },
         data: {
-          status:    _mapToDbStatus(to),
+          status:    _mapToDbStatus(to) as any,
           ...(to === 'running'                                              && { startedAt:   new Date() }),
           ...(to === 'completed'                                            && { completedAt: new Date() }),
           ...((to === 'failed' || to === 'dead_lettered')                  && { failedAt:    new Date() }),
@@ -353,16 +353,18 @@ export function createCrashSafetyService(deps: CrashSafetyDeps) {
         return true; // idempotent
       }
       if (!job.creditDeducted || (job.creditCost ?? 0) <= 0) {
-        // Nothing to refund — just update status
-        await prisma.job?.update?.({ where: { id: jobId }, data: { status: 'REFUNDED' } });
+        // Nothing to refund — just mark the boolean. The Job.status
+        // enum is {PENDING,RUNNING,COMPLETED,FAILED}; refund state
+        // lives on the `creditRefunded` flag, not on status.
+        await prisma.job?.update?.({ where: { id: jobId }, data: { creditRefunded: true } });
         return true;
       }
-      // Atomic: refund + mark in one transaction
+      // Atomic: refund + flip creditRefunded flag in one transaction.
       await prisma.$transaction?.(async (tx: TxClient) => {
         await refundFn(job.orgId, jobId, job.creditCost);
         await tx.job.update({
           where: { id: jobId },
-          data:  { creditRefunded: true, status: 'REFUNDED' },
+          data:  { creditRefunded: true },
         });
       });
       logger?.info?.({ jobId, orgId: job.orgId, creditCost: job.creditCost }, '[crash-safety] Credits refunded atomically');
@@ -591,10 +593,14 @@ function _mapDbStatus(s: string): ExtendedJobStatus {
 }
 
 function _mapToDbStatus(s: ExtendedJobStatus): string {
+  // The DB Job.status enum is exactly {PENDING,RUNNING,COMPLETED,FAILED}.
+  // The wider ExtendedJobStatus space (queued/retrying/recovered/
+  // dead_lettered/credit_protected) collapses onto these four — the
+  // nuance is recorded elsewhere (result.failReason, creditRefunded).
   const m: Record<ExtendedJobStatus, string> = {
-    queued:'QUEUED', running:'RUNNING', retrying:'QUEUED',
-    failed:'FAILED', recovered:'QUEUED', completed:'SUCCEEDED',
-    dead_lettered:'FAILED', credit_protected:'REFUNDED',
+    queued:'PENDING', running:'RUNNING', retrying:'PENDING',
+    failed:'FAILED', recovered:'PENDING', completed:'COMPLETED',
+    dead_lettered:'FAILED', credit_protected:'FAILED',
   };
   return m[s] ?? 'FAILED';
 }

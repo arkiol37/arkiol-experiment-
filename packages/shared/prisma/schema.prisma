@@ -105,15 +105,10 @@ enum CreditReason {
 // Job state machine — checklist §6.1
 // Legacy aliases PENDING / COMPLETED / CANCELLED retained so existing code compiles.
 enum JobStatus {
-  QUEUED
-  RUNNING
-  SUCCEEDED
-  FAILED
-  CANCELED
-  REFUNDED
   PENDING
+  RUNNING
   COMPLETED
-  CANCELLED
+  FAILED
 }
 
 enum JobType {
@@ -485,7 +480,7 @@ model Asset {
 model Job {
   id               String    @id @default(cuid())
   type             String
-  status           String    @default("QUEUED")
+  status           JobStatus @default(PENDING)
   userId           String
   user             User      @relation(fields: [userId], references: [id])
   orgId            String

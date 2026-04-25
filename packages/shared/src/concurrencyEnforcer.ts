@@ -15,9 +15,11 @@
 //   // If this throws, the transaction rolls back and no job is created.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, JobStatus } from '@prisma/client';
 
-const ACTIVE_STATUSES = ['QUEUED', 'RUNNING', 'PENDING'] as const;
+// Job.status enum is {PENDING,RUNNING,COMPLETED,FAILED}. "Active"
+// = anything not in a terminal state, i.e. PENDING or RUNNING.
+const ACTIVE_STATUSES = [JobStatus.RUNNING, JobStatus.PENDING] as const;
 
 export interface ConcurrencyCheckParams {
   orgId: string;
@@ -57,7 +59,7 @@ export function createConcurrencyEnforcer(prisma: PrismaClient) {
     return prisma.job.count({
       where: {
         orgId,
-        status: { in: ACTIVE_STATUSES as unknown as string[] },
+        status: { in: [...ACTIVE_STATUSES] },
       },
     });
   }
@@ -69,7 +71,7 @@ export function createConcurrencyEnforcer(prisma: PrismaClient) {
     return prisma.job.count({
       where: {
         userId,
-        status: { in: ACTIVE_STATUSES as unknown as string[] },
+        status: { in: [...ACTIVE_STATUSES] },
       },
     });
   }
@@ -94,7 +96,7 @@ export function createConcurrencyEnforcer(prisma: PrismaClient) {
     const orgActive = await (tx as PrismaClient).job.count({
       where: {
         orgId,
-        status: { in: ACTIVE_STATUSES as unknown as string[] },
+        status: { in: [...ACTIVE_STATUSES] },
       },
     });
 
@@ -107,7 +109,7 @@ export function createConcurrencyEnforcer(prisma: PrismaClient) {
       const userActive = await (tx as PrismaClient).job.count({
         where: {
           userId,
-          status: { in: ACTIVE_STATUSES as unknown as string[] },
+          status: { in: [...ACTIVE_STATUSES] },
         },
       });
 

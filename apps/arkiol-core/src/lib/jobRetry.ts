@@ -50,6 +50,7 @@
 import { prisma } from "./prisma";
 import { formatJobError } from "./jobErrorFormat";
 import type { InlineGenerateParams } from "./inlineGenerate";
+import { JobStatus } from "@prisma/client";
 
 /** Hard ceiling on per-job retry attempts, regardless of the row's
  *  individual maxAttempts. Picked to be permissive enough that a
@@ -175,10 +176,10 @@ export async function prepareRetry(
   const claim = await prisma.job.updateMany({
     where: {
       id:     jobId,
-      status: "FAILED" as any,
+      status: JobStatus.FAILED,
     },
     data: {
-      status:    "PENDING" as any,
+      status:    JobStatus.PENDING,
       startedAt: null,
       failedAt:  null,
       progress:  0,

@@ -95,7 +95,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
       _count: { id: true },
     }).catch(() => []),
     (prisma as any).job.count({
-      where: { status: { in: ['PENDING', 'QUEUED'] } },
+      where: { status: 'PENDING' },
     }).catch(() => 0),
     (prisma as any).job.count({
       where: { status: 'RUNNING' },
@@ -111,7 +111,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // ── 2. Job latency percentiles (real durations from completed jobs) ────────
   const completedJobs24h = await (prisma as any).job.findMany({
     where: {
-      status:      'SUCCEEDED',
+      status:      'COMPLETED',
       completedAt: { gte: win24h },
       startedAt:   { not: null },
     },
@@ -211,7 +211,7 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // ── 7. Crash recovery metrics ─────────────────────────────────────────────
   const recoveredJobs24h = await (prisma as any).job.count({
     where: {
-      status:    'SUCCEEDED',
+      status:    'COMPLETED',
       createdAt: { gte: win24h },
       result:    { path: ['recoveredFromCheckpoint'], equals: true },
     },
@@ -248,14 +248,14 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
   // ── 9. Alert states ────────────────────────────────────────────────────────
   const stats5m   = statusCountMap(jobStats5m);
   const errorRate5m = (() => {
-    const total = (stats5m.SUCCEEDED ?? 0) + (stats5m.FAILED ?? 0);
+    const total = (stats5m.COMPLETED ?? 0) + (stats5m.FAILED ?? 0);
     return total > 0 ? (stats5m.FAILED ?? 0) / total : 0;
   })();
 
   const alerts = {
     dlqDepthHigh:    dlqRecent > 10,
     stuckJobsFound:  stuckJobsNow > 3,
-    highErrorRate:   errorRate5m > 0.1 && (stats5m.SUCCEEDED ?? 0) + (stats5m.FAILED ?? 0) > 5,
+    highErrorRate:   errorRate5m > 0.1 && (stats5m.COMPLETED ?? 0) + (stats5m.FAILED ?? 0) > 5,
     staleWorkers:    workerSummary.some((w: any) => w.stale),
     qualityDegraded: (benchmarkAgg._avg.overallScore ?? 1) < 0.6 && (benchmarkAgg._count.id ?? 0) > 10,
   };
