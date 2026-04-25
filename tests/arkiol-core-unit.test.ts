@@ -3850,8 +3850,8 @@ async function run() {
     // variations, and a hard runtime ceiling. See
     // apps/arkiol-core/src/lib/staleDetection.ts.
     assert(
-      /evaluateStale\s*\(\s*job\s*\)/.test(jobsRouteSrc),
-      "watchdog must call evaluateStale(job) from lib/staleDetection instead of re-implementing a flat threshold",
+      /evaluateStale\s*\(\s*job\s*[,)]/.test(jobsRouteSrc),
+      "watchdog must call evaluateStale(job, ...) from lib/staleDetection instead of re-implementing a flat threshold",
     );
     assert(
       !/JOB_STALE_MS\s*=/.test(jobsRouteSrc),
