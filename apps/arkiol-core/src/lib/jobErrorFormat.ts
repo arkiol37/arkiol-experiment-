@@ -29,6 +29,22 @@ export type JobFailReason =
   | "missing_asset"
   | "stale_worker"
   | "cancelled"
+  /** A specific asset row failed to write (DB / PgBouncer error
+   *  during the asset.create loop in inlineGenerate's final
+   *  stretch). Distinct from the generic storage_failure (which
+   *  covers S3 upload errors) so ops can tell pg-side issues from
+   *  S3-side. */
+  | "asset_save_failed"
+  /** The pipeline reached the COMPLETED-write but allAssetIds was
+   *  empty. Usually means the asset.create loop swallowed every
+   *  per-asset error and we're about to claim success without
+   *  data. */
+  | "no_assets"
+  /** The COMPLETED prisma.job.update itself failed (e.g. PgBouncer
+   *  timeout writing the diagnostics blob). Distinguished from
+   *  asset_save_failed so the UI shows the right "what was the
+   *  pipeline doing when it died" hint. */
+  | "finalization_failed"
   | "unknown";
 
 export interface JobLike {
@@ -54,44 +70,54 @@ export interface JobErrorDisplay {
 }
 
 const TITLES: Record<JobFailReason, string> = {
-  timeout:         "Generation timed out",
-  empty_gallery:   "No designs produced",
-  openai_failure:  "AI service error",
-  render_failure:  "Rendering failed",
-  storage_failure: "Storage error",
-  missing_asset:   "Asset missing",
-  stale_worker:    "Worker stalled",
-  cancelled:       "Cancelled",
-  unknown:         "Generation failed",
+  timeout:             "Generation timed out",
+  empty_gallery:       "No designs produced",
+  openai_failure:      "AI service error",
+  render_failure:      "Rendering failed",
+  storage_failure:     "Storage error",
+  missing_asset:       "Asset missing",
+  stale_worker:        "Worker stalled",
+  cancelled:           "Cancelled",
+  asset_save_failed:   "Couldn't save assets",
+  no_assets:           "No assets produced",
+  finalization_failed: "Couldn't finalize generation",
+  unknown:             "Generation failed",
 };
 
 const DEFAULT_MESSAGES: Record<JobFailReason, string> = {
-  timeout:         "The pipeline couldn't finish within the time limit. Try fewer variations or a simpler prompt.",
-  empty_gallery:   "The pipeline ran but none of the candidates passed the quality gate. Try a more specific prompt.",
-  openai_failure:  "The AI model failed to respond. This is usually transient — please retry.",
-  render_failure:  "A rendering step crashed. Please retry; if it keeps happening, simplify the prompt.",
-  storage_failure: "Generated assets could not be saved. Please retry.",
-  missing_asset:   "A required visual asset was missing. The team has been notified.",
-  stale_worker:    "The worker went silent mid-generation. This is usually transient — please retry.",
-  cancelled:       "This job was cancelled.",
-  unknown:         "Something went wrong. Please retry.",
+  timeout:             "The pipeline couldn't finish within the time limit. Try fewer variations or a simpler prompt.",
+  empty_gallery:       "The pipeline ran but none of the candidates passed the quality gate. Try a more specific prompt.",
+  openai_failure:      "The AI model failed to respond. This is usually transient — please retry.",
+  render_failure:      "A rendering step crashed. Please retry; if it keeps happening, simplify the prompt.",
+  storage_failure:     "Generated assets could not be saved. Please retry.",
+  missing_asset:       "A required visual asset was missing. The team has been notified.",
+  stale_worker:        "The worker went silent mid-generation. This is usually transient — please retry.",
+  cancelled:           "This job was cancelled.",
+  asset_save_failed:   "Generation finished rendering but the database rejected one of the assets. Please retry.",
+  no_assets:           "The pipeline finished without producing any usable assets. Please retry.",
+  finalization_failed: "Generation finished rendering but the final database write failed. Please retry.",
+  unknown:             "Something went wrong. Please retry.",
 };
 
 const RETRYABLE: Record<JobFailReason, boolean> = {
-  timeout:         true,
-  empty_gallery:   true,
-  openai_failure:  true,
-  render_failure:  true,
-  storage_failure: true,
-  missing_asset:   false,
-  stale_worker:    true,
-  cancelled:       true,
-  unknown:         true,
+  timeout:             true,
+  empty_gallery:       true,
+  openai_failure:      true,
+  render_failure:      true,
+  storage_failure:     true,
+  missing_asset:       false,
+  stale_worker:        true,
+  cancelled:           true,
+  asset_save_failed:   true,
+  no_assets:           true,
+  finalization_failed: true,
+  unknown:             true,
 };
 
 const KNOWN_REASONS: ReadonlySet<JobFailReason> = new Set<JobFailReason>([
   "timeout", "empty_gallery", "openai_failure", "render_failure",
-  "storage_failure", "missing_asset", "stale_worker", "cancelled", "unknown",
+  "storage_failure", "missing_asset", "stale_worker", "cancelled",
+  "asset_save_failed", "no_assets", "finalization_failed", "unknown",
 ]);
 
 /** Lowercase fuzzy-match the raw message to a reason code. Used only

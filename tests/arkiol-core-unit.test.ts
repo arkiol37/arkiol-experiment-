@@ -5720,6 +5720,153 @@ async function run() {
     );
   });
 
+  // ── Final-stage finalization correctness ────────────────────────────────
+  // Symptom: jobs reached ~90% at "Rendering final assets at full
+  // resolution", then 360s later the stale-watchdog flipped them to
+  // FAILED with "no worker heartbeat". Root cause: the final
+  // stretch (asset.create loop + COMPLETED prisma.job.update) ran
+  // without per-stage logs and without its own try/catch, so a hang
+  // or a per-asset DB error left the row at RUNNING. The fix:
+  //   - keep the heartbeat alive THROUGH the final write (was
+  //     stopped before),
+  //   - try/catch around each asset.create (asset_save_failed) and
+  //     the final job.update (finalization_failed),
+  //   - throw early when allAssetIds is empty (no_assets) instead
+  //     of writing COMPLETED with empty result,
+  //   - log final_render_started / asset_created / asset_saved /
+  //     final_db_write_started / final_db_write_completed inline.
+  // Source-text guards so this contract can't silently regress.
+
+  const fsForFinal = await import("fs");
+  const pathForFinal = await import("path");
+  const inlineFinalSrc = fsForFinal.readFileSync(
+    pathForFinal.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+    "utf-8",
+  );
+
+  test("final stretch emits all spec'd lifecycle log lines", () => {
+    const required = [
+      "final_render_started",
+      "asset_created",
+      "asset_saved",
+      "final_db_write_started",
+      "final_db_write_completed",
+    ];
+    for (const ev of required) {
+      assert(
+        new RegExp(`\\[inline-generate\\][^\\n]*${ev}`).test(inlineFinalSrc),
+        `inlineGenerate must emit '${ev}' inside the final stretch`,
+      );
+    }
+  });
+
+  test("asset.create failure throws with asset_save_failed reason", () => {
+    // The wrapping try/catch around prisma.asset.create must call
+    // tagError with reason 'asset_save_failed' so the outer catch
+    // writes a FAILED row with the right user-facing message
+    // instead of letting the loop press on with a partial allAssetIds.
+    assert(
+      /catch\s*\(\s*assetSaveErr[\s\S]{0,800}tagError\([\s\S]{0,200}["']asset_save_failed["']/.test(inlineFinalSrc),
+      "asset.create catch must tagError(asset_save_failed)",
+    );
+  });
+
+  test("empty allAssetIds throws no_assets before COMPLETED write", () => {
+    // Defence in depth: if every asset.create succeeded but the loop
+    // completed with allAssetIds.length === 0 we throw with reason
+    // 'no_assets' rather than writing a COMPLETED row with empty
+    // result. The Render wrapper's verify path catches this case
+    // too, but we'd rather throw HERE so the FAILED row's error
+    // message is the specific finalization message, not the wrapper
+    // fallback.
+    assert(
+      /allAssetIds\.length\s*===\s*0[\s\S]{0,500}tagError\([\s\S]{0,200}["']no_assets["']/.test(inlineFinalSrc),
+      "must throw with reason 'no_assets' when allAssetIds is empty before the COMPLETED write",
+    );
+  });
+
+  test("final prisma.job.update is wrapped in try/catch with finalization_failed", () => {
+    // The COMPLETED write itself must be in its own try/catch so a
+    // PgBouncer hang or transaction error during the final update
+    // becomes a FAILED row instead of a 360s stale_worker verdict.
+    // Anchor the regex at the start log → catch keyword → tagError
+    // call so we don't depend on the exact size of the result-blob
+    // serialised in between.
+    const startIdx   = inlineFinalSrc.indexOf("final_db_write_started");
+    const completeIdx = inlineFinalSrc.indexOf("final_db_write_completed", startIdx);
+    assert(startIdx > 0,    "final_db_write_started log must exist");
+    assert(completeIdx > 0, "final_db_write_completed log must exist after start");
+    const window = inlineFinalSrc.slice(startIdx, completeIdx);
+    assert(
+      /try\s*\{/.test(window),
+      "must open a try block between final_db_write_started and final_db_write_completed",
+    );
+    assert(
+      /catch\s*\(\s*terminalWriteErr/.test(window),
+      "must catch the terminal write failure with terminalWriteErr",
+    );
+    assert(
+      /tagError\([\s\S]{0,400}["']finalization_failed["']/.test(window),
+      "the catch block must re-throw via tagError(..., 'finalization_failed')",
+    );
+  });
+
+  test("stopHeartbeat is called AFTER the COMPLETED write, not before", () => {
+    // Previous bug: stopHeartbeat() ran on the line BEFORE
+    // prisma.job.update({ status: COMPLETED }). If the COMPLETED
+    // write hung for >gap, the row sat with a stale updatedAt and
+    // the watchdog fired. Order must be: COMPLETED write → stopHeartbeat.
+    const completedWriteIdx = inlineFinalSrc.indexOf("final_db_write_completed");
+    const stopHeartbeatIdx  = inlineFinalSrc.indexOf("stopHeartbeat();", completedWriteIdx);
+    assert(completedWriteIdx > 0, "must log final_db_write_completed after the COMPLETED write");
+    assert(
+      stopHeartbeatIdx > completedWriteIdx,
+      "stopHeartbeat() must be called AFTER the final_db_write_completed log (i.e. after the COMPLETED write succeeds)",
+    );
+  });
+
+  test("JobFailReason includes the new finalization reason codes", async () => {
+    const errFmt = await import("../apps/arkiol-core/src/lib/jobErrorFormat");
+    // Guard: every new reason must be in TITLES, DEFAULT_MESSAGES,
+    // RETRYABLE and KNOWN_REASONS or normalizeReason will down-map
+    // them to "unknown" and the UI loses the specific copy.
+    for (const reason of ["asset_save_failed", "no_assets", "finalization_failed"] as const) {
+      const out = errFmt.formatJobError({
+        status: "FAILED",
+        result: { error: "x", failReason: reason },
+      });
+      assert(
+        out.reason === reason,
+        `formatJobError must preserve '${reason}' (got '${out.reason}')`,
+      );
+      assert(
+        typeof out.title === "string" && out.title.length > 0 && out.title !== "Generation failed",
+        `'${reason}' must have a specific title (got '${out.title}')`,
+      );
+    }
+  });
+
+  test("a finalization failure surfaces as a real FAILED row, not stale_worker", () => {
+    // The whole point of the finalization_failed plumbing: the user
+    // sees a clear cause instead of "Worker stalled". This is a
+    // contract test on the message lookup — given a job FAILED with
+    // failReason='finalization_failed', formatJobError must produce
+    // a title that does NOT mention "stalled".
+    const errFmt = require("../apps/arkiol-core/src/lib/jobErrorFormat");
+    const out = errFmt.formatJobError({
+      status: "FAILED",
+      result: {
+        error:      "Finalization failed at COMPLETED write: Connection terminated",
+        failReason: "finalization_failed",
+      },
+    });
+    assert(out.reason === "finalization_failed", "reason must be finalization_failed");
+    assert(
+      !/stalled|stale/i.test(out.title) && !/stalled|stale/i.test(out.message),
+      `finalization_failed copy must not be stale_worker — got title='${out.title}' message='${out.message}'`,
+    );
+  });
+
   // ── Summary ───────────────────────────────────────────────────────────────
 
   console.log(`\n─────────────────────────────────────────`);

@@ -805,6 +805,29 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // pipeline entering its "ranking" stage instead of sitting on the
     // last batch's attempt percentage.
     await stage("rank_select", Math.max(lastProgress, 86));
+    // ──────────────────────────────────────────────────────────────────
+    // FINALIZATION STAGE BEGINS HERE.
+    //
+    // From this point through the COMPLETED write, every step is
+    // wrapped in fine-grained try/catch. A throw here is a
+    // FINALIZATION FAILURE — we log finalization_failed with a stack,
+    // re-throw to the outer catch which writes a real FAILED row with
+    // the exception message, and the Render wrapper's verify path then
+    // surfaces it to the UI as `Render reported: ...`. Previously a
+    // hang in S3 upload / asset.create / the COMPLETED write left the
+    // job at RUNNING ~90% until the 360s stale watchdog flipped it
+    // to FAILED with the generic "no worker heartbeat" copy.
+    //
+    // The heartbeat is INTENTIONALLY kept alive through the entire
+    // finalization stretch (asset.create loop + the COMPLETED write).
+    // The previous code stopped it before prisma.job.update — fine on
+    // a fast Vercel function, but on Render's 0.5-CPU starter the
+    // COMPLETED write itself can sit for several seconds while the
+    // PgBouncer round-trip + JSON serialisation of the diagnostics
+    // bundle complete. Stopping the heartbeat first meant updatedAt
+    // didn't move during that window.
+    // ──────────────────────────────────────────────────────────────────
+    console.info(`[inline-generate] Job ${jobId} final_render_started progress=${currentProgress}`);
 
     const seenTypes = new Set<string>();
     const admitted: Admission[] = greedyPickN(
@@ -914,62 +937,79 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const creditCost = getCreditCost(format, false);
       totalCreditCost += creditCost;
 
-      await prisma.asset.create({
-        data: {
-          id:           assetId,
-          userId,
-          orgId,
-          campaignId:   campaignId ?? null,
-          name:         `${format}-v${idx + 1}`,
-          format,
-          category:     getCategoryLabel(format),
-          mimeType:     "image/png",
-          s3Key:        s3Key ?? `inline:${assetId}`,
-          s3Bucket:     process.env.S3_BUCKET_NAME ?? "inline",
-          width:        result.width,
-          height:       result.height,
-          fileSize:     result.fileSize,
-          layoutFamily: result.layoutFamily,
-          svgSource:    result.svgSource,
-          brandScore:   result.brandScore,
-          hierarchyValid: result.hierarchyValid,
-          metadata: {
-            layoutVariation:  result.layoutVariation,
-            violations:       result.violations?.slice(0, 10) ?? [],
-            svgKey:           svgKey ?? null,
-            durationMs:       result.durationMs,
-            pipelineMs:       adm.orchestrated.totalPipelineMs,
-            anyFallback:      adm.orchestrated.anyFallback,
-            allStagesPassed:  adm.orchestrated.allStagesPassed,
-            inlineGenerated:  true,
-            variationIdx:     adm.vi,
-            thumbnailUrl,
-            // Gallery-grade admission audit.
-            strictAdmission:  {
-              accepted:         adm.accepted,
-              floorFill:        adm.floorFill,
-              rankScore:        adm.rankScore,
-              marketplaceScore: adm.marketScore,
-              rankPenalties:    adm.rankPenalties,
-              themeId:          adm.themeId,
-              templateType:     adm.templateType,
-              sections:         adm.sections,
-              sectionCount:     adm.sectionCount,
-              componentKinds:   adm.componentKinds,
-              componentCount:   adm.componentCount,
-              structuredComponentCount: adm.structuredComponentCount,
-              contentKind:      adm.contentKind,
-              contentItems:     adm.contentItems,
-              contentSatisfied: adm.contentSatisfied,
-              rejectReasons:    adm.rejectReasons,
-              failedCriteria:   adm.failedCriteria,
-              attemptsUsed:     attemptedCount,
-              acceptedCount:    acceptedCount(),
-              requested:        totalVariations,
-            },
-          } as any,
-        },
-      });
+      console.info(`[inline-generate] Job ${jobId} asset_created idx=${idx} assetId=${assetId} format=${format}`);
+      try {
+        await prisma.asset.create({
+          data: {
+            id:           assetId,
+            userId,
+            orgId,
+            campaignId:   campaignId ?? null,
+            name:         `${format}-v${idx + 1}`,
+            format,
+            category:     getCategoryLabel(format),
+            mimeType:     "image/png",
+            s3Key:        s3Key ?? `inline:${assetId}`,
+            s3Bucket:     process.env.S3_BUCKET_NAME ?? "inline",
+            width:        result.width,
+            height:       result.height,
+            fileSize:     result.fileSize,
+            layoutFamily: result.layoutFamily,
+            svgSource:    result.svgSource,
+            brandScore:   result.brandScore,
+            hierarchyValid: result.hierarchyValid,
+            metadata: {
+              layoutVariation:  result.layoutVariation,
+              violations:       result.violations?.slice(0, 10) ?? [],
+              svgKey:           svgKey ?? null,
+              durationMs:       result.durationMs,
+              pipelineMs:       adm.orchestrated.totalPipelineMs,
+              anyFallback:      adm.orchestrated.anyFallback,
+              allStagesPassed:  adm.orchestrated.allStagesPassed,
+              inlineGenerated:  true,
+              variationIdx:     adm.vi,
+              thumbnailUrl,
+              // Gallery-grade admission audit.
+              strictAdmission:  {
+                accepted:         adm.accepted,
+                floorFill:        adm.floorFill,
+                rankScore:        adm.rankScore,
+                marketplaceScore: adm.marketScore,
+                rankPenalties:    adm.rankPenalties,
+                themeId:          adm.themeId,
+                templateType:     adm.templateType,
+                sections:         adm.sections,
+                sectionCount:     adm.sectionCount,
+                componentKinds:   adm.componentKinds,
+                componentCount:   adm.componentCount,
+                structuredComponentCount: adm.structuredComponentCount,
+                contentKind:      adm.contentKind,
+                contentItems:     adm.contentItems,
+                contentSatisfied: adm.contentSatisfied,
+                rejectReasons:    adm.rejectReasons,
+                failedCriteria:   adm.failedCriteria,
+                attemptsUsed:     attemptedCount,
+                acceptedCount:    acceptedCount(),
+                requested:        totalVariations,
+              },
+            } as any,
+          },
+        });
+      } catch (assetSaveErr: any) {
+        // A persistent asset.create failure is unrecoverable for this
+        // run — bail with a tagged error so the outer catch writes
+        // FAILED with a clear "Couldn't save asset N: <pg error>"
+        // message. Without this throw the loop would keep going and
+        // eventually write COMPLETED with a partial allAssetIds[]
+        // that the wrapper's verify path would rightly reject.
+        console.error(`[inline-generate] Job ${jobId} asset_save_failed idx=${idx} assetId=${assetId}: ${assetSaveErr?.message ?? assetSaveErr}`);
+        diag.recordFailure("storage", assetSaveErr);
+        throw tagError(
+          new Error(`Couldn't save asset ${idx + 1}/${admitted.length}: ${assetSaveErr?.message ?? assetSaveErr}`),
+          "asset_save_failed",
+        );
+      }
+      console.info(`[inline-generate] Job ${jobId} asset_saved idx=${idx} assetId=${assetId}`);
 
       allAssetIds.push(assetId);
       lastThumbnailUrl = thumbnailUrl;
@@ -1090,43 +1130,80 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await pulse(98);
 
-    // Stop the periodic heartbeat before the terminal write — once we've
-    // committed to writing COMPLETED we don't want a racing pulse() to
-    // clobber the final terminal row.
-    stopHeartbeat();
+    // Heartbeat is INTENTIONALLY kept alive through the COMPLETED
+    // write. The previous code stopped it here — fine on a fast
+    // Vercel function, but on Render's 0.5-CPU starter the
+    // PgBouncer round-trip + JSON serialisation of the diagnostics
+    // bundle can sit for several seconds. Stopping the heartbeat
+    // first meant updatedAt didn't move during that window, and a
+    // PgBouncer hiccup or large-result hang could push us past the
+    // stale-watchdog threshold mid-write.
 
     // Mark job COMPLETED. Diagnostics attach here too so successful
     // runs carry the same breadcrumb bundle as failures — ops can pivot
     // "average pipeline_render duration" across all COMPLETED jobs, not
     // just failed ones.
-    diag.enterStage("terminal_write"); // bare enter — the job.update below replaces pulse() as the final row write
-    await prisma.job.update({
-      where: { id: jobId },
-      data: {
-        status:      JobStatus.COMPLETED,
-        progress:    100,
-        completedAt: new Date(),
-        result: {
-          assetIds:        allAssetIds,
-          creditCost:      totalCreditCost,
-          totalAssets:     allAssetIds.length,
-          durationMs:      totalPipelineMs,
-          inlineGenerated: true,
-          thumbnailUrl:    lastThumbnailUrl,
-          svgSource:       lastResult?.svgSource ?? null,
-          format,
-          width:           lastResult?.width,
-          height:          lastResult?.height,
-          // Persist the terminal user-facing stage alongside the
-          // diagnostics bundle so a job's last-seen progressStage is
-          // always queryable, regardless of whether it completed or
-          // failed.
-          progressStage:   "finalizing",
-          progressLabel:   USER_STAGE_LABEL.finalizing,
-          diagnostics:     diag.snapshot(),
-        } as any,
-      },
-    });
+    diag.enterStage("terminal_write");
+    if (allAssetIds.length === 0) {
+      // Belt-and-braces: never write COMPLETED with empty assetIds.
+      // The Render wrapper's verify path enforces this, but we'd
+      // rather throw here so the outer catch writes a tagged FAILED
+      // (with the real "no assets" message) than have the wrapper
+      // discover an empty assetIds[] and write the generic
+      // NO_ASSETS_ERROR.
+      console.error(`[inline-generate] Job ${jobId} finalization_failed reason=no_assets_after_save_loop`);
+      throw tagError(
+        new Error("Final-stage rendering produced zero saved assets — refusing to mark COMPLETED."),
+        "no_assets",
+      );
+    }
+    console.info(`[inline-generate] Job ${jobId} final_db_write_started assetCount=${allAssetIds.length} progress=${currentProgress}`);
+    try {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          status:      JobStatus.COMPLETED,
+          progress:    100,
+          completedAt: new Date(),
+          result: {
+            assetIds:        allAssetIds,
+            creditCost:      totalCreditCost,
+            totalAssets:     allAssetIds.length,
+            durationMs:      totalPipelineMs,
+            inlineGenerated: true,
+            thumbnailUrl:    lastThumbnailUrl,
+            svgSource:       lastResult?.svgSource ?? null,
+            format,
+            width:           lastResult?.width,
+            height:          lastResult?.height,
+            // Persist the terminal user-facing stage alongside the
+            // diagnostics bundle so a job's last-seen progressStage is
+            // always queryable, regardless of whether it completed or
+            // failed.
+            progressStage:   "finalizing",
+            progressLabel:   USER_STAGE_LABEL.finalizing,
+            diagnostics:     diag.snapshot(),
+          } as any,
+        },
+      });
+    } catch (terminalWriteErr: any) {
+      // The COMPLETED write itself failed. Re-throw with a tagged
+      // reason so the outer catch writes a FAILED row with a clear
+      // message instead of leaving the job at RUNNING for the
+      // stale-watchdog to flip 6 minutes later.
+      console.error(`[inline-generate] Job ${jobId} finalization_failed stage=final_db_write: ${terminalWriteErr?.message ?? terminalWriteErr}`);
+      console.error(terminalWriteErr?.stack?.split("\n").slice(0, 8).join("\n") ?? "(no stack)");
+      throw tagError(
+        new Error(`Finalization failed at COMPLETED write: ${terminalWriteErr?.message ?? terminalWriteErr}`),
+        "finalization_failed",
+      );
+    }
+    console.info(`[inline-generate] Job ${jobId} final_db_write_completed assetCount=${allAssetIds.length}`);
+
+    // Now that the row is COMPLETED the heartbeat is no longer
+    // needed — and a stray pulse() AFTER COMPLETED would clobber
+    // progress=100. Stop it here.
+    stopHeartbeat();
 
     console.info(`[inline-generate] Job ${jobId} completed: ${allAssetIds.length} assets, ${totalPipelineMs}ms`);
 
@@ -1139,6 +1216,22 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // whether retry is meaningful.
     const reason = extractReason(err);
     console.error(`[inline-generate] Job ${jobId} failed [${reason}]:`, err.message);
+    // If the error is from the finalization stretch we've already
+    // flagged (asset_save_failed / no_assets / finalization_failed)
+    // — keep a structured log line with the FULL stack so
+    // post-mortem in Render's dashboard doesn't require digging.
+    // Other reasons fall through to the existing diagnostic write
+    // unchanged.
+    if (
+      reason === "asset_save_failed" ||
+      reason === "no_assets" ||
+      reason === "finalization_failed"
+    ) {
+      console.error(
+        `[inline-generate] Job ${jobId} finalization_failed reason=${reason} message=${JSON.stringify(err?.message ?? "")}`,
+      );
+      console.error(err?.stack ?? "(no stack)");
+    }
 
     // Always write a FAILED row first so the row reflects truth even if
     // the auto-retry path below also fails to schedule. The retry block
