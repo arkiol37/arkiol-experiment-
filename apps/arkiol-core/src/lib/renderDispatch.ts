@@ -199,9 +199,22 @@ export async function dispatchToRenderBackend(
         const obj = parsed && typeof parsed === "object"
           ? (parsed as Record<string, unknown>)
           : null;
-        const message =
-          (obj && typeof obj.error === "string" ? obj.error : undefined) ??
-          `Render backend returned ${resp.status}`;
+        // Render's error handler shape:
+        //   400 (Zod):    { error: "Invalid generation payload", details: {...} }
+        //   500 (catch):  { error: "Internal server error", message: "<real exception>" }
+        // Pull both `error` and `message` so the caller sees the
+        // real cause on a 5xx (e.g. DB unreachable) rather than the
+        // generic "Internal server error" header.
+        const topError = obj && typeof obj.error === "string"
+          ? obj.error
+          : undefined;
+        const innerMessage = obj && typeof obj.message === "string"
+          ? obj.message
+          : undefined;
+        const combined =
+          (topError && innerMessage)
+            ? `${topError}: ${innerMessage}`
+            : (topError ?? innerMessage ?? `Render backend returned ${resp.status}`);
         const details = obj?.details ?? obj?.raw ?? undefined;
         // 4xx/5xx with a response body — don't retry, surface
         // immediately so the caller sees the real validation /
@@ -209,7 +222,7 @@ export async function dispatchToRenderBackend(
         return {
           ok:      false,
           status:  resp.status,
-          error:   message,
+          error:   combined,
           details,
         };
       }

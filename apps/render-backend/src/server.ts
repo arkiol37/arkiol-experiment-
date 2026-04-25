@@ -74,12 +74,28 @@ app.use((_req, res) => {
 // Express 4 requires the (err, req, res, next) signature — keeping
 // `next` in the param list is what tells Express this is an error
 // handler, even though we don't call it.
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const message = err?.message ?? 'Unknown error';
+  // Map well-known classes of failure to clearer status codes so
+  // the Vercel forwarder (and the UI) sees an actionable signal
+  // instead of a blanket 500.
+  const isPrismaInit = err?.name === 'PrismaClientInitializationError';
+  const isUnreachable = /Can't reach database server|ECONNREFUSED|ENOTFOUND/i.test(message);
+  const status = (isPrismaInit || isUnreachable) ? 503 : 500;
+  const code = isPrismaInit
+    ? 'database_unreachable'
+    : isUnreachable
+      ? 'upstream_unreachable'
+      : 'internal_error';
   // eslint-disable-next-line no-console
-  console.error('[render-backend] unhandled error:', err);
-  res.status(500).json({
-    error:   'Internal server error',
-    message: err?.message ?? 'Unknown error',
+  console.error(
+    `[render-backend] ${req.method} ${req.url} -> ${status} ${code}: ${message}`,
+    err?.stack?.split('\n').slice(0, 4).join('\n'),
+  );
+  res.status(status).json({
+    error:   status === 503 ? 'Generation backend dependency unavailable' : 'Internal server error',
+    code,
+    message,
   });
 });
 
