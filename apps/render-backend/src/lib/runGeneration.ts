@@ -106,9 +106,38 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
   });
 
   if (claim.count === 1) {
+    log('claimed', jobId, { from: 'PENDING', to: 'RUNNING' });
     log('running_written', jobId, {});
   } else {
-    log('claim_skipped', jobId, { count: claim.count });
+    // Some other process has already claimed this row (legitimate
+    // double-dispatch is not possible in the production flow, so
+    // this branch is the result of a previous wrapper run that
+    // crashed mid-flight). Inspect the row: if it's already
+    // terminal there's nothing to do; if it's RUNNING from a
+    // genuinely-alive other worker we DON'T want to run the
+    // pipeline a second time (would race the COMPLETED write
+    // and double-charge credits).
+    const existing = await prisma.job.findUnique({
+      where:  { id: jobId },
+      select: { status: true, updatedAt: true },
+    }).catch(() => null);
+    log('claim_skipped', jobId, {
+      count:  claim.count,
+      status: existing?.status ?? null,
+    });
+    if (
+      existing?.status === JobStatus.COMPLETED ||
+      existing?.status === JobStatus.FAILED ||
+      existing?.status === JobStatus.RUNNING
+    ) {
+      // Defer to whoever has it. Stale-watchdog will catch a
+      // genuinely dead RUNNING worker via the heartbeat-gap path.
+      log('deferring_to_existing_owner', jobId, { status: existing.status });
+      return;
+    }
+    // PENDING but our updateMany still saw count=0 — odd. The
+    // inner pipeline's own claim will retry; if it ALSO fails
+    // we'll catch the silent return below and mark FAILED.
   }
 
   // ── 2. Spawn heartbeat worker thread ────────────────────────────────────
@@ -117,12 +146,47 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
   const heartbeat = startHeartbeatWorker(jobId);
 
   // ── 3. Run the inner pipeline + own the FAILED-on-throw write ───────────
+  // We set skipClaim=true because step 1 already flipped
+  // PENDING→RUNNING. Without this, runInlineGeneration would
+  // re-issue its own atomic claim, see count=0 (we just consumed
+  // the PENDING state), log "already claimed by another worker —
+  // bailing" and return immediately — no assets ever generated.
+  // That was the production-blocking stall.
+  log('inline_started', jobId, { skipClaim: claim.count === 1 });
   let crashed = false;
   let crashMessage = '';
   let crashStack:   string | null = null;
   try {
-    await runInlineGeneration(params);
-    log('completed', jobId, {});
+    await runInlineGeneration({ ...params, skipClaim: claim.count === 1 });
+    // Verify generation actually produced assets before declaring
+    // success. The inner pipeline writes COMPLETED with assetIds;
+    // if for any reason it returned without writing the terminal
+    // row we mark this run as a failure rather than letting the
+    // wrapper's "completed" log mislead operators.
+    const verify = await prisma.job.findUnique({
+      where:  { id: jobId },
+      select: { status: true, result: true },
+    });
+    const assetIds = (verify?.result as any)?.assetIds as string[] | undefined;
+    const assetCount = Array.isArray(assetIds) ? assetIds.length : 0;
+    if (verify?.status === JobStatus.COMPLETED && assetCount > 0) {
+      log('assets_created', jobId, { assetCount });
+      log('completed', jobId, { assetCount });
+    } else if (verify?.status === JobStatus.FAILED) {
+      log('completed_skipped_failed', jobId, {
+        reason: (verify?.result as any)?.failReason ?? null,
+      });
+    } else {
+      // Pipeline returned without writing a terminal row — treat
+      // as a silent failure rather than letting the heartbeat
+      // watchdog catch it 6 minutes from now.
+      crashed = true;
+      crashMessage = `Inner pipeline returned without writing COMPLETED (status=${verify?.status ?? "unknown"}, assetCount=${assetCount})`;
+      log('inline_returned_without_terminal', jobId, {
+        status:     verify?.status ?? null,
+        assetCount,
+      });
+    }
   } catch (err: any) {
     crashed = true;
     crashMessage = err?.message ?? String(err);

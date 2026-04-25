@@ -69,6 +69,23 @@ export interface InlineGenerateParams {
    *  so the diagnostics collector can record it at the top of the
    *  pipeline without peering into the runtime's private state. */
   workerMode?: WorkerMode;
+  /** Caller has already claimed PENDING → RUNNING and started a
+   *  heartbeat in their own process. Set to true by the Render
+   *  backend wrapper (apps/render-backend/src/lib/runGeneration.ts)
+   *  so this function does NOT re-attempt the atomic claim — which
+   *  would always see count=0 (because the wrapper's claim already
+   *  consumed the PENDING state) and bail out before any
+   *  generation happens.
+   *
+   *  When true, the function skips the mark_running claim AND
+   *  the early "already claimed" return, going straight into the
+   *  brand_load / brief_analyze / pipeline_render stages. The
+   *  caller must guarantee:
+   *    - the row is RUNNING with startedAt set,
+   *    - a heartbeat is writing to the row at least every
+   *      HEARTBEAT_GAP_MS,
+   *    - on caller-side crash the row gets flipped to FAILED. */
+  skipClaim?: boolean;
 }
 
 export async function runInlineGeneration(params: InlineGenerateParams): Promise<void> {
@@ -245,28 +262,39 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // double-rendering, double-charging credits, or racing the final
     // COMPLETED write.
     await stage("mark_running");
-    const claim = await prisma.job.updateMany({
-      where: {
-        id:        jobId,
-        status:    JobStatus.PENDING,
-        startedAt: null,
-      },
-      data: {
-        status:    JobStatus.RUNNING,
-        startedAt: new Date(),
-        progress:  2,
-        attempts:  { increment: 1 },
-      },
-    }).catch(() => ({ count: 0 }));
-    if (claim.count === 0) {
-      // Another worker already owns this job. Drop out silently — our
-      // heartbeat is the only piece of mutable state we registered, so
-      // tearing it down is enough to release the container.
-      console.info(`[inline-generate] Job ${jobId} already claimed by another worker — bailing.`);
-      stopHeartbeat();
-      return;
+    if (params.skipClaim) {
+      // Caller (the Render backend wrapper) has already done the
+      // PENDING→RUNNING claim and started a heartbeat in its own
+      // event loop. We MUST NOT re-attempt the claim here — it
+      // would always see count=0 and the early-bail below would
+      // exit before any generation runs. Just skip straight to
+      // the work.
+      console.info(`[inline-generate] Job ${jobId} skipping claim (skipClaim=true, owned by ${params.workerMode ?? "unknown"})`);
+      currentProgress = 2;
+    } else {
+      const claim = await prisma.job.updateMany({
+        where: {
+          id:        jobId,
+          status:    JobStatus.PENDING,
+          startedAt: null,
+        },
+        data: {
+          status:    JobStatus.RUNNING,
+          startedAt: new Date(),
+          progress:  2,
+          attempts:  { increment: 1 },
+        },
+      }).catch(() => ({ count: 0 }));
+      if (claim.count === 0) {
+        // Another worker already owns this job. Drop out silently — our
+        // heartbeat is the only piece of mutable state we registered, so
+        // tearing it down is enough to release the container.
+        console.info(`[inline-generate] Job ${jobId} already claimed by another worker — bailing.`);
+        stopHeartbeat();
+        return;
+      }
+      currentProgress = 2;
     }
-    currentProgress = 2;
 
     // Load brand if specified
     await stage("brand_load", 5);
