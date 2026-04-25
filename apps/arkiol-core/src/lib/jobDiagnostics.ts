@@ -67,11 +67,17 @@ export type WorkerMode =
   | "vercel_waitUntil"
   | "fire_and_forget"
   | "poller_resume"
-  | "retry";
+  | "retry"
+  /** Job is being driven by the dedicated Render backend
+   *  (apps/render-backend). Set by the wrapper in
+   *  scheduleRenderGeneration so the inline pipeline + safe-mode
+   *  detector can distinguish "running on Render's 0.5-CPU
+   *  starter" from the legacy fire-and-forget fallback. */
+  | "render_backend";
 
 export const WORKER_MODES: readonly WorkerMode[] = [
   "queue", "next_after", "vercel_waitUntil", "fire_and_forget",
-  "poller_resume", "retry",
+  "poller_resume", "retry", "render_backend",
 ] as const;
 
 /** Per-class failure counters. Each category stores a count + the most

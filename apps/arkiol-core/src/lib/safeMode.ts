@@ -50,6 +50,14 @@ export interface SafeModeVerdict {
     | "no_queue"          // no BullMQ capability
     | "fire_and_forget"   // weakest durability tier active
     | "vercel"            // running on Vercel (process.env.VERCEL=1)
+    /** workerMode = "render_backend" — running inside the dedicated
+     *  Render service. Render's starter plan is a 0.5 shared CPU /
+     *  512MB instance; even sequential sharp renders are tight on
+     *  budget there, and concurrent ones reliably starve the event
+     *  loop past the heartbeat-gap threshold. Override with
+     *  ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE=1 when running on a
+     *  beefier Render plan with dedicated CPU. */
+    | "render_backend"
   >;
 }
 
@@ -99,6 +107,19 @@ export function detectSafeMode(workerMode: WorkerMode | undefined): SafeModeVerd
   // the container alive past response-flush; fire_and_forget doesn't.
   if (workerMode === "fire_and_forget") {
     reasons.push("fire_and_forget");
+  }
+
+  // (5) Render backend trigger. The Render starter plan (0.5 shared
+  // CPU / 512MB) cannot run concurrent sharp renders without
+  // starving the event loop past the heartbeat-gap. Default to
+  // safe mode whenever workerMode === "render_backend" unless the
+  // operator explicitly opts out via
+  // ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE=1 (only safe to flip
+  // on a Standard+ plan with dedicated CPU).
+  const renderBackendOptOut =
+    (process.env.ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE ?? "").trim() === "1";
+  if (workerMode === "render_backend" && !renderBackendOptOut) {
+    reasons.push("render_backend");
   }
 
   return { safeMode: reasons.length > 0, reasons };

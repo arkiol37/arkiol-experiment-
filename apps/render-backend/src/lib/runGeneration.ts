@@ -68,7 +68,7 @@ export const NO_ASSETS_ERROR = 'Render generation returned without producing ass
 export function scheduleRenderGeneration(params: RenderGenerationParams): void {
   const tagged: RenderGenerationParams = {
     ...params,
-    workerMode: params.workerMode ?? ('render_backend' as any),
+    workerMode: params.workerMode ?? 'render_backend',
   };
 
   log('accepted', tagged.jobId, {

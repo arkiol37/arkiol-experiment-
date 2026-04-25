@@ -88,6 +88,35 @@ export interface InlineGenerateParams {
   skipClaim?: boolean;
 }
 
+/** Hard timeout cap for any single DB write in the finalization
+ *  stretch. Picked to be larger than any plausible PgBouncer
+ *  round-trip (typical: <500ms; 99th percentile under sustained
+ *  load: <5s) but far below the stale-watchdog threshold so we
+ *  always surface a real "Couldn't save asset" / "Couldn't
+ *  finalize" error instead of letting the row sit at RUNNING
+ *  while the watchdog ticks toward 360s. */
+const ASSET_CREATE_TIMEOUT_MS    = 30_000;
+const FINAL_DB_WRITE_TIMEOUT_MS  = 60_000;
+
+/** Wrap a promise with a hard timeout. On expiry the returned
+ *  promise rejects with a labelled error — the surrounding
+ *  try/catch turns that into a tagged finalization_failed /
+ *  asset_save_failed FAILED row, which is what the user sees in
+ *  the UI. The original underlying promise is left to settle on
+ *  its own (Node has no way to cancel pg/Prisma queries from
+ *  outside) — this just stops US from waiting on it. */
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    // Don't keep the event loop alive solely to fire this rejection.
+    timer.unref?.();
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 export async function runInlineGeneration(params: InlineGenerateParams): Promise<void> {
   const {
     jobId, userId, orgId, prompt, formats, stylePreset,
@@ -896,10 +925,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const uploadTarget = 88 + Math.floor(((idx + 1) / Math.max(1, admitted.length)) * 7);
       await pulse(uploadTarget);
 
-      // Upload to S3 if configured
+      // Upload to S3 if configured. The PNG buffer + SVG text were
+      // already produced by the candidate pipeline (above) — this
+      // step ships them to storage. We log png_render_started /
+      // png_render_done around it so Render's logs show whether the
+      // 98% stall is in the upload (most likely on free-tier S3
+      // egress) or in the asset_create that follows.
       let s3Key:  string | null = null;
       let svgKey: string | null = null;
 
+      console.info(`[inline-generate] Job ${jobId} png_render_started idx=${idx} assetId=${assetId} pngBytes=${result.buffer?.length ?? 0}`);
       if (detectCapabilities().storage) {
         try {
           const { uploadToS3, buildS3Key } = require("./s3");
@@ -910,15 +945,20 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
           ]);
         } catch (s3Err: any) {
-          console.warn("[inline-generate] S3 upload failed, using inline SVG:", s3Err.message);
-          // Storage failure is non-fatal per asset (we fall back to
-          // inline SVG), but we still want it recorded so diagnostics
-          // show "storageFailures.count > 0" for post-mortem.
+          // S3 failure is non-fatal per asset: the row is created with
+          // s3Key = `inline:${assetId}` and the SVG source itself is
+          // stored on the asset (so the gallery / editor can still
+          // render). The wrapper's verify path doesn't care that the
+          // s3Key is "inline:" — only that the asset row exists.
+          console.warn(`[inline-generate] Job ${jobId} png_render_s3_failed idx=${idx} fallback=inline_svg: ${s3Err?.message ?? s3Err}`);
           diag.recordFailure("storage", s3Err);
           s3Key  = null;
           svgKey = null;
         }
+      } else {
+        console.info(`[inline-generate] Job ${jobId} png_render_skipped_no_storage idx=${idx} fallback=inline_svg`);
       }
+      console.info(`[inline-generate] Job ${jobId} png_render_done idx=${idx} assetId=${assetId} stored=${s3Key ? "s3" : "inline"}`);
 
       // Resolve thumbnailUrl
       let thumbnailUrl: string | null = null;
@@ -937,9 +977,9 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const creditCost = getCreditCost(format, false);
       totalCreditCost += creditCost;
 
-      console.info(`[inline-generate] Job ${jobId} asset_created idx=${idx} assetId=${assetId} format=${format}`);
+      console.info(`[inline-generate] Job ${jobId} asset_create_started idx=${idx} assetId=${assetId} format=${format}`);
       try {
-        await prisma.asset.create({
+        await withTimeout(prisma.asset.create({
           data: {
             id:           assetId,
             userId,
@@ -994,22 +1034,23 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               },
             } as any,
           },
-        });
+        }), ASSET_CREATE_TIMEOUT_MS, `asset.create idx=${idx}`);
       } catch (assetSaveErr: any) {
-        // A persistent asset.create failure is unrecoverable for this
-        // run — bail with a tagged error so the outer catch writes
-        // FAILED with a clear "Couldn't save asset N: <pg error>"
-        // message. Without this throw the loop would keep going and
+        // A persistent asset.create failure (or our own hard
+        // timeout) is unrecoverable for this run — bail with a
+        // tagged error so the outer catch writes FAILED with a
+        // clear "Couldn't save asset N: <pg error>" message.
+        // Without this throw the loop would keep going and
         // eventually write COMPLETED with a partial allAssetIds[]
         // that the wrapper's verify path would rightly reject.
-        console.error(`[inline-generate] Job ${jobId} asset_save_failed idx=${idx} assetId=${assetId}: ${assetSaveErr?.message ?? assetSaveErr}`);
+        console.error(`[inline-generate] Job ${jobId} asset_create_failed idx=${idx} assetId=${assetId}: ${assetSaveErr?.message ?? assetSaveErr}`);
         diag.recordFailure("storage", assetSaveErr);
         throw tagError(
           new Error(`Couldn't save asset ${idx + 1}/${admitted.length}: ${assetSaveErr?.message ?? assetSaveErr}`),
           "asset_save_failed",
         );
       }
-      console.info(`[inline-generate] Job ${jobId} asset_saved idx=${idx} assetId=${assetId}`);
+      console.info(`[inline-generate] Job ${jobId} asset_create_done idx=${idx} assetId=${assetId}`);
 
       allAssetIds.push(assetId);
       lastThumbnailUrl = thumbnailUrl;
@@ -1159,7 +1200,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     }
     console.info(`[inline-generate] Job ${jobId} final_db_write_started assetCount=${allAssetIds.length} progress=${currentProgress}`);
     try {
-      await prisma.job.update({
+      await withTimeout(prisma.job.update({
         where: { id: jobId },
         data: {
           status:      JobStatus.COMPLETED,
@@ -1185,12 +1226,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             diagnostics:     diag.snapshot(),
           } as any,
         },
-      });
+      }), FINAL_DB_WRITE_TIMEOUT_MS, "final job.update for COMPLETED");
     } catch (terminalWriteErr: any) {
-      // The COMPLETED write itself failed. Re-throw with a tagged
-      // reason so the outer catch writes a FAILED row with a clear
-      // message instead of leaving the job at RUNNING for the
-      // stale-watchdog to flip 6 minutes later.
+      // The COMPLETED write itself failed (or our own hard timeout
+      // fired). Re-throw with a tagged reason so the outer catch
+      // writes a FAILED row with a clear message instead of leaving
+      // the job at RUNNING for the stale-watchdog to flip 6 minutes
+      // later. This is the bug that caused the 98% freeze.
       console.error(`[inline-generate] Job ${jobId} finalization_failed stage=final_db_write: ${terminalWriteErr?.message ?? terminalWriteErr}`);
       console.error(terminalWriteErr?.stack?.split("\n").slice(0, 8).join("\n") ?? "(no stack)");
       throw tagError(
@@ -1198,7 +1240,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         "finalization_failed",
       );
     }
-    console.info(`[inline-generate] Job ${jobId} final_db_write_completed assetCount=${allAssetIds.length}`);
+    console.info(`[inline-generate] Job ${jobId} final_db_write_done assetCount=${allAssetIds.length}`);
 
     // Now that the row is COMPLETED the heartbeat is no longer
     // needed — and a stray pulse() AFTER COMPLETED would clobber

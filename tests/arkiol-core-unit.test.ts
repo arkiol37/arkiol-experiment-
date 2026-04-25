@@ -5733,8 +5733,9 @@ async function run() {
   //     the final job.update (finalization_failed),
   //   - throw early when allAssetIds is empty (no_assets) instead
   //     of writing COMPLETED with empty result,
-  //   - log final_render_started / asset_created / asset_saved /
-  //     final_db_write_started / final_db_write_completed inline.
+  //   - log final_render_started / asset_create_started /
+  //     asset_create_done / png_render_started / png_render_done /
+  //     final_db_write_started / final_db_write_done inline.
   // Source-text guards so this contract can't silently regress.
 
   const fsForFinal = await import("fs");
@@ -5747,10 +5748,12 @@ async function run() {
   test("final stretch emits all spec'd lifecycle log lines", () => {
     const required = [
       "final_render_started",
-      "asset_created",
-      "asset_saved",
+      "png_render_started",
+      "png_render_done",
+      "asset_create_started",
+      "asset_create_done",
       "final_db_write_started",
-      "final_db_write_completed",
+      "final_db_write_done",
     ];
     for (const ev of required) {
       assert(
@@ -5793,13 +5796,13 @@ async function run() {
     // call so we don't depend on the exact size of the result-blob
     // serialised in between.
     const startIdx   = inlineFinalSrc.indexOf("final_db_write_started");
-    const completeIdx = inlineFinalSrc.indexOf("final_db_write_completed", startIdx);
+    const completeIdx = inlineFinalSrc.indexOf("final_db_write_done", startIdx);
     assert(startIdx > 0,    "final_db_write_started log must exist");
-    assert(completeIdx > 0, "final_db_write_completed log must exist after start");
+    assert(completeIdx > 0, "final_db_write_done log must exist after start");
     const window = inlineFinalSrc.slice(startIdx, completeIdx);
     assert(
       /try\s*\{/.test(window),
-      "must open a try block between final_db_write_started and final_db_write_completed",
+      "must open a try block between final_db_write_started and final_db_write_done",
     );
     assert(
       /catch\s*\(\s*terminalWriteErr/.test(window),
@@ -5816,12 +5819,12 @@ async function run() {
     // prisma.job.update({ status: COMPLETED }). If the COMPLETED
     // write hung for >gap, the row sat with a stale updatedAt and
     // the watchdog fired. Order must be: COMPLETED write → stopHeartbeat.
-    const completedWriteIdx = inlineFinalSrc.indexOf("final_db_write_completed");
+    const completedWriteIdx = inlineFinalSrc.indexOf("final_db_write_done");
     const stopHeartbeatIdx  = inlineFinalSrc.indexOf("stopHeartbeat();", completedWriteIdx);
-    assert(completedWriteIdx > 0, "must log final_db_write_completed after the COMPLETED write");
+    assert(completedWriteIdx > 0, "must log final_db_write_done after the COMPLETED write");
     assert(
       stopHeartbeatIdx > completedWriteIdx,
-      "stopHeartbeat() must be called AFTER the final_db_write_completed log (i.e. after the COMPLETED write succeeds)",
+      "stopHeartbeat() must be called AFTER the final_db_write_done log (i.e. after the COMPLETED write succeeds)",
     );
   });
 
@@ -5843,6 +5846,101 @@ async function run() {
         typeof out.title === "string" && out.title.length > 0 && out.title !== "Generation failed",
         `'${reason}' must have a specific title (got '${out.title}')`,
       );
+    }
+  });
+
+  test("withTimeout helper is exported and applied to asset.create + final job.update", () => {
+    // The 98% freeze was caused by prisma.asset.create OR the
+    // COMPLETED prisma.job.update hanging indefinitely (PgBouncer
+    // pool exhausted, network blip on Render free CPU, etc.). The
+    // fix is a hard wall-clock timeout on each — the wrapping
+    // try/catch then turns the timeout into a tagged FAILED row
+    // (asset_save_failed / finalization_failed) instead of leaving
+    // the job at RUNNING for the 360s stale-watchdog to flip.
+    assert(
+      /function\s+withTimeout\s*</.test(inlineFinalSrc),
+      "inlineGenerate must define a withTimeout helper for the finalization stretch",
+    );
+    assert(
+      /ASSET_CREATE_TIMEOUT_MS\s*=\s*\d/.test(inlineFinalSrc),
+      "ASSET_CREATE_TIMEOUT_MS constant must be defined",
+    );
+    assert(
+      /FINAL_DB_WRITE_TIMEOUT_MS\s*=\s*\d/.test(inlineFinalSrc),
+      "FINAL_DB_WRITE_TIMEOUT_MS constant must be defined",
+    );
+    assert(
+      /withTimeout\s*\(\s*prisma\.asset\.create/.test(inlineFinalSrc),
+      "prisma.asset.create must be wrapped in withTimeout(...)",
+    );
+    assert(
+      /withTimeout\s*\(\s*prisma\.job\.update[\s\S]{0,1500}JobStatus\.COMPLETED/.test(inlineFinalSrc),
+      "the COMPLETED prisma.job.update must be wrapped in withTimeout(...)",
+    );
+  });
+
+  test("a finalization timeout produces FAILED, not stale_worker", () => {
+    // The contract: when withTimeout fires it throws an Error with
+    // ".. timed out after Nms". The surrounding try/catch tags
+    // that throw as 'asset_save_failed' (per-asset path) or
+    // 'finalization_failed' (final db write path). Neither tag
+    // maps to stale_worker — so the user sees a real "Couldn't
+    // save assets" / "Couldn't finalize generation" message, not
+    // the watchdog placeholder.
+    const errFmt = require("../apps/arkiol-core/src/lib/jobErrorFormat");
+    for (const reason of ["asset_save_failed", "finalization_failed"] as const) {
+      const out = errFmt.formatJobError({
+        status: "FAILED",
+        result: {
+          error:      `... timed out after 30000ms`,
+          failReason: reason,
+        },
+      });
+      assert(out.reason === reason,           `reason must be ${reason} not ${out.reason}`);
+      assert(out.reason !== "stale_worker",   `reason must NOT be stale_worker`);
+      assert(
+        !/stalled|stale|worker/i.test(out.title),
+        `title must not mention 'stalled/stale/worker' for ${reason} (got '${out.title}')`,
+      );
+    }
+  });
+
+  test("safeMode triggers on workerMode=render_backend by default", () => {
+    // Render's starter plan (0.5 shared CPU / 512MB) cannot run
+    // concurrent sharp renders without starving the event loop
+    // past the heartbeat-gap threshold. workerMode=render_backend
+    // must trigger safe mode automatically (concurrency=1) so the
+    // 98% finalization freeze caused by libvips contention can't
+    // come back. Operators on a beefier plan can opt out via
+    // ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE=1.
+    const safeMode = require("../apps/arkiol-core/src/lib/safeMode");
+    delete process.env.ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE;
+    const v = safeMode.detectSafeMode("render_backend");
+    assert(v.safeMode, "render_backend workerMode must trigger safe mode by default");
+    assert(
+      v.reasons.includes("render_backend"),
+      `'render_backend' must be in the reasons list (got ${JSON.stringify(v.reasons)})`,
+    );
+    // Concurrency must collapse to 1 so libvips workers don't
+    // saturate the 0.5 shared CPU.
+    const limits = safeMode.resolveRuntimeLimits({ safeMode: true, totalVariations: 4 });
+    assert(
+      limits.concurrency === 1,
+      `safe-mode concurrency must be 1 on render_backend (got ${limits.concurrency})`,
+    );
+  });
+
+  test("safeMode opt-out flag silences the render_backend trigger", () => {
+    const safeMode = require("../apps/arkiol-core/src/lib/safeMode");
+    process.env.ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE = "1";
+    try {
+      const v = safeMode.detectSafeMode("render_backend");
+      assert(
+        !v.reasons.includes("render_backend"),
+        "ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE=1 must remove 'render_backend' from reasons",
+      );
+    } finally {
+      delete process.env.ARKIOL_DISABLE_RENDER_BACKEND_SAFE_MODE;
     }
   });
 
