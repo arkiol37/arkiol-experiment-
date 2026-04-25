@@ -35,7 +35,29 @@
 // full ladder.
 
 export const PULSE_INTERVAL_MS  = 10_000;     // mirrors inlineGenerate.ts
-export const HEARTBEAT_GAP_MS   = 90_000;     // 9× pulse interval = dead worker
+/**
+ * The "no heartbeat for X seconds" threshold. Was 90s, which works
+ * fine for the BullMQ worker on a beefy Railway/Fly box but is too
+ * aggressive for Render's starter plan (0.5 shared CPU). On that
+ * hardware sharp / libvips can briefly stall the event loop past
+ * 90s under concurrent loads, so Vercel's polling watchdog kept
+ * declaring legitimately-running jobs dead.
+ *
+ * The default is now 240s (4 minutes) — still tight enough to catch
+ * a truly killed container but generous enough to survive Render's
+ * starter-tier CPU starvation and one or two libvips stalls.
+ *
+ * Operators on a stronger plan or a different runtime can override
+ * via `HEARTBEAT_GAP_SECONDS` (e.g. set to "60" on Railway / Fly to
+ * keep tighter detection).
+ */
+const HEARTBEAT_GAP_DEFAULT_MS = 240_000;
+export const HEARTBEAT_GAP_MS = (() => {
+  const raw = process.env.HEARTBEAT_GAP_SECONDS;
+  if (!raw) return HEARTBEAT_GAP_DEFAULT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n * 1_000 : HEARTBEAT_GAP_DEFAULT_MS;
+})();
 export const RUNNING_GRACE_MS   = 60_000;     // cold-start headroom
 export const HARD_CEILING_MS    = 900_000;    // 15-min absolute runtime cap
 /** Extra grace for a PENDING job that hasn't hit its first `mark_running`
