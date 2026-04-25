@@ -5529,6 +5529,197 @@ async function run() {
     }
   });
 
+  // ── Render-backend wrapper lifecycle correctness ────────────────────────
+  // The Render wrapper used to log "completed" right after
+  // runInlineGeneration() returned, regardless of whether the
+  // pipeline had actually written a COMPLETED row with assetIds.
+  // When the inner pipeline silently bailed (e.g. the old
+  // "already claimed by another worker" path), the row stayed at
+  // RUNNING forever and the frontend hit hardAbandoned at 15 min
+  // with the generic "Still waiting on a response" toast.
+  //
+  // The wrapper now MUST:
+  //   - re-read the row after generation,
+  //   - require status === COMPLETED AND result.assetIds.length > 0,
+  //   - mark the row FAILED with the verbatim string
+  //     "Render generation returned without producing assets"
+  //     when those conditions aren't met.
+  // These tests are source-text guards so a future refactor can't
+  // silently undo the contract.
+
+  const fsForRender = await import("fs");
+  const pathForRender = await import("path");
+  const runGenSrc = fsForRender.readFileSync(
+    pathForRender.resolve("apps/render-backend/src/lib/runGeneration.ts"),
+    "utf-8",
+  );
+
+  test("render wrapper exports the spec'd NO_ASSETS_ERROR string verbatim", () => {
+    assert(
+      /NO_ASSETS_ERROR\s*=\s*['"]Render generation returned without producing assets['"]/.test(runGenSrc),
+      "NO_ASSETS_ERROR must be the exact string the spec asks for so the UI surfaces a stable message",
+    );
+  });
+
+  test("render wrapper re-reads the row after runInlineGeneration returns", () => {
+    // The verify path must call findUnique on prisma.job AFTER
+    // awaiting the inner pipeline so the row's authoritative
+    // status / result is what drives the terminal decision.
+    const innerIdx  = runGenSrc.indexOf("await runInlineGeneration");
+    const verifyIdx = runGenSrc.indexOf("readVerify(");
+    assert(innerIdx > 0,  "wrapper must call await runInlineGeneration");
+    assert(verifyIdx > 0, "wrapper must call readVerify after the inner pipeline");
+    assert(
+      verifyIdx > innerIdx,
+      "readVerify must run AFTER awaiting runInlineGeneration so the row's authoritative state drives the terminal decision",
+    );
+  });
+
+  test("render wrapper counts asset rows before declaring success", () => {
+    assert(
+      /prisma\.asset\.count/.test(runGenSrc),
+      "wrapper must call prisma.asset.count to confirm the asset rows actually exist before logging completed_real",
+    );
+  });
+
+  test("render wrapper requires COMPLETED status AND assetCount > 0 to log completed_real", () => {
+    assert(
+      /completed_real/.test(runGenSrc),
+      "wrapper must log completed_real (the user-spec event) on real success",
+    );
+    assert(
+      /JobStatus\.COMPLETED[\s\S]{0,200}assetCount\s*>\s*0/.test(runGenSrc),
+      "completed_real must be gated on `JobStatus.COMPLETED && assetCount > 0`",
+    );
+  });
+
+  test("render wrapper writes FAILED with NO_ASSETS_ERROR when inner returns without assets", () => {
+    // The else branch (status !== COMPLETED OR assetCount === 0)
+    // must call writeFailedTerminal / prisma.job.update with the
+    // verbatim error message.
+    assert(
+      /NO_ASSETS_ERROR/.test(runGenSrc),
+      "the FAILED-write path must reference NO_ASSETS_ERROR",
+    );
+    assert(
+      /writeFailedTerminal|status:\s*JobStatus\.FAILED/.test(runGenSrc),
+      "wrapper must write status=FAILED when the inner pipeline returns without producing assets",
+    );
+  });
+
+  test("render wrapper preserves a real FAILED row instead of overwriting", () => {
+    // If the inner pipeline already wrote FAILED with a richer
+    // diagnostic (failReason: render_*, openai_failure, etc.) the
+    // wrapper must log failed_real with preserved=true, NOT
+    // overwrite with NO_ASSETS_ERROR.
+    assert(
+      /preserved:\s*true/.test(runGenSrc),
+      "FAILED rows already written by the inner pipeline must be preserved, not overwritten",
+    );
+  });
+
+  test("render wrapper passes skipClaim:true so the inner pipeline does NOT bail", () => {
+    // The "already claimed by another worker — bailing" stall
+    // happened because the wrapper claimed PENDING→RUNNING and
+    // then the inner pipeline tried its own claim and saw count=0.
+    // The fix is to pass skipClaim through.
+    assert(
+      /runInlineGeneration\s*\(\s*\{[\s\S]{0,400}skipClaim:/.test(runGenSrc),
+      "wrapper must call runInlineGeneration with skipClaim so the inner claim doesn't bail",
+    );
+  });
+
+  test("inlineGenerate honours skipClaim and skips the bail path", () => {
+    const inlineSrc = fsForRender.readFileSync(
+      pathForRender.resolve("apps/arkiol-core/src/lib/inlineGenerate.ts"),
+      "utf-8",
+    );
+    assert(
+      /params\.skipClaim/.test(inlineSrc),
+      "inlineGenerate must read params.skipClaim",
+    );
+    // The skipping branch must NOT call stopHeartbeat or return
+    // early. Look for the actual implementation.
+    assert(
+      /if\s*\(\s*params\.skipClaim\s*\)\s*\{[\s\S]{0,400}skipping claim/.test(inlineSrc),
+      "skipClaim branch must continue (log + currentProgress = 2), not bail",
+    );
+  });
+
+  test("render wrapper emits all spec'd lifecycle log events", () => {
+    const required = [
+      "accepted",
+      "claimed",
+      "inline_generation_started",
+      "inline_generation_returned",
+      "final_db_status_after_generation",
+      "assets_created_count",
+      "completed_real",
+      "failed_real",
+    ];
+    for (const ev of required) {
+      assert(
+        new RegExp(`log\\(\\s*['\"]${ev}['\"]`).test(runGenSrc),
+        `wrapper must emit log event '${ev}' (spec list)`,
+      );
+    }
+  });
+
+  test("render wrapper stops heartbeat only after the terminal write attempt", () => {
+    // The heartbeat must keep updating updatedAt while we're
+    // re-reading the row + (potentially) writing FAILED. If we
+    // stopped it before the verify read, Vercel's stale watchdog
+    // could fire on the row mid-verify and clobber our FAILED
+    // write. The implementation must call heartbeat.stop AFTER
+    // the terminal-state decision logic runs.
+    const stopIdx = runGenSrc.indexOf("heartbeat.stop()");
+    const verifyIdx = runGenSrc.indexOf("readVerify(");
+    assert(stopIdx > 0,    "heartbeat.stop() must be called somewhere");
+    assert(verifyIdx > 0,  "readVerify must be called");
+    assert(
+      stopIdx > verifyIdx,
+      "heartbeat.stop() must run AFTER readVerify (so the heartbeat keeps the row fresh while we decide on the terminal write)",
+    );
+  });
+
+  // ── /api/jobs surfaces render diagnostics for hardAbandoned UI ──────────
+  // The UI's hardAbandoned branch shows a generic "Still waiting"
+  // toast unless the API exposes renderError / progressStage /
+  // lastHeartbeatAgoMs at the top level. Without those fields the
+  // user can't tell what actually went wrong on Render.
+  test("/api/jobs response exposes render-backend diagnostics at top level", () => {
+    const jobsRouteSrcForRender = fsForRender.readFileSync(
+      pathForRender.resolve("apps/arkiol-core/src/app/api/jobs/route.ts"),
+      "utf-8",
+    );
+    for (const field of ["workerMode", "renderError", "lastHeartbeatAgoMs"]) {
+      // Accept either explicit `field: value` form OR object-
+      // literal shorthand `field,` / `field\n` — both end up in
+      // the JSON response.
+      const re = new RegExp(
+        `(?:^|[\\s,{])${field}\\s*[,:}\\n]`,
+        'm',
+      );
+      assert(
+        re.test(jobsRouteSrcForRender),
+        `/api/jobs response must expose '${field}' for the hardAbandoned UI`,
+      );
+    }
+  });
+
+  test("client HARD_ABANDON_MS is strictly greater than server HARD_CEILING_MS", async () => {
+    // Otherwise the frontend gives up before the server-side
+    // stale watchdog has a chance to write a real FAILED row,
+    // and the user sees the generic "Still waiting" toast
+    // instead of the actual error.
+    const pollState = await import("../apps/arkiol-core/src/lib/jobPollState");
+    const stale     = await import("../apps/arkiol-core/src/lib/staleDetection");
+    assert(
+      pollState.HARD_ABANDON_MS > stale.HARD_CEILING_MS,
+      `client HARD_ABANDON_MS (${pollState.HARD_ABANDON_MS}) must be > server HARD_CEILING_MS (${stale.HARD_CEILING_MS}) so the server FAILED-write always lands first`,
+    );
+  });
+
   // ── Summary ───────────────────────────────────────────────────────────────
 
   console.log(`\n─────────────────────────────────────────`);

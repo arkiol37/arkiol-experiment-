@@ -192,16 +192,30 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         // container died, we want those preserved rather than
         // overwritten). The watchdog owns the `failStage:
         // "stale_watchdog"` pivot but keeps everything else.
-        const priorDiag = (job.result as any)?.diagnostics ?? null;
+        const priorResult = (job.result as Record<string, unknown> | null) ?? null;
+        const priorDiag = (priorResult as any)?.diagnostics ?? null;
         const existingPayload = (job.payload as any) ?? {};
+        // For render-backed jobs, preserve the wrapper's renderError /
+        // renderDiagnostics / stack if they're already populated —
+        // those are the REAL Render-side cause, more useful than
+        // the watchdog's "no heartbeat for Xs" verdict.
+        const priorRenderError = isRenderBackedJob ? (priorResult as any)?.error ?? null : null;
+        const priorFailReason  = isRenderBackedJob ? (priorResult as any)?.failReason ?? null : null;
+        const priorRenderDiag  = isRenderBackedJob ? (priorResult as any)?.renderDiagnostics ?? null : null;
+        const priorStack       = isRenderBackedJob ? (priorResult as any)?.stack ?? null : null;
         await prisma.job.update({
           where: { id: job.id },
           data: {
             status:   JobStatus.FAILED,
             failedAt: new Date(),
             result:   {
-              error:      staleVerdict.message ?? "Generation stalled. Please retry.",
-              failReason: "stale_worker",
+              // For render-backed jobs we PREFER the wrapper's real
+              // error if it's there. Only fall back to the watchdog
+              // verdict when the wrapper never wrote one.
+              error:      priorRenderError ?? staleVerdict.message ?? "Generation stalled. Please retry.",
+              failReason: priorFailReason  ?? "stale_worker",
+              renderDiagnostics: priorRenderDiag,
+              stack:      priorStack,
               failStage:  "stale_watchdog",
               // Watchdog is synchronous with the poll — elapsedMs is
               // the whole running window, not a stage duration.

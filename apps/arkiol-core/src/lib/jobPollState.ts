@@ -47,10 +47,16 @@ export const CLIENT_STALE_MS = 120_000;
 
 /** Hard abandon: at this elapsed time we stop polling entirely and
  *  lock the UI into an "abandoned" state that forces the user to
- *  retry or reload. Matches the backend's HARD_CEILING_MS so there's
- *  no scenario where the backend is still legitimately running but
- *  the UI has given up. */
-export const HARD_ABANDON_MS = 900_000;
+ *  retry or reload.
+ *
+ *  Set strictly LARGER than the backend's HARD_CEILING_MS so the
+ *  server-side stale watchdog always wins the race and writes a
+ *  real FAILED row before the client gives up. Otherwise both
+ *  fired at the same 15-min mark and the user sometimes saw the
+ *  generic "Still waiting on a response" instead of the actual
+ *  Render error. 18 min gives the server stale path 3 minutes of
+ *  guaranteed lead time on every render-backed job. */
+export const HARD_ABANDON_MS = 1_080_000;
 
 export type JobPollState =
   | "queued"     // PENDING, not yet started
@@ -71,6 +77,14 @@ export interface JobLikeForPoll {
    *  rows or before the first transition. */
   progressStage?: string | null;
   progressLabel?: string | null;
+  /** Optional render-backend diagnostics surfaced by /api/jobs.
+   *  Populated for jobs whose payload.workerMode === "render_backend".
+   *  Used by the hardAbandoned branch below to show the actual
+   *  Render-side problem instead of the generic timeout copy. */
+  workerMode?:        string | null;
+  renderError?:       string | null;
+  renderStack?:       string | null;
+  lastHeartbeatAgoMs?: number | null;
   result?: {
     // Success
     assetCount?: number;
@@ -208,13 +222,37 @@ export function deriveJobView(
   // been polling past HARD_ABANDON_MS. Lock the UI into an
   // "abandoned" variant of failed so the user gets a retry button
   // instead of a silent spinner.
+  //
+  // For render_backend jobs the API exposes diagnostics
+  // (renderError / progressStage / lastHeartbeatAgoMs) — surface
+  // them here so the toast says WHY Render didn't write a terminal
+  // row instead of the generic "Still waiting 18 minutes" copy.
   if (hardAbandoned) {
+    const minutes = Math.round(observedForMs / 60_000);
+    let title = "Still waiting on a response";
+    let message = `We haven't received an update in ${minutes} minutes. Please retry.`;
+    if (job?.workerMode === "render_backend") {
+      title = "Render generation didn't finish";
+      const lastHbAgoSec = typeof job.lastHeartbeatAgoMs === "number"
+        ? Math.round(job.lastHeartbeatAgoMs / 1000)
+        : null;
+      const stage = job.progressLabel ?? job.progressStage ?? null;
+      const stem = job.renderError
+        ? `Render reported: ${job.renderError}`
+        : stage
+          ? `Render stalled at "${stage}"`
+          : `Render didn't report back`;
+      const tail = lastHbAgoSec !== null
+        ? `last heartbeat ${lastHbAgoSec}s ago`
+        : null;
+      message = [stem, tail].filter(Boolean).join(' · ') + '. Please retry.';
+    }
     return {
       ...base,
       state: "failed",
       shouldStopPolling: true,
-      errorTitle:   "Still waiting on a response",
-      errorMessage: `We haven't received an update in ${Math.round(observedForMs / 60_000)} minutes. Please retry.`,
+      errorTitle:   title,
+      errorMessage: message,
       retryable:    true,
       failReason:   "client_abandoned",
     };

@@ -13,36 +13,30 @@
 //   heartbeat for 240s", even though the worker was alive and
 //   making progress.
 //
-//   This wrapper now offloads the heartbeat to a separate worker
+//   This wrapper offloads the heartbeat to a separate worker
 //   THREAD (heartbeatWorker.cjs) with its own libuv event loop and
-//   its own pg connection. Even if the main thread is wedged for
-//   a full minute, the worker thread keeps writing pulses to the
-//   job row. Vercel's polling watchdog sees the row's updatedAt
-//   advancing and never trips.
+//   its own pg connection. Even if the main thread is wedged for a
+//   full minute, the worker thread keeps writing pulses to the job
+//   row.
 //
-// Lifecycle the wrapper writes:
+// Lifecycle correctness contract (the bug this fix exists to kill):
 //
-//   accept       → log "job accepted"
-//                → atomic PENDING → RUNNING claim
-//                  (status, startedAt, progress=1, attempts++)
-//                → log "RUNNING written"
-//                → spawn heartbeat worker thread
-//   …            → worker thread updates row every WATCHDOG_INTERVAL_MS
-//                → main thread runs runInlineGeneration; the inner
-//                  pipeline writes its own per-stage progress bumps
-//                  and the final COMPLETED row
-//   pipeline ok  → log "completed"
-//                → worker thread sees terminal status on next tick,
-//                  exits cleanly. Wrapper also explicitly stops it.
-//   pipeline err → log "failure" with stack trace
-//                → wrapper writes FAILED with the real exception
-//                  message and result.failReason='render_backend_error'
-//                  (skipped if the inner pipeline already wrote a
-//                  richer terminal row).
-//                → wrapper stops the worker thread.
+//   The frontend's "Still waiting on a response — we haven't
+//   received an update in 15 minutes" message fires when the row
+//   is stuck in PENDING/RUNNING for hardAbandonMs. That happens
+//   when the wrapper's previous "log completed and exit" path ran
+//   even though the inner pipeline never wrote a terminal row.
 //
-// All wrapper writes are best-effort — a transient DB hiccup must
-// never kill the in-flight generation.
+//   This wrapper now treats the inner pipeline's RETURN as
+//   advisory — the only authoritative completion signal is:
+//     1. job.status === COMPLETED in the database, AND
+//     2. job.result.assetIds.length > 0, AND
+//     3. that many rows exist in the asset table.
+//
+//   Anything else is a wrapper-side FAILED write with a clear
+//   error message so the row reaches a terminal state and the
+//   frontend renders a real error instead of a 15-minute spinner.
+
 import { Worker } from 'node:worker_threads';
 import * as path from 'node:path';
 import { JobStatus } from '@prisma/client';
@@ -56,10 +50,16 @@ export type RenderGenerationParams = InlineGenerateParams;
 
 const WATCHDOG_INTERVAL_MS = 12_000;
 
+/** Verbatim error written to result.error when the inner pipeline
+ *  returns without writing COMPLETED or with empty assetIds. The
+ *  UI surfaces this through the existing FAILED → result.error
+ *  channel (formatJobError in the core app). */
+export const NO_ASSETS_ERROR = 'Render generation returned without producing assets';
+
 /**
  * Start the heavy generation job in the background, with a
  * Render-owned watchdog heartbeat (in a separate worker thread)
- * and explicit FAILED-write on any thrown error.
+ * and explicit FAILED-write on any thrown error or empty result.
  *
  * Returns immediately after scheduling. The Express handler
  * responds 202 to the Vercel forwarder; the frontend polls
@@ -107,7 +107,6 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
 
   if (claim.count === 1) {
     log('claimed', jobId, { from: 'PENDING', to: 'RUNNING' });
-    log('running_written', jobId, {});
   } else {
     // Some other process has already claimed this row (legitimate
     // double-dispatch is not possible in the production flow, so
@@ -130,63 +129,28 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
       existing?.status === JobStatus.FAILED ||
       existing?.status === JobStatus.RUNNING
     ) {
-      // Defer to whoever has it. Stale-watchdog will catch a
-      // genuinely dead RUNNING worker via the heartbeat-gap path.
       log('deferring_to_existing_owner', jobId, { status: existing.status });
       return;
     }
-    // PENDING but our updateMany still saw count=0 — odd. The
-    // inner pipeline's own claim will retry; if it ALSO fails
-    // we'll catch the silent return below and mark FAILED.
   }
 
   // ── 2. Spawn heartbeat worker thread ────────────────────────────────────
-  // Truly out-of-loop. Writes a progress pulse every
-  // WATCHDOG_INTERVAL_MS no matter what the main thread is doing.
   const heartbeat = startHeartbeatWorker(jobId);
 
-  // ── 3. Run the inner pipeline + own the FAILED-on-throw write ───────────
-  // We set skipClaim=true because step 1 already flipped
+  // ── 3. Run the inner pipeline ───────────────────────────────────────────
+  // We pass skipClaim=true because step 1 already flipped
   // PENDING→RUNNING. Without this, runInlineGeneration would
   // re-issue its own atomic claim, see count=0 (we just consumed
   // the PENDING state), log "already claimed by another worker —
   // bailing" and return immediately — no assets ever generated.
   // That was the production-blocking stall.
-  log('inline_started', jobId, { skipClaim: claim.count === 1 });
+  log('inline_generation_started', jobId, { skipClaim: claim.count === 1 });
   let crashed = false;
   let crashMessage = '';
   let crashStack:   string | null = null;
   try {
     await runInlineGeneration({ ...params, skipClaim: claim.count === 1 });
-    // Verify generation actually produced assets before declaring
-    // success. The inner pipeline writes COMPLETED with assetIds;
-    // if for any reason it returned without writing the terminal
-    // row we mark this run as a failure rather than letting the
-    // wrapper's "completed" log mislead operators.
-    const verify = await prisma.job.findUnique({
-      where:  { id: jobId },
-      select: { status: true, result: true },
-    });
-    const assetIds = (verify?.result as any)?.assetIds as string[] | undefined;
-    const assetCount = Array.isArray(assetIds) ? assetIds.length : 0;
-    if (verify?.status === JobStatus.COMPLETED && assetCount > 0) {
-      log('assets_created', jobId, { assetCount });
-      log('completed', jobId, { assetCount });
-    } else if (verify?.status === JobStatus.FAILED) {
-      log('completed_skipped_failed', jobId, {
-        reason: (verify?.result as any)?.failReason ?? null,
-      });
-    } else {
-      // Pipeline returned without writing a terminal row — treat
-      // as a silent failure rather than letting the heartbeat
-      // watchdog catch it 6 minutes from now.
-      crashed = true;
-      crashMessage = `Inner pipeline returned without writing COMPLETED (status=${verify?.status ?? "unknown"}, assetCount=${assetCount})`;
-      log('inline_returned_without_terminal', jobId, {
-        status:     verify?.status ?? null,
-        assetCount,
-      });
-    }
+    log('inline_generation_returned', jobId, {});
   } catch (err: any) {
     crashed = true;
     crashMessage = err?.message ?? String(err);
@@ -195,43 +159,174 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
       message: crashMessage,
       stack:   crashStack ? crashStack.split('\n').slice(0, 6).join('\n') : null,
     });
-  } finally {
-    await heartbeat.stop().catch(() => { /* best-effort */ });
   }
 
-  if (crashed) {
-    // Only write FAILED if the row isn't already terminal — the
-    // inner pipeline's own catch path may have already recorded a
-    // richer `result.diagnostics` payload.
-    try {
-      const final = await prisma.job.findUnique({
-        where:  { id: jobId },
-        select: { status: true, result: true },
+  // ── 4. Verify the DB row reached a real terminal state ─────────────────
+  // The inner pipeline's RETURN is advisory; the row state is
+  // authoritative. Three outcomes:
+  //   - COMPLETED + assetIds.length > 0 + assets exist → completed_real
+  //   - FAILED                                          → preserve real error
+  //   - anything else                                   → failed_real with
+  //                                                       NO_ASSETS_ERROR
+  const verify = await readVerify(jobId);
+  log('final_db_status_after_generation', jobId, {
+    status:     verify?.status ?? null,
+    assetCount: verify?.assetCount ?? 0,
+  });
+  log('assets_created_count', jobId, { count: verify?.assetCount ?? 0 });
+
+  let terminalWritten = false;
+
+  if (
+    !crashed &&
+    verify?.status === JobStatus.COMPLETED &&
+    verify.assetCount > 0
+  ) {
+    // Real success.
+    log('completed_real', jobId, { assetCount: verify.assetCount });
+    terminalWritten = true;
+  } else if (verify?.status === JobStatus.FAILED) {
+    // Inner pipeline (or a prior failure path) already wrote FAILED.
+    // Preserve the real error — do NOT overwrite.
+    log('failed_real', jobId, {
+      reason:   (verify.result as any)?.failReason ?? null,
+      message:  (verify.result as any)?.error ?? null,
+      preserved: true,
+    });
+    terminalWritten = true;
+  } else {
+    // Either:
+    //   (a) inner threw → crashed === true
+    //   (b) inner returned but row is still PENDING/RUNNING, or
+    //       COMPLETED with empty assetIds, or COMPLETED but the
+    //       referenced asset rows do not exist in the asset table.
+    // Both → wrapper-side FAILED write with the spec'd message.
+    const message = crashed
+      ? (crashMessage || NO_ASSETS_ERROR)
+      : NO_ASSETS_ERROR;
+    const writeOk = await writeFailedTerminal(jobId, {
+      message,
+      stack:   crashStack,
+      reason:  crashed ? 'render_backend_error' : 'no_assets_produced',
+      diagnostics: {
+        liveStatus:        verify?.status ?? null,
+        assetIdsInResult:  verify?.assetIdsInResult ?? 0,
+        assetRowsInDb:     verify?.assetCount ?? 0,
+        crashed,
+      },
+    });
+    if (writeOk) {
+      log('failed_real', jobId, {
+        message,
+        reason: crashed ? 'render_backend_error' : 'no_assets_produced',
       });
-      if (final && final.status !== JobStatus.COMPLETED && final.status !== JobStatus.FAILED) {
-        await prisma.job.update({
-          where: { id: jobId },
-          data: {
-            status:   JobStatus.FAILED,
-            failedAt: new Date(),
-            result:   {
-              ...((final.result as Record<string, unknown> | null) ?? {}),
-              error:      crashMessage || 'Generation crashed',
-              failReason: 'render_backend_error',
-              stack:      crashStack ? crashStack.split('\n').slice(0, 8).join('\n') : null,
-            } as any,
-          },
-        });
-        log('failed_written', jobId, {});
-      } else {
-        log('failed_skipped', jobId, {
-          reason: 'inner_already_terminal',
-          status: final?.status ?? null,
-        });
-      }
-    } catch (writeErr: any) {
-      log('failed_write_error', jobId, { message: writeErr?.message ?? String(writeErr) });
+      terminalWritten = true;
     }
+  }
+
+  // ── 5. Stop heartbeat ────────────────────────────────────────────────────
+  // Always after the terminal write so the heartbeat keeps the row
+  // updatedAt fresh while we're verifying/writing FAILED. Stops
+  // only after the row reaches a real terminal state.
+  await heartbeat.stop().catch(() => { /* best-effort */ });
+
+  if (!terminalWritten) {
+    // Both the row inspection AND the FAILED write somehow failed.
+    // This is the worst case (likely a DB outage). Vercel's stale
+    // watchdog will eventually mark the row FAILED via the
+    // heartbeat-gap path; nothing more we can do here.
+    log('terminal_write_lost', jobId, {});
+  }
+}
+
+/** Re-read the job + count actual asset rows. Returns
+ *  null if the row vanished. */
+async function readVerify(jobId: string): Promise<
+  | null
+  | {
+      status: string | null;
+      result: unknown;
+      assetIdsInResult: number;
+      assetCount: number;
+    }
+> {
+  try {
+    const row = await prisma.job.findUnique({
+      where:  { id: jobId },
+      select: { status: true, result: true },
+    });
+    if (!row) return null;
+    const assetIds = (row.result as any)?.assetIds;
+    const idsArray: string[] = Array.isArray(assetIds) ? assetIds.filter((x: unknown) => typeof x === 'string') : [];
+    let assetCount = 0;
+    if (idsArray.length > 0) {
+      // Confirm the asset rows actually exist — guards against the
+      // case where the inner pipeline wrote assetIds but the asset
+      // INSERT was rolled back or never executed.
+      try {
+        assetCount = await prisma.asset.count({ where: { id: { in: idsArray } } });
+      } catch (err: any) {
+        // If the asset.count itself fails (DB hiccup), we still
+        // have the assetIds array — fall back to its length so we
+        // don't FAIL a real success on a transient error.
+        log('asset_count_query_failed', jobId, { message: err?.message ?? String(err) });
+        assetCount = idsArray.length;
+      }
+    }
+    return {
+      status: row.status,
+      result: row.result,
+      assetIdsInResult: idsArray.length,
+      assetCount,
+    };
+  } catch (err: any) {
+    log('verify_read_failed', jobId, { message: err?.message ?? String(err) });
+    return null;
+  }
+}
+
+/** Atomically write a FAILED terminal row. Skipped if the row is
+ *  already terminal (COMPLETED/FAILED) so we don't clobber a real
+ *  success or a richer prior error. */
+async function writeFailedTerminal(
+  jobId:   string,
+  fields: { message: string; stack: string | null; reason: string; diagnostics: Record<string, unknown> },
+): Promise<boolean> {
+  try {
+    const final = await prisma.job.findUnique({
+      where:  { id: jobId },
+      select: { status: true, result: true },
+    });
+    if (!final) {
+      log('failed_write_skipped', jobId, { reason: 'row_missing' });
+      return false;
+    }
+    if (final.status === JobStatus.COMPLETED || final.status === JobStatus.FAILED) {
+      log('failed_write_skipped', jobId, {
+        reason: 'inner_already_terminal',
+        status: final.status,
+      });
+      return false;
+    }
+    await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        status:   JobStatus.FAILED,
+        failedAt: new Date(),
+        result:   {
+          ...((final.result as Record<string, unknown> | null) ?? {}),
+          error:       fields.message,
+          failReason:  fields.reason,
+          stack:       fields.stack ? fields.stack.split('\n').slice(0, 8).join('\n') : null,
+          renderDiagnostics: fields.diagnostics,
+        } as any,
+      },
+    });
+    log('failed_written', jobId, { reason: fields.reason });
+    return true;
+  } catch (writeErr: any) {
+    log('failed_write_error', jobId, { message: writeErr?.message ?? String(writeErr) });
+    return false;
   }
 }
 
@@ -271,8 +366,6 @@ function startHeartbeatWorker(jobId: string): HeartbeatHandle {
   return {
     stop: async () => {
       try { worker.postMessage('stop'); } catch { /* ignore */ }
-      // 1.5s grace for the worker to disconnect pg cleanly. After
-      // that, force-terminate so we don't leak threads.
       await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
       try { await worker.terminate(); } catch { /* ignore */ }
     },
