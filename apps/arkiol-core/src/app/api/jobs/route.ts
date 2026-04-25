@@ -13,7 +13,7 @@ import { refundCredits }     from "@arkiol/shared";
 import { logger }            from "../../../lib/logger";
 import { formatJobError }    from "../../../lib/jobErrorFormat";
 import { durableRunInlineGeneration } from "../../../lib/durableRun";
-import { evaluateStale }     from "../../../lib/staleDetection";
+import { evaluateStale, RENDER_BACKEND_HEARTBEAT_GAP_MS } from "../../../lib/staleDetection";
 import { JobStatus } from "@prisma/client";
 
 // GET /api/jobs — list user's jobs
@@ -164,7 +164,15 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     // See lib/staleDetection.ts for the full ladder. The helper is
     // pure — this handler owns the DB write + credit refund side
     // effects.
-    const staleVerdict = evaluateStale(job);
+    //
+    // RENDER-BACKED JOBS get the longer 6-min heartbeat gap. The
+    // Render wrapper writes a worker-thread heartbeat every 12s,
+    // so anything past 6 minutes really IS dead, not just CPU-
+    // starved. In-process Vercel jobs keep the default 4-min gap.
+    const staleVerdict = evaluateStale(
+      job,
+      isRenderBackedJob ? { gapMs: RENDER_BACKEND_HEARTBEAT_GAP_MS } : undefined,
+    );
     if (staleVerdict.stale) {
       logger.warn(
         {
@@ -301,6 +309,25 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     const progressStage = (rawResult.progressStage as string) ?? null;
     const progressLabel = (rawResult.progressLabel as string) ?? null;
 
+    // Render-backed diagnostics surfaced at top-level so debugging
+    // doesn't require unpacking job.result. Includes:
+    //   - workerMode      ("render_backend" / "next_after" / etc)
+    //   - lastHeartbeatAgoMs   how long since updatedAt last moved
+    //   - renderError     the real exception message when Render
+    //                     wrote a FAILED row (failReason ===
+    //                     "render_backend_error")
+    //   - renderStack     first ~8 stack frames from the Render
+    //                     wrapper's catch path
+    const lastHeartbeatAgoMs = job.updatedAt
+      ? Math.max(0, Date.now() - new Date(job.updatedAt).getTime())
+      : null;
+    const renderError = ((job.result as any)?.failReason === "render_backend_error")
+      ? ((job.result as any)?.error ?? null)
+      : null;
+    const renderStack = ((job.result as any)?.failReason === "render_backend_error")
+      ? ((job.result as any)?.stack ?? null)
+      : null;
+
     return NextResponse.json({
       job: {
         id:          job.id,
@@ -313,6 +340,10 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
         // job.result to learn what the worker is doing right now.
         progressStage,
         progressLabel,
+        workerMode:         (job.payload as any)?.workerMode ?? null,
+        lastHeartbeatAgoMs,
+        renderError,
+        renderStack,
         result:      job.status === "COMPLETED" ? {
           assetCount:  assetsWithUrls.length,
           creditCost:  (job.result as any)?.creditCost ?? 0,

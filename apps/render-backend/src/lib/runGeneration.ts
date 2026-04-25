@@ -3,46 +3,48 @@
 // Render-side owner of the job lifecycle.
 //
 // Why this exists:
-//   The inner generation pipeline (`runInlineGeneration` from the
-//   core app) owns the per-stage progress writes and the final
-//   COMPLETED row, but its in-pipeline `setInterval` heartbeat can
-//   stall on Render's 0.5-CPU starter plan when sharp/libvips
-//   bursts saturate the event loop. When that happens the Vercel
-//   polling watchdog flips the job to FAILED with "no worker
-//   heartbeat for 240s", even though the worker is still alive
-//   and progressing.
+//   On Render's 0.5-CPU starter plan, the heavy generation pipeline
+//   (sharp/libvips, large SVG assembly, JSON.stringify of fat
+//   candidate sets) frequently stalls the Node main event loop for
+//   tens of seconds at a time. The previous in-process setInterval
+//   heartbeat lived on the SAME loop as runInlineGeneration —
+//   when the loop wedged, the timer queue stalled too and Vercel's
+//   polling watchdog flipped the row to FAILED with "no worker
+//   heartbeat for 240s", even though the worker was alive and
+//   making progress.
 //
-//   This wrapper adds an INDEPENDENT watchdog heartbeat that
-//   updates the job row from the Render Express handler's own
-//   timer — completely outside the inner pipeline's call stack.
-//   So even if `runInlineGeneration` is wedged on a sync libvips
-//   burst, the wrapper's heartbeat still fires (Node timers are
-//   resilient to short-running sync work between ticks; the
-//   wrapper does no sync work of its own).
+//   This wrapper now offloads the heartbeat to a separate worker
+//   THREAD (heartbeatWorker.cjs) with its own libuv event loop and
+//   its own pg connection. Even if the main thread is wedged for
+//   a full minute, the worker thread keeps writing pulses to the
+//   job row. Vercel's polling watchdog sees the row's updatedAt
+//   advancing and never trips.
 //
-//   The wrapper also owns the PENDING → RUNNING transition (so
-//   the row reaches RUNNING the moment Render accepts the job,
-//   not after analyzeBrief finishes inside the inner pipeline)
-//   and writes a real FAILED row when the inner pipeline throws,
-//   so a crashing pipeline doesn't leak as a "stale_worker"
-//   verdict at the 240s mark.
+// Lifecycle the wrapper writes:
 //
-// Lifecycle this wrapper writes:
+//   accept       → log "job accepted"
+//                → atomic PENDING → RUNNING claim
+//                  (status, startedAt, progress=1, attempts++)
+//                → log "RUNNING written"
+//                → spawn heartbeat worker thread
+//   …            → worker thread updates row every WATCHDOG_INTERVAL_MS
+//                → main thread runs runInlineGeneration; the inner
+//                  pipeline writes its own per-stage progress bumps
+//                  and the final COMPLETED row
+//   pipeline ok  → log "completed"
+//                → worker thread sees terminal status on next tick,
+//                  exits cleanly. Wrapper also explicitly stops it.
+//   pipeline err → log "failure" with stack trace
+//                → wrapper writes FAILED with the real exception
+//                  message and result.failReason='render_backend_error'
+//                  (skipped if the inner pipeline already wrote a
+//                  richer terminal row).
+//                → wrapper stops the worker thread.
 //
-//   accept       → RUNNING (startedAt, progress=1, workerMode='render_backend')
-//   …            → heartbeat tick every WATCHDOG_INTERVAL_MS,
-//                  updating updatedAt (and progress when the inner
-//                  pipeline has bumped it past our last value)
-//   pipeline ok  → leave row alone (inner pipeline already wrote
-//                  COMPLETED on its own atomic claim)
-//   pipeline err → FAILED with the real exception message in
-//                  result.error; failReason='render_backend_error'
-//
-// All writes are best-effort: a transient DB hiccup never kills
-// the in-flight generation. The watchdog stops only after the row
-// reaches a terminal state (COMPLETED / FAILED) or the inner
-// pipeline returns / throws.
-
+// All wrapper writes are best-effort — a transient DB hiccup must
+// never kill the in-flight generation.
+import { Worker } from 'node:worker_threads';
+import * as path from 'node:path';
 import { JobStatus } from '@prisma/client';
 import { prisma } from './prisma';
 import {
@@ -56,8 +58,8 @@ const WATCHDOG_INTERVAL_MS = 12_000;
 
 /**
  * Start the heavy generation job in the background, with a
- * Render-owned watchdog heartbeat and explicit FAILED-write on
- * any thrown error.
+ * Render-owned watchdog heartbeat (in a separate worker thread)
+ * and explicit FAILED-write on any thrown error.
  *
  * Returns immediately after scheduling. The Express handler
  * responds 202 to the Vercel forwarder; the frontend polls
@@ -69,18 +71,23 @@ export function scheduleRenderGeneration(params: RenderGenerationParams): void {
     workerMode: params.workerMode ?? ('render_backend' as any),
   };
 
+  log('accepted', tagged.jobId, {
+    formats:    tagged.formats,
+    variations: tagged.variations,
+    locale:     tagged.locale,
+  });
+
   void runWithWatchdog(tagged);
 }
 
-/** Internal: own the RUNNING transition + watchdog timer +
- *  terminal-state cleanup. */
+interface HeartbeatHandle {
+  stop: () => Promise<void>;
+}
+
 async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
   const { jobId } = params;
 
   // ── 1. Atomic PENDING → RUNNING claim ───────────────────────────────────
-  // Race-safe: only the first wrapper to see startedAt=null wins.
-  // The inner pipeline's own `mark_running` claim becomes a no-op
-  // when ours already fired.
   const claim = await prisma.job.updateMany({
     where: {
       id:        jobId,
@@ -94,98 +101,44 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
       attempts:  { increment: 1 },
     },
   }).catch((err) => {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[render-backend] Could not flip job ${jobId} to RUNNING:`,
-      err?.message ?? err,
-    );
+    log('claim_error', jobId, { message: err?.message ?? String(err) });
     return { count: 0 };
   });
 
   if (claim.count === 1) {
-    // eslint-disable-next-line no-console
-    console.info(`[render-backend] Job ${jobId} claimed → RUNNING`);
+    log('running_written', jobId, {});
   } else {
-    // eslint-disable-next-line no-console
-    console.info(
-      `[render-backend] Job ${jobId} already claimed (count=${claim.count}); ` +
-      `running pipeline anyway — inner atomic claim will resolve.`,
-    );
+    log('claim_skipped', jobId, { count: claim.count });
   }
 
-  // ── 2. Independent heartbeat ────────────────────────────────────────────
-  // Pulses updatedAt + progress every WATCHDOG_INTERVAL_MS.
-  // Survives the inner pipeline blocking the event loop because:
-  //   (a) this closure does no sync work — just an awaited DB write,
-  //   (b) Node timer queue resumes on the very next free tick.
-  let lastSeenProgress = 0;
-  let stopped = false;
-  const tick = async () => {
-    if (stopped) return;
-    try {
-      const row = await prisma.job.findUnique({
-        where:  { id: jobId },
-        select: { status: true, progress: true },
-      });
-      if (!row) {
-        stopped = true;
-        return;
-      }
-      // Stop heartbeating once the row is terminal — the inner
-      // pipeline (or our own catch path) wrote COMPLETED/FAILED.
-      if (row.status === JobStatus.COMPLETED || row.status === JobStatus.FAILED) {
-        stopped = true;
-        return;
-      }
-      // Re-write progress to roll updatedAt forward. If the inner
-      // pipeline already pushed progress past our last seen value,
-      // copy that forward so the heartbeat doesn't visually
-      // backtrack the bar.
-      const next = Math.max(lastSeenProgress, row.progress ?? 0);
-      lastSeenProgress = next;
-      await prisma.job.update({
-        where: { id: jobId },
-        data:  { progress: next },
-      });
-    } catch (err: any) {
-      // Best-effort — a transient DB error must never kill the
-      // generation. Log once at warn so ops can spot a flapping
-      // adapter without drowning the logs.
-      // eslint-disable-next-line no-console
-      console.warn(
-        `[render-backend] Heartbeat write failed for job ${jobId}:`,
-        err?.message ?? err,
-      );
-    }
-  };
-  const heartbeat = setInterval(() => { void tick(); }, WATCHDOG_INTERVAL_MS);
-  // First pulse immediately so polling clients see updatedAt move
-  // before the first 12s tick.
-  void tick();
+  // ── 2. Spawn heartbeat worker thread ────────────────────────────────────
+  // Truly out-of-loop. Writes a progress pulse every
+  // WATCHDOG_INTERVAL_MS no matter what the main thread is doing.
+  const heartbeat = startHeartbeatWorker(jobId);
 
   // ── 3. Run the inner pipeline + own the FAILED-on-throw write ───────────
   let crashed = false;
   let crashMessage = '';
+  let crashStack:   string | null = null;
   try {
     await runInlineGeneration(params);
+    log('completed', jobId, {});
   } catch (err: any) {
     crashed = true;
     crashMessage = err?.message ?? String(err);
-    // eslint-disable-next-line no-console
-    console.error(
-      `[render-backend] Inner generation threw for job ${jobId}:`,
-      err?.stack ?? err,
-    );
+    crashStack   = typeof err?.stack === 'string' ? err.stack : null;
+    log('failure', jobId, {
+      message: crashMessage,
+      stack:   crashStack ? crashStack.split('\n').slice(0, 6).join('\n') : null,
+    });
   } finally {
-    stopped = true;
-    clearInterval(heartbeat);
+    await heartbeat.stop().catch(() => { /* best-effort */ });
   }
 
   if (crashed) {
     // Only write FAILED if the row isn't already terminal — the
     // inner pipeline's own catch path may have already recorded a
-    // richer `result.diagnostics` payload, and we don't want to
-    // clobber it.
+    // richer `result.diagnostics` payload.
     try {
       const final = await prisma.job.findUnique({
         where:  { id: jobId },
@@ -201,19 +154,77 @@ async function runWithWatchdog(params: RenderGenerationParams): Promise<void> {
               ...((final.result as Record<string, unknown> | null) ?? {}),
               error:      crashMessage || 'Generation crashed',
               failReason: 'render_backend_error',
+              stack:      crashStack ? crashStack.split('\n').slice(0, 8).join('\n') : null,
             } as any,
           },
         });
-        // eslint-disable-next-line no-console
-        console.info(`[render-backend] Job ${jobId} marked FAILED after crash`);
+        log('failed_written', jobId, {});
+      } else {
+        log('failed_skipped', jobId, {
+          reason: 'inner_already_terminal',
+          status: final?.status ?? null,
+        });
       }
     } catch (writeErr: any) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `[render-backend] Could not write FAILED row for job ${jobId}:`,
-        writeErr?.message ?? writeErr,
-      );
+      log('failed_write_error', jobId, { message: writeErr?.message ?? String(writeErr) });
     }
   }
 }
 
+/** Spawn the heartbeat worker thread for the given job. The
+ *  thread runs heartbeatWorker.cjs in its own event loop, opens
+ *  its own pg connection, and pulses every WATCHDOG_INTERVAL_MS
+ *  until told to stop. */
+function startHeartbeatWorker(jobId: string): HeartbeatHandle {
+  const databaseUrl = process.env.DATABASE_URL?.trim();
+  if (!databaseUrl) {
+    log('heartbeat_disabled', jobId, { reason: 'no_database_url' });
+    return { stop: async () => { /* no-op */ } };
+  }
+
+  const workerPath = path.resolve(__dirname, 'heartbeatWorker.cjs');
+  const worker = new Worker(workerPath, {
+    workerData: {
+      jobId,
+      intervalMs: WATCHDOG_INTERVAL_MS,
+      databaseUrl,
+    },
+  });
+
+  worker.on('message', (msg: any) => {
+    log(`heartbeat_${msg?.type ?? 'unknown'}`, jobId, msg);
+  });
+  worker.on('error', (err: Error) => {
+    log('heartbeat_worker_error', jobId, {
+      message: err?.message,
+      stack:   err?.stack?.split('\n').slice(0, 4).join('\n'),
+    });
+  });
+  worker.on('exit', (code: number) => {
+    log('heartbeat_worker_exit', jobId, { code });
+  });
+
+  return {
+    stop: async () => {
+      try { worker.postMessage('stop'); } catch { /* ignore */ }
+      // 1.5s grace for the worker to disconnect pg cleanly. After
+      // that, force-terminate so we don't leak threads.
+      await new Promise<void>((resolve) => setTimeout(resolve, 1_500));
+      try { await worker.terminate(); } catch { /* ignore */ }
+    },
+  };
+}
+
+/** Single structured logger so Render's logs are easy to grep.
+ *  Each line is one JSON object preceded by [render-backend] so it
+ *  shows up cleanly in the Render dashboard's log viewer. */
+function log(event: string, jobId: string, extra: Record<string, unknown>): void {
+  const line = JSON.stringify({
+    ts: new Date().toISOString(),
+    event,
+    jobId,
+    ...extra,
+  });
+  // eslint-disable-next-line no-console
+  console.log(`[render-backend] ${line}`);
+}

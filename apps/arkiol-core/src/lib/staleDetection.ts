@@ -58,6 +58,25 @@ export const HEARTBEAT_GAP_MS = (() => {
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n * 1_000 : HEARTBEAT_GAP_DEFAULT_MS;
 })();
+
+/**
+ * Separate, longer threshold for jobs running on the dedicated
+ * Render backend. The Render wrapper now uses a worker-thread
+ * heartbeat (heartbeatWorker.cjs) that pulses every 12s
+ * regardless of the main thread's state — so a Render-backed job
+ * silent for 6 minutes really IS dead, not just CPU-starved.
+ *
+ * Override via RENDER_BACKEND_HEARTBEAT_GAP_SECONDS. Defaults to
+ * 360s = 6 min, comfortably above the 12s pulse interval × any
+ * realistic transient pg / network hiccup.
+ */
+const RENDER_BACKEND_GAP_DEFAULT_MS = 360_000;
+export const RENDER_BACKEND_HEARTBEAT_GAP_MS = (() => {
+  const raw = process.env.RENDER_BACKEND_HEARTBEAT_GAP_SECONDS;
+  if (!raw) return RENDER_BACKEND_GAP_DEFAULT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n * 1_000 : RENDER_BACKEND_GAP_DEFAULT_MS;
+})();
 export const RUNNING_GRACE_MS   = 60_000;     // cold-start headroom
 export const HARD_CEILING_MS    = 900_000;    // 15-min absolute runtime cap
 /** Extra grace for a PENDING job that hasn't hit its first `mark_running`
@@ -120,8 +139,18 @@ export function computeExpectedDurationMs(payload: unknown): number {
 
 /** Decide whether the job should be flipped to FAILED. Pure function —
  *  no DB access, no side effects. Callers (route handler, list
- *  endpoint) own the actual update. */
-export function evaluateStale(job: JobLikeForStale): StaleVerdict {
+ *  endpoint) own the actual update.
+ *
+ *  When `opts.gapMs` is supplied the caller's value overrides the
+ *  module-level HEARTBEAT_GAP_MS for this single check — used to
+ *  give Render-backed jobs the longer 6-minute window via
+ *  RENDER_BACKEND_HEARTBEAT_GAP_MS while keeping the default for
+ *  in-process Vercel jobs at 4 min. */
+export function evaluateStale(
+  job: JobLikeForStale,
+  opts?: { gapMs?: number },
+): StaleVerdict {
+  const gapMs = opts?.gapMs ?? HEARTBEAT_GAP_MS;
   const now = Date.now();
   const updatedMs = job.updatedAt ? new Date(job.updatedAt).getTime() : now;
   const createdMs = job.createdAt ? new Date(job.createdAt).getTime() : now;
@@ -150,14 +179,14 @@ export function evaluateStale(job: JobLikeForStale): StaleVerdict {
   }
 
   // 2. Fresh heartbeat = alive. Most common healthy path — cheap bail.
-  if (heartbeatGapMs < HEARTBEAT_GAP_MS) return base;
+  if (heartbeatGapMs < gapMs) return base;
 
   // 3. Running with a dead container — past cold-start grace.
   if (startedMs && runningMs > RUNNING_GRACE_MS) {
     return {
       ...base,
       stale: true, reason: "no_heartbeat",
-      message: `Generation stalled — no worker heartbeat for ${Math.round(heartbeatGapMs / 1000)}s (gap threshold ${Math.round(HEARTBEAT_GAP_MS / 1000)}s). The worker was likely killed mid-render. Please retry.`,
+      message: `Generation stalled — no worker heartbeat for ${Math.round(heartbeatGapMs / 1000)}s (gap threshold ${Math.round(gapMs / 1000)}s). The worker was likely killed mid-render. Please retry.`,
     };
   }
 
