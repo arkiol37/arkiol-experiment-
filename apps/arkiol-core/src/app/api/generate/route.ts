@@ -310,6 +310,11 @@ export const POST = withErrorHandling(async (req: NextRequest) => {
           hqUpgrade:            input.hqUpgrade,
           archetypeOverride:    input.archetypeOverride ?? undefined,
           locale:               input.locale,
+          // Pin workerMode at create time when we know the request
+          // will be forwarded to the Render backend. /api/jobs uses
+          // this to skip the local poller-resume path so Vercel
+          // never double-runs heavy generation on serverless.
+          workerMode:           "render_backend",
         },
       },
     });

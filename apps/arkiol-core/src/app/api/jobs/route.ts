@@ -58,6 +58,18 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     // period expires again. Effectively, polling itself becomes the
     // durability mechanism on serverless — no cron, no new infra.
     //
+    // RENDER-BACKED JOBS ARE EXCLUDED. When the dispatch went to the
+    // dedicated Render service (job.payload.workerMode === 'render_backend'
+    // OR RENDER_BACKEND_URL is configured), the Render wrapper owns
+    // the lifecycle and writes its own RUNNING / heartbeat / FAILED
+    // rows. Vercel running `durableRunInlineGeneration` here would
+    // double-execute the pipeline on a serverless container that
+    // CAN'T finish heavy work, defeating the whole split. So for
+    // those jobs we skip the resume entirely and rely on the Render
+    // wrapper. The stale watchdog further down still runs, so a
+    // genuinely-dead Render container will get the row flipped to
+    // FAILED via the heartbeat-gap path.
+    //
     // HISTORY: this branch was previously gated on
     // `!detectCapabilities().queue`, on the assumption that BullMQ's
     // own retry ladder would recover jobs when the queue was active.
@@ -70,7 +82,12 @@ export const GET = withErrorHandling(async (req: NextRequest) => {
     // fallback race on the same updateMany.
     const RESUME_AFTER_MS     = 20_000;  // 20s grace (tightened from 30s)
     const MAX_RESUME_ATTEMPTS = 3;
+    const payloadWorkerMode = (job.payload as any)?.workerMode;
+    const isRenderBackedJob =
+      payloadWorkerMode === "render_backend" ||
+      !!process.env.RENDER_BACKEND_URL?.trim();
     if (
+      !isRenderBackedJob &&
       job.status === "PENDING" &&
       !job.startedAt &&
       Date.now() - new Date(job.createdAt).getTime() > RESUME_AFTER_MS &&
