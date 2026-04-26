@@ -510,8 +510,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await stage("pipeline_render", 20);
     const format = formats[0];
+    // Lazy-required so the orchestrator's heavy module graph isn't
+    // paid on the fast path. The composer's require() up in
+    // runOneAttempt is also lazy for the same reason.
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
     const { getCreditCost, getCategoryLabel } = require("./types");
+
+    console.info(
+      `[fast-composer] Job ${jobId} mode=${(process.env.ARKIOL_FAST_COMPOSER ?? "1").trim() !== "0" ? "fast" : "orchestrator"} ` +
+      `templateCount=${designBrain.templateCount} domain=${designBrain.domain}`,
+    );
 
     const brandInput = brand ? {
       primaryColor:   brand.primaryColor,
@@ -705,20 +713,56 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // pass renders SVG only — fast, cacheable, editable. The high-res
     // PNG/PDF export runs separately when the user clicks
     // download/export from the gallery (see /api/export).
-    //
-    // The orchestrator's renderAsset() supports outputFormat: "svg"
-    // and emits a result with `svgSource` populated and `buffer`
-    // empty. The asset row is stored with mimeType=image/svg+xml so
-    // the gallery knows to render the SVG directly and surface a
-    // separate "High-res export preparing" affordance.
     const INITIAL_OUTPUT_FORMAT: "svg" | "png" = "svg";
     const INITIAL_MIME_TYPE = INITIAL_OUTPUT_FORMAT === "svg"
       ? "image/svg+xml"
       : "image/png";
 
+    // ── Fast composer toggle ──────────────────────────────────────────────
+    //   Default ON: skip the heavy per-variation orchestrator
+    //   (runGenerationPipeline) and use the deterministic fast
+    //   composer instead. The composer takes the Design Brain plan +
+    //   shared brief, picks one of four layouts, and produces a
+    //   polished layered SVG in 5-30ms — vs 1-3s per variation in
+    //   the orchestrator path. Total finalization on Render free
+    //   collapses from 30-50s to under 10s for a 4-template gallery.
+    //
+    //   The orchestrator path is preserved behind the env flag so a
+    //   future deep-refinement / export worker can opt back in
+    //   without a code change.
+    const fastComposerEnabled =
+      (process.env.ARKIOL_FAST_COMPOSER ?? "1").trim() !== "0";
+    const { composeFastTemplate } = require("../engines/fast-composer");
+
     const runOneAttempt = async (vi: number) => {
       const attemptPulseTimer = setInterval(() => { void pulse(); }, 5_000);
       try {
+        if (fastComposerEnabled) {
+          // Fast path. No OpenAI per variation, no orchestrator
+          // stages 1-6 per variation, no sharp render. Composer is
+          // synchronous + cheap — wrap in Promise.resolve so the
+          // batched-parallel caller doesn't change shape.
+          const composed = composeFastTemplate({
+            plan:           designBrain,
+            brief:          brief as any,
+            format,
+            variationIndex: vi,
+            jobId,
+            orgId,
+          });
+          // Match the orchestrator's return shape so the admission
+          // / per-asset persistence loops don't have to branch.
+          const orchestrated = {
+            render:           composed,
+            stages:           {},
+            archetypeMetadata: {},
+            benchmark:        {},
+            totalPipelineMs:  composed.durationMs,
+            anyFallback:      false,
+            allStagesPassed:  true,
+          };
+          return { vi, orchestrated };
+        }
         const orchestrated = await runGenerationPipeline({
           jobId,
           orgId,
@@ -746,13 +790,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     //   2. the MAX_ATTEMPTS cap is hit, or
     //   3. less than ~1.2× the per-batch time estimate remains in the
     //      budget (launching another batch would get killed mid-flight).
-    // Free-tier SVG-only renders are ~2-6s each (no sharp/libvips PNG
-    // encode), so a batch of 2-3 typically settles in 6-10s. 8s
-    // estimate keeps the loop honest about whether another batch
-    // fits — too low and we'd start a batch that overruns the 40s
-    // budget; too high and we'd stop early and ship fewer templates
-    // than we could have.
-    const PER_BATCH_MS_ESTIMATE = 8_000;
+    // Per-batch time estimate. With the fast composer (default ON)
+    // each variation builds in 5-30ms — a 4-template batch settles
+    // in ~100ms. With the legacy orchestrator path (env opt-out) a
+    // batch is 6-10s. We pick the appropriate estimate so the
+    // budget guard doesn't bail out early on the fast path.
+    const PER_BATCH_MS_ESTIMATE = fastComposerEnabled ? 500 : 8_000;
 
     // Per-attempt progress heartbeat. Without this, progress only moves
     // when an entire batch of N variations settles — a 45-second freeze
@@ -1733,6 +1776,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
                         (stageMsByName.mark_running ?? 0);
     const uploadMs    = stageMsByName.s3_upload ?? 0;
     const queueMs     = stageMsByName.font_init ?? 0; // pre-render init time
+    const composerMode = (process.env.ARKIOL_FAST_COMPOSER ?? "1").trim() !== "0" ? "fast" : "orchestrator";
     console.info(
       `[free-tier] Job ${jobId} timing ` +
       `designBrainMs=${designBrainElapsedMs} ` +
@@ -1744,6 +1788,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `under60s=${totalWallClockMs <= 60_000} ` +
       `coldStart=${isColdStart} ` +
       `briefCacheHit=${briefFromMemoryCache} ` +
+      `composer=${composerMode} ` +
       `outputMode=${INITIAL_OUTPUT_FORMAT === "svg" ? "svg_preview" : "png_full"} ` +
       `domain=${designBrain.domain} ` +
       `assets=${allAssetIds.length}`,
