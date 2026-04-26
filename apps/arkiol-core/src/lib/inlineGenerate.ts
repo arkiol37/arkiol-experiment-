@@ -537,6 +537,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       /** Top penalty reasons pulled from the verdict (audit only). */
       rankPenalties:  string[];
       accepted:       boolean;
+      /** True when the renderer produced an svg + buffer we can ship.
+       *  False candidates are excluded from the rescue tier — there's
+       *  nothing visual to admit. */
+      hasUsableArtefact: boolean;
       rejectReasons:  string[];
       failedCriteria: string[];
       themeId:        string;
@@ -775,43 +779,87 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const paletteKey = paletteKeyOf(result);
       const priorPalette = rendered.some(r => r.accepted && r.paletteKey === paletteKey);
 
-      // Strict admission: must pass rejection rules AND not be a palette
-      // twin of a previously accepted candidate AND must depict the
-      // Design Brain's domain. Marketplace approval is preferred but not
-      // required — the rejection rules already enforce the hard quality
-      // floor. Missing verdict = degraded fallback render, which we reject.
+      // SOFT-GATING CONTRACT (always-ship rescue):
+      //   The previous strict gate (rules + dedup + domain) frequently
+      //   produced an empty admitted set on free-tier resources, which
+      //   then threw "no admissible candidates" — leaving the user with
+      //   a blank gallery. The strict-quality contract is now: rank
+      //   candidates with soft penalties, ship the strongest 3-4
+      //   regardless. Hard reject is only for renders that didn't
+      //   produce a usable artefact (no svg, no buffer).
       //
-      // Design Brain domain enforcement: a fitness brief that produces a
-      // template depicting flowers / pastel weddings is REJECTED here
-      // even if the rules engine would have admitted it. This is the
-      // strict-quality contract: domain-correct or out.
+      //   Domain mismatch, palette twin, and rules-not-accepted become
+      //   rank-score deductions, not blocks. The greedy picker will
+      //   still prefer perfect candidates when they exist, and the
+      //   floor-fill / rescue tier always backstops to "at least one
+      //   shipped per request" so the user never sees blank state.
       const subjectCategory = verdict?.subjectImageCategory ?? "";
       const domainMatched   = isDomainMatch(designBrain, subjectCategory);
 
+      // Hard reject only when the candidate didn't render anything
+      // usable. Everything else is soft.
+      const hasUsableArtefact = !!(result?.svgSource || result?.buffer);
+
+      // "accepted" still means "passed every gate" — used for the
+      // primary admission tier so the gallery prefers strong
+      // candidates first when they exist. Soft-rejects flow into the
+      // rescue tier with a penalty applied.
       const accepted =
         !!verdict &&
         verdict.rulesAccepted &&
         !priorPalette &&
         domainMatched;
 
-      const rejectReasons: string[] = [];
-      if (!verdict)                     rejectReasons.push("verdict_missing");
-      else {
-        if (!verdict.rulesAccepted)     rejectReasons.push(...verdict.hardReasons);
-        if (priorPalette)               rejectReasons.push(`near_duplicate:${paletteKey}`);
-        if (!domainMatched)             rejectReasons.push(
+      // Soft penalties applied to the rank score so weak candidates
+      // sort lower than strong ones inside the rescue tier without
+      // being blocked. Tuned so a perfect candidate always beats a
+      // soft-rejected one, but a soft-rejected candidate still beats
+      // an empty gallery.
+      const RULES_PENALTY  = 0.25;
+      const DOMAIN_PENALTY = 0.30;
+      const PALETTE_PENALTY = 0.10;
+
+      const rawScore = verdict?.rankScore ?? verdict?.qualityScore ?? 0;
+      let softScore  = rawScore;
+      const softReasons: string[] = [];
+      if (verdict && !verdict.rulesAccepted) {
+        softScore -= RULES_PENALTY;
+        softReasons.push(...verdict.hardReasons);
+      }
+      if (priorPalette) {
+        softScore -= PALETTE_PENALTY;
+        softReasons.push(`near_duplicate:${paletteKey}`);
+      }
+      if (!domainMatched) {
+        softScore -= DOMAIN_PENALTY;
+        softReasons.push(
           `domain_mismatch:expected=${designBrain.domain}:got=${subjectCategory || "none"}`,
         );
       }
+      if (!hasUsableArtefact) {
+        softReasons.push("no_usable_artefact");
+      }
+
+      // rejectReasons remain populated for ops audit even when the
+      // candidate is admitted via the rescue tier — so the dashboard
+      // can answer "why was this template ranked last".
+      const rejectReasons: string[] = !verdict
+        ? ["verdict_missing", ...softReasons]
+        : softReasons;
 
       rendered.push({
         vi,
         result,
         orchestrated,
-        rankScore:      verdict?.rankScore ?? verdict?.qualityScore ?? 0,
-        marketScore:    verdict?.marketplaceScore ?? 0,
+        // rankScore now reflects the soft-penalised score so the
+        // greedy picker naturally prefers strong candidates without
+        // any branching at selection time. The original raw score is
+        // available via marketScore for audit.
+        rankScore:      softScore,
+        marketScore:    verdict?.marketplaceScore ?? rawScore,
         rankPenalties:  verdict?.rankPenalties ?? [],
         accepted,
+        hasUsableArtefact,
         rejectReasons,
         failedCriteria: verdict?.failedCriteria ?? [],
         themeId:        verdict?.themeId ?? result?.evaluationSignals?.themeId ?? "unknown",
@@ -970,30 +1018,41 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // ──────────────────────────────────────────────────────────────────
     console.info(`[inline-generate] Job ${jobId} final_render_started progress=${currentProgress}`);
 
+    // ── Always-ship admission (three tiers, never empty) ──────────────────
+    //   Tier 1: candidates that passed every gate (accepted = true).
+    //   Tier 2: floor-fill from soft-rejected candidates that still
+    //           rendered something usable. Domain-mismatched
+    //           candidates ARE eligible here — the soft penalty
+    //           already pushed them down the rank, but a relevant-ish
+    //           visual is strictly better than blank state.
+    //   Tier 3: rescue. If the first two tiers can't fill the
+    //           requested count, ship anything that produced an
+    //           artefact ranked by softScore — including weak/
+    //           off-domain candidates. This is what makes the
+    //           contract "never empty under any condition".
+    //
+    //   The greedy picker uses softScore (rankScore field) so a
+    //   perfect candidate always beats a soft-rejected one. The user
+    //   sees the strongest available 3-4 templates, in priority
+    //   order.
     const seenTypes = new Set<string>();
     const admitted: Admission[] = greedyPickN(
-      rendered.filter(r => r.accepted),
+      rendered.filter(r => r.accepted && r.hasUsableArtefact),
       totalVariations,
       seenTypes,
       false,
     );
 
     if (admitted.length < totalVariations) {
-      // Floor-fill pulse so the watchdog sees progress even if
-      // rendering 10+ candidates across a big request makes this
-      // pass take noticeable time.
       await pulse();
       const admittedVis = new Set(admitted.map(a => a.vi));
-      // STRICT-QUALITY CONTRACT: floor-fill must never resurrect a
-      // domain-mismatched candidate (a fitness brief never ships a
-      // floral / wedding template, even if it's the strongest leftover).
-      // Filter out reject reasons that start with "domain_mismatch:"
-      // before scoring rescues. Other rejection reasons (weak comp,
-      // poor contrast, etc.) are still eligible for rescue — the
-      // domain gate is the only inflexible one.
+      // Floor-fill: ALL non-admitted candidates that produced an
+      // artefact, including domain-mismatched ones. The soft
+      // penalties on softScore already make domain-correct candidates
+      // win when present; admitting mismatched ones is what keeps the
+      // gallery non-empty on a free-tier resource hiccup.
       const fillPool = rendered.filter(
-        r => !admittedVis.has(r.vi) &&
-             !r.rejectReasons.some(reason => reason.startsWith("domain_mismatch:")),
+        r => !admittedVis.has(r.vi) && r.hasUsableArtefact,
       );
       const fill = greedyPickN(
         fillPool,
@@ -1011,19 +1070,43 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // upload loop doesn't leave a silent gap.
     await pulse();
 
-    // Fail loudly rather than returning an empty gallery. Without this
-    // guard, a fully-exhausted budget with zero rendered candidates
-    // would reach prisma.job.update({ status: "SUCCEEDED" }) with no
-    // assets, leaving the UI permanently stuck on "Generating…" — the
-    // exact symptom the time budget was added to prevent.
+    // Empty-gallery handling. The new always-ship contract means we
+    // never throw "no admissible candidates" while a candidate
+    // exists. The only path that still throws is the genuine
+    // infrastructure failure: zero candidates rendered an artefact at
+    // all (every attempt crashed mid-pipeline). That's not a quality
+    // issue — there's literally nothing to ship — so we surface it
+    // as a render-engine failure rather than an empty-gallery one.
     if (admitted.length === 0) {
+      const renderable = rendered.filter(r => r.hasUsableArtefact).length;
+      console.error(
+        `[inline-generate] Job ${jobId} no_renderable_candidates ` +
+        `attempts=${attemptedCount} rendered=${rendered.length} ` +
+        `withArtefact=${renderable} budgetExhausted=${budgetExhausted}`,
+      );
       throw tagError(
         new Error(
           budgetExhausted
-            ? `Generation timed out after ${Date.now() - startedAt}ms: the template pipeline produced no admissible candidates within the ${GENERATION_BUDGET_MS}ms budget. Try fewer variations or retry.`
-            : `Generation failed: the template pipeline produced no admissible candidates across ${attemptedCount} attempt(s).`,
+            ? `Render engine produced no usable artefacts within the ${GENERATION_BUDGET_MS}ms budget across ${attemptedCount} attempt(s). Please retry.`
+            : `Render engine produced no usable artefacts across ${attemptedCount} attempt(s). Please retry.`,
         ),
-        budgetExhausted ? "timeout" : "empty_gallery",
+        budgetExhausted ? "timeout" : "render_failure",
+      );
+    }
+
+    // Always-ship contract observability. When the gallery shipped
+    // entirely from rescue tiers (every admitted candidate was a
+    // floorFill), log a warning so ops can see "this user got a
+    // rescue gallery" — not a failure, but worth tracking for
+    // quality regressions on free-tier resources.
+    const rescueCount = admitted.filter(a => a.floorFill).length;
+    if (rescueCount > 0) {
+      console.warn(
+        `[design-brain] Job ${jobId} always_ship_rescue ` +
+        `shipped=${admitted.length} rescued=${rescueCount} ` +
+        `accepted=${admitted.length - rescueCount} ` +
+        `attempts=${attemptedCount} ` +
+        `domainMismatch=${admitted.filter(a => a.rejectReasons.some(r => r.startsWith("domain_mismatch:"))).length}`,
       );
     }
 
