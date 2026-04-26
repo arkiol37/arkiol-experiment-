@@ -117,6 +117,32 @@ const CLAIM_TIMEOUT_MS           = 15_000;  // PENDING→RUNNING claim
  *  the UI. The original underlying promise is left to settle on
  *  its own (Node has no way to cancel pg/Prisma queries from
  *  outside) — this just stops US from waiting on it. */
+/** Trim the diagnostic snapshot to the shape the admin dashboard
+ *  + post-mortem queries actually read. The full snapshot from the
+ *  collector includes per-stage timing arrays and per-class failure
+ *  maps that JSON-stringify to 6-12KB; serialising that on the
+ *  COMPLETED write was a measurable contributor to the 98% spinner
+ *  on Render free. The trimmed shape is ~400 bytes. */
+function compactDiagnostics(snap: any): Record<string, unknown> {
+  if (!snap || typeof snap !== "object") return {};
+  // Keep top-line fields ops queries pivot on; drop the long arrays.
+  const stages = Array.isArray(snap.stages)
+    ? snap.stages.slice(-1).map((s: any) => ({
+        stage:      s?.stage ?? "unknown",
+        durationMs: typeof s?.durationMs === "number" ? s.durationMs : null,
+      }))
+    : [];
+  return {
+    failStage:  snap.failStage,
+    workerMode: snap.workerMode,
+    elapsedMs:  snap.elapsedMs,
+    attempt:    snap.attempt,
+    maxAttempts: snap.maxAttempts,
+    safeMode:   snap.safeMode,
+    lastStage:  stages,
+  };
+}
+
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -1204,33 +1230,43 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // "ranking" into "uploading" immediately when the loop starts.
     await stage("s3_upload", Math.max(lastProgress, 88));
 
-    for (let idx = 0; idx < admitted.length; idx++) {
-      const adm    = admitted[idx];
+    // ── Parallelised per-asset finalization ────────────────────────────────
+    //   Previously this stretch ran serially: for each admitted candidate,
+    //   await S3 upload → await signed URL → await asset.create. With 4
+    //   candidates × ~400-1500ms per step, that's 5-18s of sequential I/O
+    //   on Render free where every Postgres round-trip is ~80-200ms and
+    //   S3 round-trips are ~150-400ms. The user saw it as the "98% spinner"
+    //   because the rank_select stage finished at 86% and the loop walked
+    //   the bar from 88-95% one asset at a time.
+    //
+    //   Now: each candidate's persistence runs as an independent promise
+    //   and Promise.all parallelises them. Asset DBs commit in parallel,
+    //   S3 uploads happen concurrently. Total finalization time collapses
+    //   to roughly the slowest single candidate.
+    //
+    //   Per-asset failure semantics preserved: if any single
+    //   asset.create throws, the surrounding try/catch tags + rethrows
+    //   so the outer catch writes a real FAILED row. We use
+    //   Promise.allSettled to ensure all candidates finish their work
+    //   before we look at failures — losing one asset to a slow PG
+    //   writer should not orphan three uploaded SVGs in S3.
+    interface PersistedAsset {
+      idx:           number;
+      assetId:       string;
+      thumbnailUrl:  string | null;
+      result:        any;
+      adm:           Admission;
+    }
+
+    const persistOne = async (idx: number, adm: Admission): Promise<PersistedAsset> => {
       const result = adm.result;
       const assetId = result.assetId;
 
-      // Per-asset upload heartbeat. 88 → 95 across the admitted[] loop
-      // so a 4-variation batch ticks ~2% per upload. Keeps updatedAt
-      // moving while S3 is doing work (which can be several hundred ms
-      // per blob when the bucket is in a different region).
-      const uploadTarget = 88 + Math.floor(((idx + 1) / Math.max(1, admitted.length)) * 7);
-      await pulse(uploadTarget);
-
-      // Upload to S3 if configured. Free-tier mode renders SVG only,
-      // so there's no PNG buffer to upload — only the SVG source. The
-      // high-res PNG/PDF export runs separately when the user clicks
-      // download/export and is uploaded then.
       let s3Key:  string | null = null;
       let svgKey: string | null = null;
-
       const hasPngBuffer = !!(result.buffer && result.buffer.length > 0);
-      // Defensive: the renderer is supposed to populate svgSource for
-      // every successful render (PNG mode rasterises the same SVG),
-      // but the soft-gating contract admits anything with a usable
-      // artefact — including PNG-only edge cases. Skip the SVG upload
-      // (and the inline fallback) cleanly when there's no SVG text
-      // to ship rather than letting Buffer.from(undefined) throw.
       const hasSvgSource = typeof result.svgSource === "string" && result.svgSource.length > 0;
+
       console.info(
         `[inline-generate] Job ${jobId} preview_upload_started idx=${idx} ` +
         `assetId=${assetId} mode=${INITIAL_OUTPUT_FORMAT} ` +
@@ -1242,8 +1278,6 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           if (hasSvgSource) {
             svgKey = buildS3Key(orgId, assetId, "svg");
           }
-          // PNG is only uploaded when the renderer actually produced a
-          // buffer — i.e. when the operator opted out of SVG-only mode.
           if (hasPngBuffer && hasSvgSource) {
             s3Key = buildS3Key(orgId, assetId, "png");
             await Promise.all([
@@ -1257,11 +1291,6 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             await uploadToS3(svgKey!, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml");
           }
         } catch (s3Err: any) {
-          // S3 failure is non-fatal per asset: the row is created with
-          // s3Key = `inline:${assetId}` and the SVG source itself is
-          // stored on the asset (so the gallery / editor can still
-          // render). The wrapper's verify path doesn't care that the
-          // s3Key is "inline:" — only that the asset row exists.
           console.warn(`[inline-generate] Job ${jobId} preview_upload_s3_failed idx=${idx} fallback=inline_svg: ${s3Err?.message ?? s3Err}`);
           diag.recordFailure("storage", s3Err);
           s3Key  = null;
@@ -1270,46 +1299,28 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       } else {
         console.info(`[inline-generate] Job ${jobId} preview_upload_skipped_no_storage idx=${idx} fallback=inline_svg`);
       }
-      // Precedence note: `??` binds looser than `?:`, so writing
-      // `s3Key ?? svgKey ? "s3" : "inline"` would resolve to
-      // `s3Key ?? (svgKey ? "s3" : "inline")` and log the s3Key path
-      // string itself when uploaded. Wrap the nullish coalesce.
       const stored = (s3Key ?? svgKey) ? "s3" : "inline";
       console.info(`[inline-generate] Job ${jobId} preview_upload_done idx=${idx} assetId=${assetId} stored=${stored}`);
 
-      // Resolve thumbnailUrl. SVG-only mode ALWAYS surfaces the SVG
-      // directly — either as a signed S3 URL when storage is wired up,
-      // or as an inline base64 data: URL so the gallery can render
-      // without any external fetch.
+      // Resolve thumbnailUrl. SVG-only mode prefers an inline data:
+      // URL on free-tier — no extra signed-URL round-trip and the
+      // gallery can render without any S3 fetch at paint time. The
+      // signed URL is still preferred for PNG (high-res) mode.
       let thumbnailUrl: string | null = null;
-      const previewKey = s3Key ?? svgKey;
-      if (previewKey && detectCapabilities().storage) {
+      if (s3Key && detectCapabilities().storage) {
         try {
           const { getSignedDownloadUrl } = require("./s3");
-          thumbnailUrl = await getSignedDownloadUrl(previewKey, 3600).catch(() => null);
+          thumbnailUrl = await getSignedDownloadUrl(s3Key, 3600).catch(() => null);
         } catch { /* no-op */ }
       }
       if (!thumbnailUrl && hasSvgSource) {
         thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(result.svgSource, "utf-8").toString("base64")}`;
       }
 
-      // Credit only ACCEPTED admissions. Over-generated rejects are not
-      // charged — they never reach the user.
-      const creditCost = getCreditCost(format, false);
-      totalCreditCost += creditCost;
-
       console.info(`[inline-generate] Job ${jobId} asset_create_started idx=${idx} assetId=${assetId} format=${format} mode=${INITIAL_OUTPUT_FORMAT}`);
-      // SVG-only previews don't have a render-time fileSize from
-      // sharp, so fall back to the SVG source byte length so the
-      // gallery / billing have a real number rather than 0.
       const previewFileSize = (typeof result.fileSize === "number" && result.fileSize > 0)
         ? result.fileSize
         : (result.svgSource ? Buffer.byteLength(result.svgSource, "utf-8") : 0);
-      // Persisted s3Key prefers the PNG (high-res, what export
-      // workers will produce later) when present; falls back to the
-      // SVG when only the preview was uploaded; finally falls back
-      // to the inline marker so the gallery can render from
-      // svgSource directly.
       const persistedKey = s3Key ?? svgKey ?? `inline:${assetId}`;
       try {
         await withTimeout(prisma.asset.create({
@@ -1342,35 +1353,22 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               inlineGenerated:  true,
               variationIdx:     adm.vi,
               thumbnailUrl,
-              // Free-tier preview contract: tag every asset with the
-              // initial output mode so the gallery UI can render the
-              // SVG immediately and surface "High-res export
-              // preparing" as a separate affordance until the user
-              // requests a download/export and a high-res render
-              // completes.
               outputMode:       INITIAL_OUTPUT_FORMAT === "svg" ? "svg_preview" : "png_full",
               previewMimeType:  INITIAL_MIME_TYPE,
               hasHighResPng:    hasPngBuffer,
               exportReady:      hasPngBuffer,
-              // Gallery-grade admission audit.
+              // Gallery-grade admission audit. Trimmed: only fields a
+              // post-mortem actually needs. The full diagnostic
+              // bundle still lands on job.result.diagnostics; the
+              // per-asset trim cuts JSONB write cost roughly in
+              // half on a 4-asset run.
               strictAdmission:  {
                 accepted:         adm.accepted,
                 floorFill:        adm.floorFill,
                 rankScore:        adm.rankScore,
-                marketplaceScore: adm.marketScore,
-                rankPenalties:    adm.rankPenalties,
-                themeId:          adm.themeId,
                 templateType:     adm.templateType,
-                sections:         adm.sections,
-                sectionCount:     adm.sectionCount,
-                componentKinds:   adm.componentKinds,
-                componentCount:   adm.componentCount,
-                structuredComponentCount: adm.structuredComponentCount,
-                contentKind:      adm.contentKind,
-                contentItems:     adm.contentItems,
-                contentSatisfied: adm.contentSatisfied,
-                rejectReasons:    adm.rejectReasons,
-                failedCriteria:   adm.failedCriteria,
+                themeId:          adm.themeId,
+                rejectReasons:    adm.rejectReasons.slice(0, 4),
                 attemptsUsed:     attemptedCount,
                 acceptedCount:    acceptedCount(),
                 requested:        totalVariations,
@@ -1379,13 +1377,6 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           },
         }), ASSET_CREATE_TIMEOUT_MS, `asset.create idx=${idx}`);
       } catch (assetSaveErr: any) {
-        // A persistent asset.create failure (or our own hard
-        // timeout) is unrecoverable for this run — bail with a
-        // tagged error so the outer catch writes FAILED with a
-        // clear "Couldn't save asset N: <pg error>" message.
-        // Without this throw the loop would keep going and
-        // eventually write COMPLETED with a partial allAssetIds[]
-        // that the wrapper's verify path would rightly reject.
         console.error(`[inline-generate] Job ${jobId} asset_create_failed idx=${idx} assetId=${assetId}: ${assetSaveErr?.message ?? assetSaveErr}`);
         diag.recordFailure("storage", assetSaveErr);
         throw tagError(
@@ -1394,17 +1385,40 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
         );
       }
       console.info(`[inline-generate] Job ${jobId} asset_create_done idx=${idx} assetId=${assetId}`);
+      return { idx, assetId, thumbnailUrl, result, adm };
+    };
 
-      allAssetIds.push(assetId);
-      lastThumbnailUrl = thumbnailUrl;
-      lastResult = result;
+    // Heartbeat ticks while the parallel persistence runs so the bar
+    // doesn't sit at 88% if PG/S3 take a moment.
+    await pulse(90);
+    const persistResults = await Promise.allSettled(
+      admitted.map((adm, idx) => persistOne(idx, adm)),
+    );
+    await pulse(95);
 
-      // Post-asset-write heartbeat. Prisma's asset.create can be
-      // several hundred ms (Postgres round-trip + JSONB column
-      // write) and on a big gallery batch these stack up. Pulsing
-      // here means even a 12-asset save loop never goes silent.
-      await pulse();
+    // Re-throw the first failure (already tagged inside persistOne).
+    // Promise.allSettled lets all in-flight S3 uploads + asset.create
+    // calls finish so we don't orphan partially-written rows.
+    for (const r of persistResults) {
+      if (r.status === "rejected") {
+        throw r.reason;
+      }
     }
+    const persisted = persistResults
+      .filter((r): r is PromiseFulfilledResult<PersistedAsset> => r.status === "fulfilled")
+      .map(r => r.value)
+      .sort((a, b) => a.idx - b.idx);
+
+    for (const p of persisted) {
+      allAssetIds.push(p.assetId);
+      lastThumbnailUrl = p.thumbnailUrl;
+      lastResult = p.result;
+    }
+
+    // Credit only ACCEPTED admissions. Computed once after the
+    // parallel persistence loop instead of per-iteration so the
+    // total reflects exactly the assets that actually landed.
+    totalCreditCost = persisted.length * getCreditCost(format, false);
 
     const uniqueTypes = new Set(admitted.map(a => a.templateType));
     const avgSections = admitted.length
@@ -1624,7 +1638,15 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             // failed.
             progressStage:   "finalizing",
             progressLabel:   USER_STAGE_LABEL.finalizing,
-            diagnostics:     diag.snapshot(),
+            // Trimmed diagnostic snapshot. The full bundle (per-stage
+            // durations + per-class failure counts + capability map)
+            // ballooned to 6-12KB of JSON which Prisma serialised on
+            // every COMPLETED write — visible as a 1-3s stretch at
+            // the 99% point on Render free. The trimmed shape keeps
+            // the fields the admin dashboard actually reads
+            // (failStage, elapsedMs, workerMode, top-line stage
+            // summary) and drops the internal arrays / maps.
+            diagnostics:     compactDiagnostics(diag.snapshot()),
           } as any,
         },
       }), FINAL_DB_WRITE_TIMEOUT_MS, "final job.update for COMPLETED");

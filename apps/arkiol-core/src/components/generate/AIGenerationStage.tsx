@@ -39,8 +39,8 @@ const STAGES = [
   },
   {
     id: "variations",
-    label: "Exploring creative variations",
-    subtext: "Generating 8 candidate directions",
+    label: "Exploring creative directions",
+    subtext: "Generating 3-4 strong candidate templates",
     icon: "✦",
     color: STAGE_COLORS_HEX[2],
     cssColor: STAGE_COLOR_TOKENS[2],
@@ -49,7 +49,7 @@ const STAGES = [
   {
     id: "ranking",
     label: "Ranking candidates",
-    subtext: "Scoring by brand fit, novelty & impact",
+    subtext: "Scoring by brand fit, domain match & impact",
     icon: "◈",
     color: STAGE_COLORS_HEX[3],
     cssColor: STAGE_COLOR_TOKENS[3],
@@ -57,8 +57,11 @@ const STAGES = [
   },
   {
     id: "render",
-    label: "Preparing results",
-    subtext: "Rendering final assets at full resolution",
+    // Free-tier flow ships SVG previews fast; high-res PNG/PDF
+    // happens lazily on download. Don't tell the user we're
+    // rendering at full resolution when we aren't.
+    label: "Saving previews",
+    subtext: "Storing SVG templates · high-res export runs on download",
     icon: "◉",
     color: STAGE_COLORS_HEX[4],
     cssColor: STAGE_COLOR_TOKENS[4],
