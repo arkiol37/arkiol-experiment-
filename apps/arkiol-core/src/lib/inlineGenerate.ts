@@ -645,6 +645,24 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // the global setInterval's last successful tick (if starved) and
     // the next batch-boundary pulse — enough to trip the backend's
     // 90s heartbeat watchdog.
+    // ── Free-tier output contract: SVG previews only ─────────────────────
+    // The initial generation must finish in <60s on Render's free
+    // 0.5-CPU shared instance. Sharp's PNG render via libvips
+    // dominates the per-attempt cost (10-30s each), so the initial
+    // pass renders SVG only — fast, cacheable, editable. The high-res
+    // PNG/PDF export runs separately when the user clicks
+    // download/export from the gallery (see /api/export).
+    //
+    // The orchestrator's renderAsset() supports outputFormat: "svg"
+    // and emits a result with `svgSource` populated and `buffer`
+    // empty. The asset row is stored with mimeType=image/svg+xml so
+    // the gallery knows to render the SVG directly and surface a
+    // separate "High-res export preparing" affordance.
+    const INITIAL_OUTPUT_FORMAT: "svg" | "png" = "svg";
+    const INITIAL_MIME_TYPE = INITIAL_OUTPUT_FORMAT === "svg"
+      ? "image/svg+xml"
+      : "image/png";
+
     const runOneAttempt = async (vi: number) => {
       const attemptPulseTimer = setInterval(() => { void pulse(); }, 5_000);
       try {
@@ -656,7 +674,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           variationIdx: vi,
           stylePreset,
           archetypeOverride: archetypeOverride as any,
-          outputFormat: "png",
+          outputFormat: INITIAL_OUTPUT_FORMAT,
           pngScale: 1,
           brief,
           brand: brandInput,
@@ -675,11 +693,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     //   2. the MAX_ATTEMPTS cap is hit, or
     //   3. less than ~1.2× the per-batch time estimate remains in the
     //      budget (launching another batch would get killed mid-flight).
-    // Design Brain mode runs a tight 50s wall-clock budget; budgeting
-    // 18s per batch leaves headroom for finalization (S3 upload +
-    // asset.create + COMPLETED write) and keeps total wall-clock under
-    // the 60s "first impression" contract.
-    const PER_BATCH_MS_ESTIMATE = 18_000;
+    // Free-tier SVG-only renders are ~2-6s each (no sharp/libvips PNG
+    // encode), so a batch of 2-3 typically settles in 6-10s. 8s
+    // estimate keeps the loop honest about whether another batch
+    // fits — too low and we'd start a batch that overruns the 40s
+    // budget; too high and we'd stop early and ship fewer templates
+    // than we could have.
+    const PER_BATCH_MS_ESTIMATE = 8_000;
 
     // Per-attempt progress heartbeat. Without this, progress only moves
     // when an entire batch of N variations settles — a 45-second freeze
@@ -1131,47 +1151,60 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const uploadTarget = 88 + Math.floor(((idx + 1) / Math.max(1, admitted.length)) * 7);
       await pulse(uploadTarget);
 
-      // Upload to S3 if configured. The PNG buffer + SVG text were
-      // already produced by the candidate pipeline (above) — this
-      // step ships them to storage. We log png_render_started /
-      // png_render_done around it so Render's logs show whether the
-      // 98% stall is in the upload (most likely on free-tier S3
-      // egress) or in the asset_create that follows.
+      // Upload to S3 if configured. Free-tier mode renders SVG only,
+      // so there's no PNG buffer to upload — only the SVG source. The
+      // high-res PNG/PDF export runs separately when the user clicks
+      // download/export and is uploaded then.
       let s3Key:  string | null = null;
       let svgKey: string | null = null;
 
-      console.info(`[inline-generate] Job ${jobId} png_render_started idx=${idx} assetId=${assetId} pngBytes=${result.buffer?.length ?? 0}`);
+      const hasPngBuffer = !!(result.buffer && result.buffer.length > 0);
+      console.info(
+        `[inline-generate] Job ${jobId} preview_upload_started idx=${idx} ` +
+        `assetId=${assetId} mode=${INITIAL_OUTPUT_FORMAT} ` +
+        `svgBytes=${result.svgSource?.length ?? 0} pngBytes=${result.buffer?.length ?? 0}`,
+      );
       if (detectCapabilities().storage) {
         try {
           const { uploadToS3, buildS3Key } = require("./s3");
-          s3Key  = buildS3Key(orgId, assetId, "png");
           svgKey = buildS3Key(orgId, assetId, "svg");
-          await Promise.all([
-            uploadToS3(s3Key,  result.buffer,                          "image/png"),
-            uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
-          ]);
+          // PNG is only uploaded when the renderer actually produced a
+          // buffer — i.e. when the operator opted out of SVG-only mode.
+          if (hasPngBuffer) {
+            s3Key = buildS3Key(orgId, assetId, "png");
+            await Promise.all([
+              uploadToS3(s3Key,  result.buffer,                          "image/png"),
+              uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
+            ]);
+          } else {
+            await uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml");
+          }
         } catch (s3Err: any) {
           // S3 failure is non-fatal per asset: the row is created with
           // s3Key = `inline:${assetId}` and the SVG source itself is
           // stored on the asset (so the gallery / editor can still
           // render). The wrapper's verify path doesn't care that the
           // s3Key is "inline:" — only that the asset row exists.
-          console.warn(`[inline-generate] Job ${jobId} png_render_s3_failed idx=${idx} fallback=inline_svg: ${s3Err?.message ?? s3Err}`);
+          console.warn(`[inline-generate] Job ${jobId} preview_upload_s3_failed idx=${idx} fallback=inline_svg: ${s3Err?.message ?? s3Err}`);
           diag.recordFailure("storage", s3Err);
           s3Key  = null;
           svgKey = null;
         }
       } else {
-        console.info(`[inline-generate] Job ${jobId} png_render_skipped_no_storage idx=${idx} fallback=inline_svg`);
+        console.info(`[inline-generate] Job ${jobId} preview_upload_skipped_no_storage idx=${idx} fallback=inline_svg`);
       }
-      console.info(`[inline-generate] Job ${jobId} png_render_done idx=${idx} assetId=${assetId} stored=${s3Key ? "s3" : "inline"}`);
+      console.info(`[inline-generate] Job ${jobId} preview_upload_done idx=${idx} assetId=${assetId} stored=${s3Key ?? svgKey ? "s3" : "inline"}`);
 
-      // Resolve thumbnailUrl
+      // Resolve thumbnailUrl. SVG-only mode ALWAYS surfaces the SVG
+      // directly — either as a signed S3 URL when storage is wired up,
+      // or as an inline base64 data: URL so the gallery can render
+      // without any external fetch.
       let thumbnailUrl: string | null = null;
-      if (s3Key && detectCapabilities().storage) {
+      const previewKey = s3Key ?? svgKey;
+      if (previewKey && detectCapabilities().storage) {
         try {
           const { getSignedDownloadUrl } = require("./s3");
-          thumbnailUrl = await getSignedDownloadUrl(s3Key, 3600).catch(() => null);
+          thumbnailUrl = await getSignedDownloadUrl(previewKey, 3600).catch(() => null);
         } catch { /* no-op */ }
       }
       if (!thumbnailUrl && result.svgSource) {
@@ -1183,7 +1216,19 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const creditCost = getCreditCost(format, false);
       totalCreditCost += creditCost;
 
-      console.info(`[inline-generate] Job ${jobId} asset_create_started idx=${idx} assetId=${assetId} format=${format}`);
+      console.info(`[inline-generate] Job ${jobId} asset_create_started idx=${idx} assetId=${assetId} format=${format} mode=${INITIAL_OUTPUT_FORMAT}`);
+      // SVG-only previews don't have a render-time fileSize from
+      // sharp, so fall back to the SVG source byte length so the
+      // gallery / billing have a real number rather than 0.
+      const previewFileSize = (typeof result.fileSize === "number" && result.fileSize > 0)
+        ? result.fileSize
+        : (result.svgSource ? Buffer.byteLength(result.svgSource, "utf-8") : 0);
+      // Persisted s3Key prefers the PNG (high-res, what export
+      // workers will produce later) when present; falls back to the
+      // SVG when only the preview was uploaded; finally falls back
+      // to the inline marker so the gallery can render from
+      // svgSource directly.
+      const persistedKey = s3Key ?? svgKey ?? `inline:${assetId}`;
       try {
         await withTimeout(prisma.asset.create({
           data: {
@@ -1194,12 +1239,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             name:         `${format}-v${idx + 1}`,
             format,
             category:     getCategoryLabel(format),
-            mimeType:     "image/png",
-            s3Key:        s3Key ?? `inline:${assetId}`,
+            mimeType:     INITIAL_MIME_TYPE,
+            s3Key:        persistedKey,
             s3Bucket:     process.env.S3_BUCKET_NAME ?? "inline",
             width:        result.width,
             height:       result.height,
-            fileSize:     result.fileSize,
+            fileSize:     previewFileSize,
             layoutFamily: result.layoutFamily,
             svgSource:    result.svgSource,
             brandScore:   result.brandScore,
@@ -1215,6 +1260,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
               inlineGenerated:  true,
               variationIdx:     adm.vi,
               thumbnailUrl,
+              // Free-tier preview contract: tag every asset with the
+              // initial output mode so the gallery UI can render the
+              // SVG immediately and surface "High-res export
+              // preparing" as a separate affordance until the user
+              // requests a download/export and a high-res render
+              // completes.
+              outputMode:       INITIAL_OUTPUT_FORMAT === "svg" ? "svg_preview" : "png_full",
+              previewMimeType:  INITIAL_MIME_TYPE,
+              hasHighResPng:    hasPngBuffer,
+              exportReady:      hasPngBuffer,
               // Gallery-grade admission audit.
               strictAdmission:  {
                 accepted:         adm.accepted,
@@ -1469,6 +1524,18 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             format,
             width:           lastResult?.width,
             height:          lastResult?.height,
+            // Free-tier preview contract: tell the UI it's looking at
+            // SVG previews and that high-res PNG/PDF will be
+            // generated lazily when the user clicks export. The
+            // gallery can render the SVG immediately and surface a
+            // separate "High-res export preparing" affordance per
+            // asset.
+            outputMode:      INITIAL_OUTPUT_FORMAT === "svg" ? "svg_preview" : "png_full",
+            previewMimeType: INITIAL_MIME_TYPE,
+            exportReady:     INITIAL_OUTPUT_FORMAT !== "svg",
+            // Persist the Design Brain plan + free-tier flag so the
+            // UI / audit trail knows which preset drove the gallery.
+            designBrain:     designBrain,
             // Persist the terminal user-facing stage alongside the
             // diagnostics bundle so a job's last-seen progressStage is
             // always queryable, regardless of whether it completed or
@@ -1522,6 +1589,43 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `style=${designBrain.visualStyle} ` +
       `[${stageTimings}]`,
     );
+
+    // ── Free-tier breakdown log ─────────────────────────────────────────
+    // Spec'd timing fields rolled up from the diagnostic stage table:
+    //   designBrainMs   — buildDesignBrain() wall-clock
+    //   briefMs         — analyzeBrief OpenAI call
+    //   svgBuildMs      — pipeline_render (orchestrator + per-variation
+    //                     SVG renders, no PNG)
+    //   assetSelectMs   — rank_select (greedy admission + floor-fill)
+    //   dbSaveMs        — sum of s3_upload + credit_deduction +
+    //                     terminal_write
+    //   totalMs         — wall-clock since runInlineGeneration entered
+    const stageMsByName: Record<string, number> = {};
+    for (const s of stageSnapshot.stages) {
+      if (typeof s.durationMs === "number") {
+        stageMsByName[s.stage] = (stageMsByName[s.stage] ?? 0) + s.durationMs;
+      }
+    }
+    const briefMs        = stageMsByName.brief_analyze ?? 0;
+    const svgBuildMs     = stageMsByName.pipeline_render ?? 0;
+    const assetSelectMs  = stageMsByName.rank_select ?? 0;
+    const dbSaveMs       = (stageMsByName.s3_upload ?? 0) +
+                           (stageMsByName.credit_deduction ?? 0) +
+                           (stageMsByName.terminal_write ?? 0);
+    console.info(
+      `[free-tier] Job ${jobId} timing ` +
+      `designBrainMs=${designBrainElapsedMs} ` +
+      `briefMs=${briefMs} ` +
+      `svgBuildMs=${svgBuildMs} ` +
+      `assetSelectMs=${assetSelectMs} ` +
+      `dbSaveMs=${dbSaveMs} ` +
+      `totalMs=${totalWallClockMs} ` +
+      `under60s=${totalWallClockMs <= 60_000} ` +
+      `outputMode=${INITIAL_OUTPUT_FORMAT === "svg" ? "svg_preview" : "png_full"} ` +
+      `domain=${designBrain.domain} ` +
+      `assets=${allAssetIds.length}`,
+    );
+
     if (totalWallClockMs > 60_000) {
       console.warn(
         `[design-brain] Job ${jobId} BUDGET_OVERRUN: total=${totalWallClockMs}ms ` +
@@ -1601,31 +1705,42 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       console.error(`[inline-generate] Job ${jobId} fail_write_failed: ${failWriteErr?.message ?? failWriteErr}`);
     });
 
-    // ── Auto-retry on transient failures ─────────────────────────────────
-    // OpenAI 5xx, network blips, S3 hiccups, render-engine crashes —
-    // these are the failure classes that ALMOST ALWAYS succeed on a
-    // second attempt. prepareRetry() owns the eligibility rules
-    // (retryable reason + attempts < cap + atomic claim), so a single
-    // call here is safe even when this catch fires for a non-retryable
-    // reason: prepareRetry will throw RetryNotAllowedError and we leave
-    // the FAILED row in place for the user to see.
+    // ── Auto-retry DISABLED on free-tier ─────────────────────────────────
+    // The free-tier contract is "one fast attempt, then best-available
+    // result". Auto-retries chain another full pipeline run on a
+    // 0.5-CPU shared instance, which blows the 60s wall-clock budget
+    // and contributes to the "still generating after 3 minutes"
+    // symptom. The user already sees the FAILED row written above
+    // with a real error message + the Design Brain plan attached, so
+    // they can re-run from the UI when ready.
     //
-    // Auto-retries are dispatched via durableRunInlineGeneration so the
-    // same waitUntil ladder (next_after → vercel_waitUntil →
-    // fire_and_forget) keeps the second attempt alive on serverless.
+    // The opt-out exists so a future paid-tier deploy can flip
+    // ARKIOL_DISABLE_AUTO_RETRY=0 to restore the old chain without
+    // a code change.
+    const autoRetryDisabled =
+      (process.env.ARKIOL_DISABLE_AUTO_RETRY ?? "1").trim() !== "0";
     try {
-      // Lazy require — these modules pull in the platform primitives
-      // (next/server, @vercel/functions) and the prisma client; we
-      // don't want to risk the catch handler itself throwing during
-      // a top-of-module import.
-      const { prepareRetry, RetryNotAllowedError } = require("./jobRetry");
-      const { durableRunInlineGeneration }         = require("./durableRun");
-      const prep = await prepareRetry(jobId, null);
-      console.info(
-        `[inline-generate] Job ${jobId} auto-retrying after ${reason} ` +
-        `(attempt ${prep.attemptsUsed + 1}/${prep.maxAttempts}).`,
-      );
-      durableRunInlineGeneration(prep.params);
+      if (autoRetryDisabled) {
+        console.info(
+          `[inline-generate] Job ${jobId} auto-retry skipped (free-tier contract: one attempt only). ` +
+          `Reason was ${reason}.`,
+        );
+        // Skip the prepareRetry path entirely — the catch below is
+        // only kept for the rare opt-out case.
+      } else {
+        // Lazy require — these modules pull in the platform primitives
+        // (next/server, @vercel/functions) and the prisma client; we
+        // don't want to risk the catch handler itself throwing during
+        // a top-of-module import.
+        const { prepareRetry } = require("./jobRetry");
+        const { durableRunInlineGeneration } = require("./durableRun");
+        const prep = await prepareRetry(jobId, null);
+        console.info(
+          `[inline-generate] Job ${jobId} auto-retrying after ${reason} ` +
+          `(attempt ${prep.attemptsUsed + 1}/${prep.maxAttempts}).`,
+        );
+        durableRunInlineGeneration(prep.params);
+      }
     } catch (retryErr: any) {
       // Rejected retry is the EXPECTED path for non-retryable failure
       // reasons and for jobs that have already used their retry budget.

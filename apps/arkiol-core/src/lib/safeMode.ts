@@ -145,14 +145,15 @@ export function resolveRuntimeLimits(opts: {
 } {
   const v = Math.max(1, opts.totalVariations);
   if (opts.designBrain) {
-    // Design Brain: produce exactly v strong candidates with one extra
-    // budgeted attempt for the rare reject. Concurrency 2 fans out
-    // safely on the Render starter (4 simultaneous sharp renders
-    // would starve the event loop) while still finishing the
-    // 3-4 template gallery inside the 60s wall-clock budget.
+    // Design Brain + free-tier: exactly v attempts, no retries. The
+    // soft-gating contract ranks whatever rendered and ships the
+    // best 3-4, so over-generation is wasted CPU on a 0.5-CPU
+    // shared instance. Concurrency 2 fans out safely (4 simultaneous
+    // sharp renders would starve the event loop) while still
+    // finishing inside the 60s wall-clock budget.
     return {
       concurrency: Math.min(2, v),
-      maxAttempts: Math.min(Math.max(v + 1, 3), 5),
+      maxAttempts: Math.max(v, 3),
     };
   }
   if (opts.safeMode) {
@@ -186,10 +187,14 @@ export function resolveRuntimeLimits(opts: {
  *  more headroom inside Vercel's 300s maxDuration — a partial-result
  *  job is better than a SIGKILL'd one.
  *
- *  Design Brain mode caps the budget at 50s so total wall-clock
- *  (including font init + finalization) stays comfortably under the
- *  60s hard limit declared in the strict-quality contract. */
+ *  Design Brain + free-tier mode caps the budget at 40s so total
+ *  wall-clock (font init + brief + render + s3 + DB write) stays
+ *  under the 60s "first impression" contract on a 0.5-CPU Render
+ *  free instance. SVG-only renders are fast enough that 40s is
+ *  ample for 3-4 templates; the previous 50s budget was sized for
+ *  PNG renders (10-30s each) that no longer happen on the initial
+ *  flow. */
 export function resolveTimeBudgetMs(safeMode: boolean, designBrain?: boolean): number {
-  if (designBrain) return 50_000;
+  if (designBrain) return 40_000;
   return safeMode ? 180_000 : 240_000;
 }
