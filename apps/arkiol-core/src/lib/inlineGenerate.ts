@@ -844,7 +844,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const softReasons: string[] = [];
       if (verdict && !verdict.rulesAccepted) {
         softScore -= RULES_PENALTY;
-        softReasons.push(...verdict.hardReasons);
+        // hardReasons SHOULD be a string[] when rulesAccepted is
+        // false, but the verdict shape can come back partial from
+        // degraded fallback renders — default to [] so the spread
+        // can't throw.
+        softReasons.push(...(verdict.hardReasons ?? []));
       }
       if (priorPalette) {
         softScore -= PALETTE_PENALTY;
@@ -1159,6 +1163,13 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       let svgKey: string | null = null;
 
       const hasPngBuffer = !!(result.buffer && result.buffer.length > 0);
+      // Defensive: the renderer is supposed to populate svgSource for
+      // every successful render (PNG mode rasterises the same SVG),
+      // but the soft-gating contract admits anything with a usable
+      // artefact — including PNG-only edge cases. Skip the SVG upload
+      // (and the inline fallback) cleanly when there's no SVG text
+      // to ship rather than letting Buffer.from(undefined) throw.
+      const hasSvgSource = typeof result.svgSource === "string" && result.svgSource.length > 0;
       console.info(
         `[inline-generate] Job ${jobId} preview_upload_started idx=${idx} ` +
         `assetId=${assetId} mode=${INITIAL_OUTPUT_FORMAT} ` +
@@ -1167,17 +1178,22 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       if (detectCapabilities().storage) {
         try {
           const { uploadToS3, buildS3Key } = require("./s3");
-          svgKey = buildS3Key(orgId, assetId, "svg");
+          if (hasSvgSource) {
+            svgKey = buildS3Key(orgId, assetId, "svg");
+          }
           // PNG is only uploaded when the renderer actually produced a
           // buffer — i.e. when the operator opted out of SVG-only mode.
-          if (hasPngBuffer) {
+          if (hasPngBuffer && hasSvgSource) {
             s3Key = buildS3Key(orgId, assetId, "png");
             await Promise.all([
               uploadToS3(s3Key,  result.buffer,                          "image/png"),
-              uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
+              uploadToS3(svgKey!, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml"),
             ]);
-          } else {
-            await uploadToS3(svgKey, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml");
+          } else if (hasPngBuffer) {
+            s3Key = buildS3Key(orgId, assetId, "png");
+            await uploadToS3(s3Key, result.buffer, "image/png");
+          } else if (hasSvgSource) {
+            await uploadToS3(svgKey!, Buffer.from(result.svgSource, "utf-8"), "image/svg+xml");
           }
         } catch (s3Err: any) {
           // S3 failure is non-fatal per asset: the row is created with
@@ -1193,7 +1209,12 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       } else {
         console.info(`[inline-generate] Job ${jobId} preview_upload_skipped_no_storage idx=${idx} fallback=inline_svg`);
       }
-      console.info(`[inline-generate] Job ${jobId} preview_upload_done idx=${idx} assetId=${assetId} stored=${s3Key ?? svgKey ? "s3" : "inline"}`);
+      // Precedence note: `??` binds looser than `?:`, so writing
+      // `s3Key ?? svgKey ? "s3" : "inline"` would resolve to
+      // `s3Key ?? (svgKey ? "s3" : "inline")` and log the s3Key path
+      // string itself when uploaded. Wrap the nullish coalesce.
+      const stored = (s3Key ?? svgKey) ? "s3" : "inline";
+      console.info(`[inline-generate] Job ${jobId} preview_upload_done idx=${idx} assetId=${assetId} stored=${stored}`);
 
       // Resolve thumbnailUrl. SVG-only mode ALWAYS surfaces the SVG
       // directly — either as a signed S3 URL when storage is wired up,
@@ -1207,8 +1228,8 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
           thumbnailUrl = await getSignedDownloadUrl(previewKey, 3600).catch(() => null);
         } catch { /* no-op */ }
       }
-      if (!thumbnailUrl && result.svgSource) {
-        thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(result.svgSource).toString("base64")}`;
+      if (!thumbnailUrl && hasSvgSource) {
+        thumbnailUrl = `data:image/svg+xml;base64,${Buffer.from(result.svgSource, "utf-8").toString("base64")}`;
       }
 
       // Credit only ACCEPTED admissions. Over-generated rejects are not
