@@ -20,6 +20,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 
 import { healthRouter }   from './routes/health';
+import { warmupRouter }   from './routes/warmup';
 import { generateRouter } from './routes/generate';
 import { statusRouter }   from './routes/status';
 import { resultRouter }   from './routes/result';
@@ -58,6 +59,12 @@ app.use(express.json({ limit: '2mb' }));
 
 app.use('/', healthRouter);
 app.use('/health', healthRouter);
+// /warmup pre-loads the slow cold-start work (Prisma pool, sharp
+// native bindings, Google Fonts to /tmp, Design Brain table) so
+// the first real /generate request doesn't pay 30-60s of init.
+// Vercel calls this from /api/health and from the user's
+// dashboard mount; Render's keep-warm cron can also hit it.
+app.use('/warmup', warmupRouter);
 
 // /generate is the only shared-secret-gated endpoint. /status and
 // /result read the DB using only the jobId — the frontend still

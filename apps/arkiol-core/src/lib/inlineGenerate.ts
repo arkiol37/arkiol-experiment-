@@ -139,6 +139,21 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
   // ops can verify "Design Brain mode finished in <60s" at a glance.
   const runStartMs = Date.now();
 
+  // Cold-start detection: process.uptime() is the seconds since the
+  // Node container booted. Anything under 30s strongly correlates
+  // with this request having paid the libvips/Prisma/font init
+  // tax — we surface it in the [free-tier] timing log so a user
+  // complaint of "it took 90s" can be traced to a cold start vs a
+  // slow OpenAI call vs a slow render.
+  const containerUptimeS = Math.round(process.uptime());
+  const isColdStart      = containerUptimeS < 30;
+  if (isColdStart) {
+    console.info(
+      `[free-tier] Job ${jobId} cold_start uptime=${containerUptimeS}s ` +
+      `expect +5-15s for first-call font/sharp/prisma init.`,
+    );
+  }
+
   // Diagnostics collector — captures stage transitions, per-class
   // failure counts, elapsed time, and worker mode. Persisted to
   // job.result.diagnostics on both terminal paths so ops can query
@@ -359,23 +374,25 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       ? await prisma.brand.findUnique({ where: { id: brandId } }).catch(() => null)
       : null;
 
-    // Brief analysis (~2-5s). Skipped on retries that carry a cached
-    // briefSnapshot from the original run — analyzeBrief is
-    // deterministic for a given prompt and the analyzer call is one of
-    // the slowest single operations in the pipeline, so reusing the
-    // snapshot turns a retry into a "resume from render" instead of
-    // "start from zero".
+    // Brief analysis. Skipped on retries that carry a cached
+    // briefSnapshot from the original run; otherwise served from the
+    // in-memory LRU cache (analyzeBriefCached) when the same prompt +
+    // format + brand combination has been analyzed in the last hour.
+    // The cache turns "user iterates on the same prompt twice"
+    // from a 2-5s OpenAI burn into a ~0ms hit.
     await stage("brief_analyze", 10);
-    const { analyzeBrief } = require("../engines/ai/brief-analyzer");
+    const { analyzeBriefCached, briefCacheStats } = require("../engines/ai/brief-cache");
     let brief: any;
     let briefFromCache = false;
+    let briefFromMemoryCache = false;
+    let briefStageMs = 0;
     if (params.briefSnapshot) {
       brief = params.briefSnapshot;
       briefFromCache = true;
       console.info(`[inline-generate] Job ${jobId} reusing cached briefSnapshot (retry resume).`);
     } else {
       try {
-        brief = await analyzeBrief({
+        const cached = await analyzeBriefCached({
           prompt,
           stylePreset,
           format: formats[0],
@@ -387,6 +404,16 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
             fontDisplay:    brand.fontDisplay,
           } : undefined,
         });
+        brief = cached.brief;
+        briefFromMemoryCache = cached.cached;
+        briefStageMs = cached.briefMs;
+        const stats = briefCacheStats();
+        console.info(
+          `[brief-cache] Job ${jobId} ` +
+          `hit=${cached.cached} briefMs=${cached.briefMs} ` +
+          `key=${cached.cacheKey} ` +
+          `cacheSize=${stats.size} hits=${stats.hits} misses=${stats.misses}`,
+        );
       } catch (briefErr: any) {
         // Record + rethrow — the brief stage is required, so a failure
         // here terminates the run. The outer catch will persist the
@@ -725,11 +752,45 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       await pulse(lastProgress);
     };
 
+    // Partial-success threshold: once this many candidates have an
+    // artefact AND the remaining budget is tight, stop launching new
+    // batches and ship the strongest 3-4 we have. Optimises for
+    // "first 2-3 visible templates land fast" instead of "block until
+    // every requested variation finishes". The full pipeline is
+    // still attempted if the budget allows it.
+    const PARTIAL_SUCCESS_FLOOR = Math.min(2, totalVariations);
+    const PARTIAL_SUCCESS_BUDGET_MS = PER_BATCH_MS_ESTIMATE * 1.5;
+
+    /** Count of rendered candidates with a usable artefact — what
+     *  the rescue tier ships. Kept fresh between batches so the
+     *  partial-ship guard can read it without re-scanning. */
+    const usableArtefactCount = () =>
+      rendered.filter(r => r.hasUsableArtefact).length;
+
     while (
       acceptedCount() < totalVariations &&
       attemptedCount < MAX_ATTEMPTS &&
       timeLeft() > PER_BATCH_MS_ESTIMATE * 1.2
     ) {
+      // Early-ship guard: if we already have enough usable
+      // artefacts to satisfy the always-ship contract AND the
+      // budget left is shorter than another full batch, stop now
+      // and let the admission tier ship what we have. Without
+      // this, a slow OpenAI call on the final batch can stretch
+      // the user-visible response by 10-20s for no quality gain.
+      if (
+        usableArtefactCount() >= PARTIAL_SUCCESS_FLOOR &&
+        timeLeft() <= PARTIAL_SUCCESS_BUDGET_MS
+      ) {
+        console.info(
+          `[inline-generate] Job ${jobId} partial_ship_triggered ` +
+          `usable=${usableArtefactCount()} ` +
+          `floor=${PARTIAL_SUCCESS_FLOOR} ` +
+          `attempts=${attemptedCount}/${MAX_ATTEMPTS} ` +
+          `timeLeftMs=${timeLeft()}`,
+        );
+        break;
+      }
       const remaining = totalVariations - acceptedCount();
       const batchSize = Math.min(CONCURRENCY, remaining + 1, MAX_ATTEMPTS - attemptedCount);
       if (batchSize <= 0) break;
@@ -1633,6 +1694,23 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     const dbSaveMs       = (stageMsByName.s3_upload ?? 0) +
                            (stageMsByName.credit_deduction ?? 0) +
                            (stageMsByName.terminal_write ?? 0);
+    // Per-source delay summary. The user requested explicit
+    // visibility into where the time went so a "felt slow" report
+    // can be triaged in one log line:
+    //   coldStartMs    — container init tax (font/sharp/prisma)
+    //   openaiMs       — gpt-4o call(s); 0 on cache hit
+    //   renderMs       — orchestrator + per-variation SVG build
+    //   dbMs           — credit + terminal + (asset.create batch)
+    //   uploadMs       — S3 round-trips
+    //   queueMs        — claim → first asset write gap
+    const coldStartMs = isColdStart ? Math.max(0, runStartMs - (Date.now() - containerUptimeS * 1000)) : 0;
+    const openaiMs    = briefStageMs;
+    const renderMs    = svgBuildMs;
+    const dbMs        = (stageMsByName.credit_deduction ?? 0) +
+                        (stageMsByName.terminal_write ?? 0) +
+                        (stageMsByName.mark_running ?? 0);
+    const uploadMs    = stageMsByName.s3_upload ?? 0;
+    const queueMs     = stageMsByName.font_init ?? 0; // pre-render init time
     console.info(
       `[free-tier] Job ${jobId} timing ` +
       `designBrainMs=${designBrainElapsedMs} ` +
@@ -1642,9 +1720,21 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       `dbSaveMs=${dbSaveMs} ` +
       `totalMs=${totalWallClockMs} ` +
       `under60s=${totalWallClockMs <= 60_000} ` +
+      `coldStart=${isColdStart} ` +
+      `briefCacheHit=${briefFromMemoryCache} ` +
       `outputMode=${INITIAL_OUTPUT_FORMAT === "svg" ? "svg_preview" : "png_full"} ` +
       `domain=${designBrain.domain} ` +
       `assets=${allAssetIds.length}`,
+    );
+    console.info(
+      `[free-tier] Job ${jobId} delay_breakdown ` +
+      `coldStartMs=${coldStartMs} ` +
+      `openaiMs=${openaiMs} ` +
+      `renderMs=${renderMs} ` +
+      `dbMs=${dbMs} ` +
+      `uploadMs=${uploadMs} ` +
+      `queueMs=${queueMs} ` +
+      `totalMs=${totalWallClockMs}`,
     );
 
     if (totalWallClockMs > 60_000) {
