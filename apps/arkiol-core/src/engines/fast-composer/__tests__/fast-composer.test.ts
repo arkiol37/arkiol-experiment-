@@ -89,6 +89,28 @@ describe("composeFastTemplate", () => {
     expect(out.qualityVerdict.componentCount).toBeGreaterThan(0);
   });
 
+  it("emits unique themeId per variation (so admission's palette dedupe doesn't collapse the gallery)", () => {
+    // Regression: previously every variation shared the same themeId
+    // (`fast-fitness-bold`) which made paletteKeyOf hash to the same
+    // string for all four candidates, flagging vi=1..3 as priorPalette
+    // twins of vi=0 and burning their strict-accept slot. The
+    // greedy picker still admitted them via floor-fill, but the
+    // admission audit logged 1 accepted + 3 rescued for what is
+    // really a deliberate 4-of-1-design gallery. Each variation now
+    // bakes its layoutKind + index into the themeId.
+    const themeIds = [0, 1, 2, 3].map((vi) =>
+      composeFastTemplate({
+        plan:           FITNESS_PLAN,
+        brief:          BRIEF as any,
+        format:         "instagram_post",
+        variationIndex: vi,
+        jobId:          "theme-id-regression",
+        orgId:          "test-org",
+      }).qualityVerdict.themeId,
+    );
+    expect(new Set(themeIds).size).toBe(4);
+  });
+
   it("rotates through all 4 layouts across vi=0..3", () => {
     const layouts = [0, 1, 2, 3].map(vi => pickLayoutForVariation(vi));
     expect(new Set(layouts).size).toBe(4);

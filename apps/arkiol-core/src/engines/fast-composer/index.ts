@@ -174,7 +174,7 @@ export function composeFastTemplate(input: FastComposerInput): FastComposerResul
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">${inner}</svg>`;
   const buffer = Buffer.from(svg, "utf-8");
 
-  const themeId = `fast-${input.plan.domain}-${input.plan.visualStyle}`;
+  const themeId = `fast-${input.plan.domain}-${input.plan.visualStyle}-${layoutKind}-v${input.variationIndex}`;
   const layoutVariation = `${layoutKind}#${input.variationIndex}`;
 
   // Construct a "passing" verdict for the soft-gating contract.
