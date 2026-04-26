@@ -42,6 +42,13 @@ import { tagError, extractReason } from "./jobErrorFormat";
 import { DiagnosticsCollector, type JobFailStage, type WorkerMode } from "./jobDiagnostics";
 import { userStageForDiagStage, USER_STAGE_LABEL } from "./generationStages";
 import { detectSafeMode, resolveRuntimeLimits, resolveTimeBudgetMs } from "./safeMode";
+import {
+  buildDesignBrain,
+  isDomainMatch,
+  DESIGN_BRAIN_TEMPLATE_COUNT,
+  DESIGN_BRAIN_MIN_TEMPLATE_COUNT,
+  type DesignBrainPlan,
+} from "../engines/design-brain";
 import { JobStatus } from "@prisma/client";
 
 export interface InlineGenerateParams {
@@ -127,6 +134,10 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     jobId, userId, orgId, prompt, formats, stylePreset,
     variations, brandId, campaignId, locale, archetypeOverride,
   } = params;
+
+  // Wall-clock start. Used for the strict-quality 60s contract log so
+  // ops can verify "Design Brain mode finished in <60s" at a glance.
+  const runStartMs = Date.now();
 
   // Diagnostics collector — captures stage transitions, per-class
   // failure counts, elapsed time, and worker mode. Persisted to
@@ -402,6 +413,48 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
 
     await pulse(briefFromCache ? 18 : 15);
 
+    // ── Design Brain (deterministic creative direction) ─────────────────────
+    // Runs BEFORE pipeline_render. Locks domain + visual style + palette +
+    // layout + typography + composition for the entire run so every
+    // variation produced below differs only in layout structure /
+    // element positioning / composition style — never in domain or feel.
+    //
+    // Pure / synchronous. Adds <5ms; persisted to job.result.designBrain so
+    // ops + the UI can audit the plan that drove the gallery.
+    const designBrainStartedAt = Date.now();
+    const designBrain: DesignBrainPlan = buildDesignBrain({
+      prompt,
+      briefCategory:  (brief as any)?.category ?? null,
+      requestedCount: variations,
+    });
+    const designBrainElapsedMs = Date.now() - designBrainStartedAt;
+
+    console.info(
+      `[design-brain] Job ${jobId} plan: ` +
+      `domain=${designBrain.domain} ` +
+      `style=${designBrain.visualStyle} ` +
+      `palette=${designBrain.palette.background}/${designBrain.palette.primary}/${designBrain.palette.accent} ` +
+      `layout=${designBrain.layout} ` +
+      `assetType=${designBrain.assetType} ` +
+      `typography=${designBrain.typography} ` +
+      `cta=${JSON.stringify(designBrain.ctaSuggestion)} ` +
+      `templates=${designBrain.templateCount} ` +
+      `confidence=${designBrain.confidence.toFixed(2)} ` +
+      `elapsedMs=${designBrainElapsedMs}`,
+    );
+
+    // Persist the plan back to job.result so the UI / audit trail can
+    // surface "this gallery was directed by this plan" alongside the
+    // candidate audit. Best-effort; pulse() patterns elsewhere in this
+    // file establish that DB hiccups must never kill the pipeline.
+    resultCtx = { ...resultCtx, designBrain };
+    try {
+      await withTimeout(prisma.job.update({
+        where: { id: jobId },
+        data:  { result: resultCtx as any },
+      }), PULSE_TIMEOUT_MS, "design-brain persist");
+    } catch { /* best-effort */ }
+
     await stage("pipeline_render", 20);
     const format = formats[0];
     const { runGenerationPipeline } = require("../engines/ai/pipeline-orchestrator");
@@ -419,13 +472,21 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     } : undefined;
 
     // Target: `totalVariations` accepted candidates, each strong enough
-    // for the gallery. In non-safe mode we over-generate up to 2x
-    // attempts; in safe mode we prefer fewer stronger attempts so the
-    // pipeline finishes inside the serverless budget.
-    const totalVariations = Math.max(1, variations);
+    // for the gallery. The Design Brain has clamped this to the strict
+    // 3-4 ceiling (per-prompt "first impression" contract) so the
+    // pipeline produces a small, focused, high-quality gallery instead
+    // of a large random fan-out. In non-safe mode we over-generate up to
+    // 2x attempts; in safe mode we prefer fewer stronger attempts so the
+    // pipeline finishes inside the serverless budget. Design Brain mode
+    // overrides both with a tight "exactly v + 1 retry" profile.
+    const totalVariations = Math.max(
+      DESIGN_BRAIN_MIN_TEMPLATE_COUNT,
+      Math.min(DESIGN_BRAIN_TEMPLATE_COUNT, designBrain.templateCount),
+    );
     const runtimeLimits   = resolveRuntimeLimits({
       safeMode:        safeVerdict.safeMode,
       totalVariations,
+      designBrain:     true,
     });
     const MAX_ATTEMPTS    = runtimeLimits.maxAttempts;
     // Persist the resolved safe-mode verdict + runtime limits so the
@@ -451,7 +512,7 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // — enough cushion for cold-start recovery + S3 uploads + final
     // writes even when sharp's libvips is contending for CPU. See
     // resolveTimeBudgetMs() in lib/safeMode.ts.
-    const GENERATION_BUDGET_MS = resolveTimeBudgetMs(safeVerdict.safeMode);
+    const GENERATION_BUDGET_MS = resolveTimeBudgetMs(safeVerdict.safeMode, true);
     const startedAt = Date.now();
     const deadlineAt = startedAt + GENERATION_BUDGET_MS;
     const timeLeft = () => Math.max(0, deadlineAt - Date.now());
@@ -610,7 +671,11 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     //   2. the MAX_ATTEMPTS cap is hit, or
     //   3. less than ~1.2× the per-batch time estimate remains in the
     //      budget (launching another batch would get killed mid-flight).
-    const PER_BATCH_MS_ESTIMATE = 45_000;
+    // Design Brain mode runs a tight 50s wall-clock budget; budgeting
+    // 18s per batch leaves headroom for finalization (S3 upload +
+    // asset.create + COMPLETED write) and keeps total wall-clock under
+    // the 60s "first impression" contract.
+    const PER_BATCH_MS_ESTIMATE = 18_000;
 
     // Per-attempt progress heartbeat. Without this, progress only moves
     // when an entire batch of N variations settles — a 45-second freeze
@@ -711,20 +776,32 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       const priorPalette = rendered.some(r => r.accepted && r.paletteKey === paletteKey);
 
       // Strict admission: must pass rejection rules AND not be a palette
-      // twin of a previously accepted candidate. Marketplace approval is
-      // preferred but not required — the rejection rules already enforce
-      // the hard quality floor. Missing verdict = degraded fallback
-      // render, which we reject.
+      // twin of a previously accepted candidate AND must depict the
+      // Design Brain's domain. Marketplace approval is preferred but not
+      // required — the rejection rules already enforce the hard quality
+      // floor. Missing verdict = degraded fallback render, which we reject.
+      //
+      // Design Brain domain enforcement: a fitness brief that produces a
+      // template depicting flowers / pastel weddings is REJECTED here
+      // even if the rules engine would have admitted it. This is the
+      // strict-quality contract: domain-correct or out.
+      const subjectCategory = verdict?.subjectImageCategory ?? "";
+      const domainMatched   = isDomainMatch(designBrain, subjectCategory);
+
       const accepted =
         !!verdict &&
         verdict.rulesAccepted &&
-        !priorPalette;
+        !priorPalette &&
+        domainMatched;
 
       const rejectReasons: string[] = [];
       if (!verdict)                     rejectReasons.push("verdict_missing");
       else {
         if (!verdict.rulesAccepted)     rejectReasons.push(...verdict.hardReasons);
         if (priorPalette)               rejectReasons.push(`near_duplicate:${paletteKey}`);
+        if (!domainMatched)             rejectReasons.push(
+          `domain_mismatch:expected=${designBrain.domain}:got=${subjectCategory || "none"}`,
+        );
       }
 
       rendered.push({
@@ -851,6 +928,24 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // pipeline entering its "ranking" stage instead of sitting on the
     // last batch's attempt percentage.
     await stage("rank_select", Math.max(lastProgress, 86));
+
+    // ── Per-rejected-candidate Design Brain audit ──────────────────────────
+    // The strict-quality contract requires logging WHY each rejected
+    // template was rejected so a post-mortem can answer "did this
+    // gallery ship 2 candidates because 4 attempts hit domain_mismatch?".
+    // Single line per reject; concise but structured (vi + reasons).
+    const rejectedAudit = rendered.filter(r => !r.accepted);
+    if (rejectedAudit.length > 0) {
+      for (const r of rejectedAudit) {
+        console.info(
+          `[design-brain] Job ${jobId} rejected vi=${r.vi} ` +
+          `theme=${r.themeId} type=${r.templateType} ` +
+          `subjectCategory=${r.subjectCategory || "none"} ` +
+          `rank=${r.rankScore.toFixed(2)} ` +
+          `reasons=[${r.rejectReasons.slice(0, 4).join("|")}]`,
+        );
+      }
+    }
     // ──────────────────────────────────────────────────────────────────
     // FINALIZATION STAGE BEGINS HERE.
     //
@@ -889,8 +984,19 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
       // pass take noticeable time.
       await pulse();
       const admittedVis = new Set(admitted.map(a => a.vi));
+      // STRICT-QUALITY CONTRACT: floor-fill must never resurrect a
+      // domain-mismatched candidate (a fitness brief never ships a
+      // floral / wedding template, even if it's the strongest leftover).
+      // Filter out reject reasons that start with "domain_mismatch:"
+      // before scoring rescues. Other rejection reasons (weak comp,
+      // poor contrast, etc.) are still eligible for rescue — the
+      // domain gate is the only inflexible one.
+      const fillPool = rendered.filter(
+        r => !admittedVis.has(r.vi) &&
+             !r.rejectReasons.some(reason => reason.startsWith("domain_mismatch:")),
+      );
       const fill = greedyPickN(
-        rendered.filter(r => !admittedVis.has(r.vi)),
+        fillPool,
         totalVariations - admitted.length,
         seenTypes,
         true,
@@ -1310,7 +1416,35 @@ export async function runInlineGeneration(params: InlineGenerateParams): Promise
     // progress=100. Stop it here.
     stopHeartbeat();
 
+    const totalWallClockMs = Date.now() - runStartMs;
     console.info(`[inline-generate] Job ${jobId} completed: ${allAssetIds.length} assets, ${totalPipelineMs}ms`);
+    // Design Brain stage timing summary. Mirrors the diagnostics
+    // collector's per-stage durations and adds the overall wall-clock
+    // so a single grep tells ops whether the strict 60s "first
+    // impression" contract held for this run.
+    const stageSnapshot = diag.snapshot();
+    const stageTimings  = stageSnapshot.stages
+      .filter((s) => typeof s.durationMs === "number")
+      .map((s) => `${s.stage}=${s.durationMs}ms`)
+      .join(",");
+    console.info(
+      `[design-brain] Job ${jobId} stage_timings ` +
+      `total=${totalWallClockMs}ms ` +
+      `under60s=${totalWallClockMs <= 60_000} ` +
+      `assets=${allAssetIds.length} ` +
+      `attempts=${attemptedCount} ` +
+      `accepted=${rendered.filter(r => r.accepted).length} ` +
+      `rejected=${rendered.filter(r => !r.accepted).length} ` +
+      `domain=${designBrain.domain} ` +
+      `style=${designBrain.visualStyle} ` +
+      `[${stageTimings}]`,
+    );
+    if (totalWallClockMs > 60_000) {
+      console.warn(
+        `[design-brain] Job ${jobId} BUDGET_OVERRUN: total=${totalWallClockMs}ms ` +
+        `exceeds 60s strict-quality contract — investigate stage timings.`,
+      );
+    }
 
   } catch (err: any) {
     // Extract the structured reason code — either explicitly tagged at

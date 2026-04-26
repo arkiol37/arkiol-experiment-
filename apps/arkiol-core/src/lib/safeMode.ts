@@ -128,15 +128,33 @@ export function detectSafeMode(workerMode: WorkerMode | undefined): SafeModeVerd
 /** Resolve the runtime knobs the inline pipeline should use for this
  *  run. totalVariations is the user's requested variation count.
  *  Safe-mode values are deliberately conservative — prefer a few
- *  high-quality candidates over a big over-generate fan-out. */
+ *  high-quality candidates over a big over-generate fan-out.
+ *
+ *  When `designBrain` is true the Design Brain is driving the run, so
+ *  the candidate count is already clamped to the strict 3-4 ceiling
+ *  and the orchestrator runs a single focused attempt per variation
+ *  (no over-generation, no random fan-out). The job must finish under
+ *  60s wall-clock — see resolveTimeBudgetMs(). */
 export function resolveRuntimeLimits(opts: {
   safeMode:         boolean;
   totalVariations:  number;
+  designBrain?:     boolean;
 }): {
   concurrency:  number;
   maxAttempts:  number;
 } {
   const v = Math.max(1, opts.totalVariations);
+  if (opts.designBrain) {
+    // Design Brain: produce exactly v strong candidates with one extra
+    // budgeted attempt for the rare reject. Concurrency 2 fans out
+    // safely on the Render starter (4 simultaneous sharp renders
+    // would starve the event loop) while still finishing the
+    // 3-4 template gallery inside the 60s wall-clock budget.
+    return {
+      concurrency: Math.min(2, v),
+      maxAttempts: Math.min(Math.max(v + 1, 3), 5),
+    };
+  }
   if (opts.safeMode) {
     return {
       // Sequential renders (concurrency 1) eliminate the libvips
@@ -166,7 +184,12 @@ export function resolveRuntimeLimits(opts: {
 /** Time budget the inline pipeline gives itself before it stops
  *  launching new attempts. Safe mode shaves the budget so we leave
  *  more headroom inside Vercel's 300s maxDuration — a partial-result
- *  job is better than a SIGKILL'd one. */
-export function resolveTimeBudgetMs(safeMode: boolean): number {
+ *  job is better than a SIGKILL'd one.
+ *
+ *  Design Brain mode caps the budget at 50s so total wall-clock
+ *  (including font init + finalization) stays comfortably under the
+ *  60s hard limit declared in the strict-quality contract. */
+export function resolveTimeBudgetMs(safeMode: boolean, designBrain?: boolean): number {
+  if (designBrain) return 50_000;
   return safeMode ? 180_000 : 240_000;
 }
